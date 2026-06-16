@@ -142,6 +142,41 @@ def summarize_regimes(rows: list[Row], classifications: dict[Row, tuple[str, flo
     return sorted(summary)
 
 
+def dispatch_threshold_candidates(rows: list[Row], classifications: dict[Row, tuple[str, float]]) -> list[tuple[int, int, str, int, int, float]]:
+    blocked_keys = sorted({
+        (row.variant, row.max_threads)
+        for row in rows
+        if "blocked" in row.variant and row.max_threads > 1
+    })
+    thresholds = sorted({row.effective_n for row in rows})
+    candidates = []
+    for variant, threads in blocked_keys:
+        variant_rows = [row for row in rows if row.variant == variant and row.max_threads == threads]
+        for threshold in thresholds:
+            covered_rows = [row for row in variant_rows if row.effective_n >= threshold]
+            expected_cases = {
+                (row.family, row.n)
+                for row in rows
+                if row.effective_n >= threshold
+            }
+            covered_cases = {(row.family, row.n) for row in covered_rows}
+            if not expected_cases or covered_cases != expected_cases:
+                continue
+            statuses = [classifications[row][0] for row in covered_rows]
+            ratios = [classifications[row][1] for row in covered_rows]
+            if all(status in {"preferred", "competitive"} for status in statuses) and all(ratio < 1.0 for ratio in ratios):
+                candidates.append((
+                    threshold,
+                    cells(threshold),
+                    variant,
+                    threads,
+                    len(covered_rows),
+                    sum(ratios) / len(ratios),
+                ))
+                break
+    return sorted(candidates)
+
+
 def main() -> int:
     args = parse_args()
     rows = load_rows(args.paths)
@@ -162,6 +197,15 @@ def main() -> int:
     print("|---|---|---:|---|---:|---:|")
     for regime_name, variant, threads, label, count, mean_ratio in summarize_regimes(rows, classifications):
         print(f"| {regime_name} | `{variant}` | {threads} | {label} | {count} | {mean_ratio:.3f} |")
+
+    candidates = dispatch_threshold_candidates(rows, classifications)
+    print("\n| dispatch_effective_n | cells | variant | threads | covered_rows | mean_ratio_to_current |")
+    print("|---:|---:|---|---:|---:|---:|")
+    if not candidates:
+        print("| - | - | no stable blocked-wavefront threshold in this data | - | - | - |")
+    else:
+        for threshold, threshold_cells, variant, threads, count, mean_ratio in candidates:
+            print(f"| {threshold} | {threshold_cells} | `{variant}` | {threads} | {count} | {mean_ratio:.3f} |")
 
     return 0
 

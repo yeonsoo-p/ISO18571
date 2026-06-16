@@ -472,3 +472,54 @@
   `65536` for the phase/chirp/noise families to characterize where blocked
   wavefront starts beating serial, then use the analyzer to propose an
   `effective_n` dispatch threshold only if it is stable across families.
+
+## 2026-06-16 14:34 KST - Large-Regime Blocked Wavefront Atlas
+
+- Git status: clean at start of batch on `master` after commit `a72939c`.
+- Hypothesis: blocked wavefront parallel DTW should become better than serial
+  at sufficiently large effective sequence lengths, and the crossover should be
+  characterized by regime rather than by a global accept/reject decision.
+- Files changed:
+  - `tests/test_iso18571_regime_benchmarks.py`;
+  - `tools/iso18571/analyze_variant_regimes.py`;
+  - `docs/iso18571-dtw-backends.md`;
+  - `docs/iso18571-dtw-experiment-log.md`.
+- Commands:
+  - `ISO18571_REGIME_FAMILIES=chirp,gaussian_noise,phase_multitone_shift_020,phase_chirp_shift_050,phase_pulses_shift_100,phase_smooth_step_shift_180 ISO18571_REGIME_LENGTHS=8192,16384,32768,65536 ISO18571_REGIME_THREADS=2,4,8 ISO18571_REGIME_VARIANTS=dtw_current+reduce_none+parallel_none,dtw_current+reduce_none+blocked64,dtw_current+reduce_none+blocked128,dtw_current+reduce_none+blocked256,dtw_current+reduce_none+blocked512 uv run --with pytest --with pytest-benchmark python -m pytest -q tests/test_iso18571_regime_benchmarks.py -o addopts= -m regime --benchmark-warmup off --benchmark-min-rounds 1 --benchmark-max-time 0.05 --benchmark-quiet --benchmark-json .benchmarks/iso18571-regime-large/regime_blocked_reduce_none.json`
+  - `ISO18571_REGIME_FAMILIES=chirp,gaussian_noise,phase_multitone_shift_020,phase_chirp_shift_050,phase_pulses_shift_100,phase_smooth_step_shift_180 ISO18571_REGIME_LENGTHS=8192,16384,32768,65536 ISO18571_REGIME_THREADS=4,8 ISO18571_REGIME_VARIANTS=dtw_current+all_reductions+parallel_none,dtw_current+all_reductions+blocked128,dtw_current+all_reductions+blocked256 uv run --with pytest --with pytest-benchmark python -m pytest -q tests/test_iso18571_regime_benchmarks.py -o addopts= -m regime --benchmark-warmup off --benchmark-min-rounds 1 --benchmark-max-time 0.05 --benchmark-quiet --benchmark-json .benchmarks/iso18571-regime-large/regime_blocked_all_reductions.json`
+  - `uv run python tools/iso18571/analyze_variant_regimes.py .benchmarks/iso18571-regime-large/regime_blocked_reduce_none.json .benchmarks/iso18571-regime-large/regime_blocked_all_reductions.json`
+- Validation result:
+  - reduce-none blocked atlas: `312 passed`;
+  - all-reductions blocked atlas: `120 passed`;
+  - all benchmark rows also performed exact score parity checks against
+    production native scores before timing.
+- Benchmark/result:
+  - `dtw_current+all_reductions+blocked128` with 8 threads was the best
+    measured variant for every measured family and nominal length in the
+    phase/chirp/noise slice.
+  - Best-case table versus current serial production baseline:
+    - `n=8192`: ratios ranged from `0.238` for Gaussian noise to `0.706` for
+      smooth-step phase shift;
+    - `n=16384`: ratios ranged from `0.240` to `0.605`;
+    - `n=32768`: ratios ranged from `0.203` to `0.539`;
+    - `n=65536`: ratios ranged from `0.199` to `0.509`.
+  - Analyzer dispatch candidates:
+    - stable threshold: `effective_n >= 6717`, `cells >= 9020931`,
+      variant `dtw_current+all_reductions+blocked128`, threads `8`,
+      covered rows `24`, mean ratio to current serial `0.490`;
+    - secondary threshold: `effective_n >= 16384`, `cells >= 53690368`,
+      variant `dtw_current+all_reductions+blocked256`, threads `8`,
+      covered rows `13`, mean ratio `0.441`.
+- Conclusion:
+  - blocked wavefront parallelism does benefit at large enough sequence sizes;
+  - for the measured phase/chirp/noise slice, the earliest stable threshold is
+    `effective_n >= 6717` using `blocked128` with 8 threads plus all reduction
+    optimizations;
+  - this is evidence for a possible dispatch policy, but production should not
+    switch until the threshold is rechecked on the official Annex cases and the
+    broader fixed-signal benchmark set.
+- Next hypothesis:
+  - add a production-dispatch prototype guarded by params, run official Annex
+    and generated fixed/phase parity, then run a broader benchmark to make sure
+    the `effective_n >= 6717` threshold does not regress smaller or
+    non-phase/chirp/noise cases.

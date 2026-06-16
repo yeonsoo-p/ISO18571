@@ -151,6 +151,28 @@ The regime atlas reports each variant by `effective_n`, DTW cell count, signal
 family, thread count, median runtime, IQR, speed ratio to current serial native,
 and a per-regime class. It is intentionally not a universal ranking.
 
+Focused atlas runs can be filtered with environment variables:
+
+```bash
+ISO18571_REGIME_FAMILIES=chirp,gaussian_noise,phase_chirp_shift_050 \
+ISO18571_REGIME_LENGTHS=8192,16384,32768,65536 \
+ISO18571_REGIME_THREADS=4,8 \
+ISO18571_REGIME_VARIANTS=dtw_current+reduce_none+parallel_none,dtw_current+all_reductions+blocked128 \
+uv run --with pytest --with pytest-benchmark \
+  python -m pytest -q tests/test_iso18571_regime_benchmarks.py \
+  -o addopts= -m regime \
+  --benchmark-warmup off \
+  --benchmark-min-rounds 1 \
+  --benchmark-max-time 0.05 \
+  --benchmark-json .benchmarks/iso18571-regime/focused.json
+```
+
+Latest large-regime focused result: for nominal lengths `8192, 16384, 32768,
+65536` across chirp, Gaussian noise, and analytic phase families,
+`dtw_current+all_reductions+blocked128` with 8 threads was the best measured
+variant for every case. The analyzer proposed `effective_n >= 6717` as the
+stable dispatch threshold for that measured slice.
+
 Build a Linux wheel:
 
 ```bash

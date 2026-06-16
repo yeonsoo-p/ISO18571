@@ -48,6 +48,12 @@
     the performance atlas. Analyze its JSON with
     `tools/iso18571/analyze_variant_regimes.py`; classify by `effective_n` and
     DTW cell count rather than choosing a universal winner.
+  - filter expensive regime runs with `ISO18571_REGIME_FAMILIES`,
+    `ISO18571_REGIME_LENGTHS`, `ISO18571_REGIME_THREADS`, and
+    `ISO18571_REGIME_VARIANTS`.
+  - current large-slice candidate: `effective_n >= 6717` dispatch to
+    `dtw_current+all_reductions+blocked128` with 8 threads, pending broader
+    production-dispatch validation.
 - Experiment tracking:
   - append every meaningful experiment to
     `docs/iso18571-dtw-experiment-log.md`;
