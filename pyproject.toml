@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=69", "wheel", "pybind11>=2.12"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "euroncap"
+version = "0.1.0"
+description = "Euro NCAP and ISO/TS 18571 validation tooling"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = ["numpy>=2.0"]
+
+[project.optional-dependencies]
+build = ["build", "cibuildwheel"]
+test = ["pytest", "pytest-benchmark"]
+bench = ["dtw-python", "librosa", "dtwalign", "dtaidistance", "tslearn", "scipy"]
+
+[tool.setuptools]
+py-modules = ["rating", "default", "main"]
+packages = ["iso18571_native"]
+
+[tool.cibuildwheel]
+build = "cp313-*"
+skip = "*-musllinux_*"
+test-sources = ["tools/iso18571/wheel_smoke.py"]
+test-command = "python tools/iso18571/wheel_smoke.py"
+
+[tool.cibuildwheel.linux]
+archs = ["x86_64"]
+
+[tool.cibuildwheel.windows]
+archs = ["AMD64"]

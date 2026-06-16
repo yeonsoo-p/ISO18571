@@ -1,0 +1,154 @@
+from __future__ import annotations
+
+import numpy as np
+
+from rating import ISO18571, _iso_accumulated_cost_matrix, _iso_backtrack, _local_cost_matrix, _shifted_correlations
+from tests.iso18571_annex import SCORE_NAMES, THEORETICAL_INTEGRITY
+
+
+def _scores(case, backend: str) -> dict[str, float]:
+    iso = ISO18571(
+        reference_curve=case.reference_curve,
+        comparison_curve=case.comparison_curve,
+        dt=case.dt,
+        dtw_backend=backend,
+    )
+    return {
+        "R": iso.overall_rating(ndigits=-1),
+        "Z": iso.corridor_rating(ndigits=-1),
+        "EP": iso.phase_rating(ndigits=-1),
+        "EM": iso.magnitude_rating(ndigits=-1),
+        "ES": iso.slope_rating(ndigits=-1),
+    }
+
+
+def test_local_iso_backtrack_uses_required_tie_order() -> None:
+    path = _iso_backtrack(np.zeros((3, 3), dtype=float))
+    expected = np.asarray([[0, 0], [0, 1], [0, 2], [1, 2], [2, 2]], dtype=np.int64)
+    np.testing.assert_array_equal(path, expected)
+
+
+def test_local_cost_matrix_uses_iso_window_rule() -> None:
+    x = np.arange(10, dtype=float)
+    cost = _local_cost_matrix(x, x, window_size=0.2)
+    finite = np.argwhere(np.isfinite(cost))
+    assert np.max(np.abs(finite[:, 0] - finite[:, 1])) == 1
+    assert np.isinf(cost[0, 2])
+
+
+def test_shifted_correlations_match_corrcoef_reference() -> None:
+    rng = np.random.default_rng(18571)
+    for n in (5, 17, 64, 129):
+        reference = rng.normal(size=n)
+        comparison = rng.normal(size=n)
+        window_size = int(np.floor(n * 0.2) + 1)
+        left, right = _shifted_correlations(reference, comparison, window_size)
+
+        expected_left = [np.corrcoef(reference, comparison)[0][-1]]
+        expected_right = [expected_left[0]]
+        for idx in range(1, window_size):
+            expected_left.append(np.corrcoef(reference[:-idx], comparison[idx:])[0][-1])
+            expected_right.append(np.corrcoef(reference[idx:], comparison[:-idx])[0][-1])
+
+        np.testing.assert_allclose(left, expected_left, rtol=1e-12, atol=1e-12, equal_nan=True)
+        np.testing.assert_allclose(right, expected_right, rtol=1e-12, atol=1e-12, equal_nan=True)
+
+
+def test_backend_theoretical_integrity_documented(dtw_backend: str) -> None:
+    passed, note = THEORETICAL_INTEGRITY[dtw_backend]
+    assert note
+    assert passed, note
+
+
+def test_backend_matches_iso_annex_reference_scores(annex_cases, dtw_backend: str) -> None:
+    passed, note = THEORETICAL_INTEGRITY[dtw_backend]
+    assert passed, note
+
+    worst = ("", "", 0.0, 0.0, -1.0)
+    errors = []
+    for case in annex_cases:
+        result = _scores(case, dtw_backend)
+        for name in SCORE_NAMES:
+            error = abs(result[name] - case.expected[name])
+            errors.append(error)
+            if error > worst[4]:
+                worst = (case.name, name, result[name], case.expected[name], error)
+
+    assert max(errors) <= 0.001, (
+        f"worst={worst[0]} {worst[1]} "
+        f"got={worst[2]:.8f} expected={worst[3]:.8f} error={worst[4]:.8f}"
+    )
+
+
+def test_native_path_matches_local_reference_for_annex_cases(annex_cases, dtw_backend: str) -> None:
+    if dtw_backend != "local_iso_native":
+        return
+
+    from iso18571_native import warp_path
+
+    for case in annex_cases:
+        iso = ISO18571(
+            reference_curve=case.reference_curve,
+            comparison_curve=case.comparison_curve,
+            dt=case.dt,
+            dtw_backend="local_iso_numpy",
+        )
+        native_path = warp_path(iso._cae_ts[:, 1], iso._t_ts[:, 1], 0.1)
+        cost = _local_cost_matrix(iso._cae_ts[:, 1], iso._t_ts[:, 1], window_size=0.1)
+        local_path = _iso_backtrack(_iso_accumulated_cost_matrix(cost))
+        np.testing.assert_array_equal(native_path, local_path, err_msg=case.name)
+
+
+def test_native_magnitude_ratio_matches_warped_curve_formula(annex_cases, dtw_backend: str) -> None:
+    if dtw_backend != "local_iso_native":
+        return
+
+    from iso18571_native import magnitude_ratio
+
+    for case in annex_cases:
+        iso = ISO18571(
+            reference_curve=case.reference_curve,
+            comparison_curve=case.comparison_curve,
+            dt=case.dt,
+            dtw_backend="local_iso_numpy",
+        )
+        cost = _local_cost_matrix(iso._cae_ts[:, 1], iso._t_ts[:, 1], window_size=0.1)
+        path = _iso_backtrack(_iso_accumulated_cost_matrix(cost))
+        x_w = iso._cae_ts[:, 1][path[:, 0]]
+        y_w = iso._t_ts[:, 1][path[:, 1]]
+        expected = np.linalg.norm(x_w - y_w, ord=1) / np.linalg.norm(y_w, ord=1)
+        observed = magnitude_ratio(iso._cae_ts[:, 1], iso._t_ts[:, 1], 0.1)
+        assert abs(observed - expected) <= 1e-12, case.name
+
+
+def test_native_path_matches_local_reference_for_random_curves(dtw_backend: str) -> None:
+    if dtw_backend != "local_iso_native":
+        return
+
+    from iso18571_native import warp_path
+
+    rng = np.random.default_rng(18571)
+    for n in (2, 5, 17, 64, 129):
+        for window_size in (0.1, 0.2, 1.0):
+            x = rng.normal(size=n)
+            y = rng.normal(size=n)
+            cost = _local_cost_matrix(x, y, window_size=window_size)
+            expected = _iso_backtrack(_iso_accumulated_cost_matrix(cost))
+            observed = warp_path(x, y, window_size)
+            np.testing.assert_array_equal(observed, expected, err_msg=f"n={n} window={window_size}")
+
+
+def test_native_preserves_iso_tie_order_for_zero_curves(dtw_backend: str) -> None:
+    if dtw_backend != "local_iso_native":
+        return
+
+    from iso18571_native import magnitude_ratio, warp_path
+
+    x = np.zeros(5, dtype=np.float64)
+    path = warp_path(x, x, 1.0)
+    expected = np.asarray(
+        [[0, 0], [0, 1], [0, 2], [0, 3], [0, 4], [1, 4], [2, 4], [3, 4], [4, 4]],
+        dtype=np.int64,
+    )
+    np.testing.assert_array_equal(path, expected)
+    assert np.isnan(magnitude_ratio(x, x, 1.0))
