@@ -25,6 +25,7 @@ namespace {
 using iso18571_native::SimdCapabilities;
 using iso18571_native::SimdLevel;
 using iso18571_native::SimdSelection;
+using iso18571_native::L1Sums;
 
 constexpr std::uint8_t DIR_NONE = 0;
 constexpr std::uint8_t DIR_VERTICAL = 1;
@@ -78,10 +79,15 @@ struct ArrayView {
     double operator[](py::ssize_t index) const {
         return *reinterpret_cast<const double*>(data + index * stride);
     }
+
+    double value(py::ssize_t index) const {
+        return (*this)[index];
+    }
 };
 
 std::vector<double> copy_values(const ArrayView& values);
 ArrayView view_from_vector(const std::vector<double>& values);
+bool is_contiguous(const ArrayView& values);
 
 struct CurveView {
     const char* data = nullptr;
@@ -156,6 +162,15 @@ enum class ParallelMode {
     Blocked,
 };
 
+enum class SimdTargetMode {
+    GradientOnly,
+    PhaseProducts,
+    DtwLocalCost,
+    SlopeSmoothing,
+    MagnitudePath,
+    All,
+};
+
 struct VariantConfig {
     DtwLayout dtw_layout = DtwLayout::Current;
     ReductionMode reduction_mode = ReductionMode::None;
@@ -163,8 +178,13 @@ struct VariantConfig {
     bool phase_dual_product = false;
     bool fused_slope = false;
     bool shared_shift_workspace = false;
+    bool simd_phase_products = false;
+    bool simd_dtw_local_cost = false;
+    bool simd_slope_smoothing = false;
+    bool simd_magnitude_path = false;
     py::ssize_t block_size = 0;
     SimdLevel requested_simd = SimdLevel::Scalar;
+    SimdTargetMode simd_target_mode = SimdTargetMode::GradientOnly;
     SimdSelection simd_selection;
 };
 
@@ -195,6 +215,35 @@ py::ssize_t window_radius(py::ssize_t n, double window_size) {
 
 bool valid_cell(py::ssize_t i, py::ssize_t j, py::ssize_t n, py::ssize_t radius) {
     return i >= 0 && i < n && j >= 0 && j < n && std::llabs(i - j) < radius;
+}
+
+bool stage_local_costs_for_row(
+    const ArrayView& y,
+    double x_value,
+    py::ssize_t j_start,
+    py::ssize_t j_stop,
+    std::vector<double>& local_costs,
+    SimdLevel simd_level,
+    bool use_simd
+) {
+    if (!use_simd || y.stride != static_cast<py::ssize_t>(sizeof(double))) {
+        return false;
+    }
+    const py::ssize_t count = j_stop - j_start;
+    if (count <= 0) {
+        return false;
+    }
+    if (static_cast<py::ssize_t>(local_costs.size()) < count) {
+        local_costs.resize(static_cast<std::size_t>(count));
+    }
+    iso18571_native::local_cost_contiguous(
+        x_value,
+        reinterpret_cast<const double*>(y.data) + j_start,
+        static_cast<std::size_t>(count),
+        local_costs.data(),
+        simd_level
+    );
+    return true;
 }
 
 py::ssize_t direction_index(py::ssize_t i, py::ssize_t j, py::ssize_t radius, py::ssize_t band_width) {
@@ -252,7 +301,9 @@ DtwState compute_directions(
     const ArrayView& y,
     py::ssize_t n,
     double window_size,
-    Func&& on_accumulated
+    Func&& on_accumulated,
+    SimdLevel simd_level = SimdLevel::Scalar,
+    bool stage_local_costs = false
 ) {
     DtwState state;
     state.n = n;
@@ -263,14 +314,28 @@ DtwState compute_directions(
     const double inf = std::numeric_limits<double>::infinity();
     std::vector<double> previous(static_cast<std::size_t>(n), inf);
     std::vector<double> current(static_cast<std::size_t>(n), inf);
+    std::vector<double> local_costs;
 
     for (py::ssize_t i = 0; i < n; ++i) {
         const py::ssize_t j_start = std::max<py::ssize_t>(0, i - state.radius + 1);
         const py::ssize_t j_stop = std::min<py::ssize_t>(n, i + state.radius);
+        const bool has_staged_costs = stage_local_costs_for_row(
+            y,
+            x[i],
+            j_start,
+            j_stop,
+            local_costs,
+            simd_level,
+            stage_local_costs
+        );
 
         for (py::ssize_t j = j_start; j < j_stop; ++j) {
-            const double delta = x[i] - y[j];
-            const double local_cost = delta * delta;
+            const double local_cost = has_staged_costs
+                ? local_costs[static_cast<std::size_t>(j - j_start)]
+                : [&] {
+                    const double delta = x[i] - y[j];
+                    return delta * delta;
+                }();
             double accumulated = inf;
             std::uint8_t direction = DIR_NONE;
 
@@ -324,9 +389,19 @@ DtwState compute_directions(
     const ArrayView& x,
     const ArrayView& y,
     py::ssize_t n,
-    double window_size
+    double window_size,
+    SimdLevel simd_level = SimdLevel::Scalar,
+    bool stage_local_costs = false
 ) {
-    return compute_directions(x, y, n, window_size, [](py::ssize_t, py::ssize_t, double) {});
+    return compute_directions(
+        x,
+        y,
+        n,
+        window_size,
+        [](py::ssize_t, py::ssize_t, double) {},
+        simd_level,
+        stage_local_costs
+    );
 }
 
 template <bool PrecomputeRanges>
@@ -334,7 +409,9 @@ DtwState compute_directions_incremental(
     const ArrayView& x,
     const ArrayView& y,
     py::ssize_t n,
-    double window_size
+    double window_size,
+    SimdLevel simd_level = SimdLevel::Scalar,
+    bool stage_local_costs = false
 ) {
     DtwState state;
     state.n = n;
@@ -350,6 +427,7 @@ DtwState compute_directions_incremental(
     const double inf = std::numeric_limits<double>::infinity();
     std::vector<double> previous(static_cast<std::size_t>(n), inf);
     std::vector<double> current(static_cast<std::size_t>(n), inf);
+    std::vector<double> local_costs;
 
     for (py::ssize_t i = 0; i < n; ++i) {
         const py::ssize_t j_start = PrecomputeRanges
@@ -374,11 +452,24 @@ DtwState compute_directions_incremental(
                 ? ranges.stops[static_cast<std::size_t>(i - 1)]
                 : std::min<py::ssize_t>(n, i + state.radius - 1))
             : 0;
+        const bool has_staged_costs = stage_local_costs_for_row(
+            y,
+            x[i],
+            j_start,
+            j_stop,
+            local_costs,
+            simd_level,
+            stage_local_costs
+        );
 
         py::ssize_t direction_idx = direction_base;
         for (py::ssize_t j = j_start; j < j_stop; ++j, ++direction_idx) {
-            const double delta = x[i] - y[j];
-            const double local_cost = delta * delta;
+            const double local_cost = has_staged_costs
+                ? local_costs[static_cast<std::size_t>(j - j_start)]
+                : [&] {
+                    const double delta = x[i] - y[j];
+                    return delta * delta;
+                }();
             double accumulated = inf;
             std::uint8_t direction = DIR_NONE;
 
@@ -431,18 +522,22 @@ DtwState compute_directions_index_incremental(
     const ArrayView& x,
     const ArrayView& y,
     py::ssize_t n,
-    double window_size
+    double window_size,
+    SimdLevel simd_level = SimdLevel::Scalar,
+    bool stage_local_costs = false
 ) {
-    return compute_directions_incremental<false>(x, y, n, window_size);
+    return compute_directions_incremental<false>(x, y, n, window_size, simd_level, stage_local_costs);
 }
 
 DtwState compute_directions_range_precompute(
     const ArrayView& x,
     const ArrayView& y,
     py::ssize_t n,
-    double window_size
+    double window_size,
+    SimdLevel simd_level = SimdLevel::Scalar,
+    bool stage_local_costs = false
 ) {
-    return compute_directions_incremental<true>(x, y, n, window_size);
+    return compute_directions_incremental<true>(x, y, n, window_size, simd_level, stage_local_costs);
 }
 
 template <typename State, typename SetDirection>
@@ -451,7 +546,9 @@ State compute_directions_band_row(
     const ArrayView& y,
     py::ssize_t n,
     double window_size,
-    SetDirection&& set_direction
+    SetDirection&& set_direction,
+    SimdLevel simd_level = SimdLevel::Scalar,
+    bool stage_local_costs = false
 ) {
     State state;
     state.n = n;
@@ -466,16 +563,30 @@ State compute_directions_band_row(
     const double inf = std::numeric_limits<double>::infinity();
     std::vector<double> previous(static_cast<std::size_t>(state.band_width), inf);
     std::vector<double> current(static_cast<std::size_t>(state.band_width), inf);
+    std::vector<double> local_costs;
 
     for (py::ssize_t i = 0; i < n; ++i) {
         std::fill(current.begin(), current.end(), inf);
         const py::ssize_t j_start = std::max<py::ssize_t>(0, i - state.radius + 1);
         const py::ssize_t j_stop = std::min<py::ssize_t>(n, i + state.radius);
+        const bool has_staged_costs = stage_local_costs_for_row(
+            y,
+            x[i],
+            j_start,
+            j_stop,
+            local_costs,
+            simd_level,
+            stage_local_costs
+        );
 
         for (py::ssize_t j = j_start; j < j_stop; ++j) {
             const py::ssize_t offset = j - i + state.radius - 1;
-            const double delta = x[i] - y[j];
-            const double local_cost = delta * delta;
+            const double local_cost = has_staged_costs
+                ? local_costs[static_cast<std::size_t>(j - j_start)]
+                : [&] {
+                    const double delta = x[i] - y[j];
+                    return delta * delta;
+                }();
             double accumulated = inf;
             std::uint8_t direction = DIR_NONE;
 
@@ -529,7 +640,9 @@ DtwState compute_directions_band_row(
     const ArrayView& x,
     const ArrayView& y,
     py::ssize_t n,
-    double window_size
+    double window_size,
+    SimdLevel simd_level = SimdLevel::Scalar,
+    bool stage_local_costs = false
 ) {
     return compute_directions_band_row<DtwState>(
         x,
@@ -538,7 +651,9 @@ DtwState compute_directions_band_row(
         window_size,
         [](DtwState& state, py::ssize_t i, py::ssize_t j, std::uint8_t direction) {
             state.directions[static_cast<std::size_t>(direction_index(i, j, state.radius, state.band_width))] = direction;
-        }
+        },
+        simd_level,
+        stage_local_costs
     );
 }
 
@@ -546,7 +661,9 @@ BitDtwState compute_directions_bitpacked(
     const ArrayView& x,
     const ArrayView& y,
     py::ssize_t n,
-    double window_size
+    double window_size,
+    SimdLevel simd_level = SimdLevel::Scalar,
+    bool stage_local_costs = false
 ) {
     return compute_directions_band_row<BitDtwState>(
         x,
@@ -555,7 +672,9 @@ BitDtwState compute_directions_bitpacked(
         window_size,
         [](BitDtwState& state, py::ssize_t i, py::ssize_t j, std::uint8_t direction) {
             set_bit_direction(state, i, j, direction);
-        }
+        },
+        simd_level,
+        stage_local_costs
     );
 }
 
@@ -733,7 +852,9 @@ void compute_block_wavefront_task(
     py::ssize_t block_count,
     py::ssize_t block_size,
     py::ssize_t block_i,
-    py::ssize_t block_j
+    py::ssize_t block_j,
+    SimdLevel simd_level = SimdLevel::Scalar,
+    bool stage_local_costs = false
 ) {
     const double inf = std::numeric_limits<double>::infinity();
     const py::ssize_t i0 = block_i * block_size;
@@ -774,6 +895,7 @@ void compute_block_wavefront_task(
 
     std::vector<double> previous(static_cast<std::size_t>(column_count), inf);
     std::vector<double> current(static_cast<std::size_t>(column_count), inf);
+    std::vector<double> local_costs;
 
     auto top_value = [&](py::ssize_t column_offset) -> double {
         if (top == nullptr || column_offset < 0 || column_offset >= static_cast<py::ssize_t>(top->bottom.size())) {
@@ -794,11 +916,24 @@ void compute_block_wavefront_task(
         const py::ssize_t i = i0 + row_offset;
         const py::ssize_t j_start = std::max<py::ssize_t>(j0, i - state.radius + 1);
         const py::ssize_t j_stop = std::min<py::ssize_t>(j1, i + state.radius);
+        const bool has_staged_costs = stage_local_costs_for_row(
+            y,
+            x[i],
+            j_start,
+            j_stop,
+            local_costs,
+            simd_level,
+            stage_local_costs
+        );
 
         for (py::ssize_t j = j_start; j < j_stop; ++j) {
             const py::ssize_t column_offset = j - j0;
-            const double delta = x[i] - y[j];
-            const double local_cost = delta * delta;
+            const double local_cost = has_staged_costs
+                ? local_costs[static_cast<std::size_t>(j - j_start)]
+                : [&] {
+                    const double delta = x[i] - y[j];
+                    return delta * delta;
+                }();
             double accumulated = inf;
             std::uint8_t direction = DIR_NONE;
 
@@ -864,7 +999,9 @@ DtwState compute_directions_blocked_wavefront(
     py::ssize_t n,
     double window_size,
     py::ssize_t block_size,
-    py::ssize_t max_threads
+    py::ssize_t max_threads,
+    SimdLevel simd_level = SimdLevel::Scalar,
+    bool stage_local_costs = false
 ) {
     if (block_size <= 0) {
         throw std::invalid_argument("Blocked ISO DTW requires a positive block size");
@@ -901,7 +1038,18 @@ DtwState compute_directions_blocked_wavefront(
     if (thread_count <= 1) {
         for (const auto& tasks : diagonals) {
             for (const auto& task : tasks) {
-                compute_block_wavefront_task(x, y, state, boundaries, block_count, block_size, task.first, task.second);
+                compute_block_wavefront_task(
+                    x,
+                    y,
+                    state,
+                    boundaries,
+                    block_count,
+                    block_size,
+                    task.first,
+                    task.second,
+                    simd_level,
+                    stage_local_costs
+                );
             }
         }
     } else {
@@ -929,7 +1077,9 @@ DtwState compute_directions_blocked_wavefront(
                             block_count,
                             block_size,
                             task.first,
-                            task.second
+                            task.second,
+                            simd_level,
+                            stage_local_costs
                         );
                     }
                     barrier.wait();
@@ -1062,6 +1212,148 @@ double magnitude_ratio_from_bit_state(const ArrayView& x, const ArrayView& y, co
     return numerator / denominator;
 }
 
+enum class PathSegmentKind {
+    None,
+    Diagonal,
+    Vertical,
+    Horizontal,
+};
+
+std::vector<std::pair<py::ssize_t, py::ssize_t>> backtrack_pairs_reversed(const DtwState& state) {
+    std::vector<std::pair<py::ssize_t, py::ssize_t>> out;
+    out.reserve(static_cast<std::size_t>(2 * state.n));
+
+    py::ssize_t i = state.n - 1;
+    py::ssize_t j = state.n - 1;
+
+    while (true) {
+        out.emplace_back(i, j);
+        if (i == 0 && j == 0) {
+            break;
+        }
+
+        const auto direction = state.directions[static_cast<std::size_t>(
+            direction_index(i, j, state.radius, state.band_width)
+        )];
+
+        if (direction == DIR_VERTICAL) {
+            --i;
+        } else if (direction == DIR_HORIZONTAL) {
+            --j;
+        } else if (direction == DIR_DIAGONAL) {
+            --i;
+            --j;
+        } else {
+            throw std::runtime_error("No valid ISO DTW predecessor found");
+        }
+    }
+    return out;
+}
+
+PathSegmentKind path_segment_kind(
+    const std::pair<py::ssize_t, py::ssize_t>& current,
+    const std::pair<py::ssize_t, py::ssize_t>& next
+) {
+    if (next.first == current.first - 1 && next.second == current.second - 1) {
+        return PathSegmentKind::Diagonal;
+    }
+    if (next.first == current.first - 1 && next.second == current.second) {
+        return PathSegmentKind::Vertical;
+    }
+    if (next.first == current.first && next.second == current.second - 1) {
+        return PathSegmentKind::Horizontal;
+    }
+    return PathSegmentKind::None;
+}
+
+bool path_segment_continues(
+    const std::pair<py::ssize_t, py::ssize_t>& current,
+    const std::pair<py::ssize_t, py::ssize_t>& next,
+    PathSegmentKind kind
+) {
+    return path_segment_kind(current, next) == kind;
+}
+
+double magnitude_ratio_from_state_segmented(
+    const ArrayView& x,
+    const ArrayView& y,
+    const DtwState& state,
+    SimdLevel simd_level
+) {
+    constexpr std::size_t simd_run_threshold = 16;
+    const bool can_simd = x.stride == static_cast<py::ssize_t>(sizeof(double)) &&
+        y.stride == static_cast<py::ssize_t>(sizeof(double));
+    const double* x_data = reinterpret_cast<const double*>(x.data);
+    const double* y_data = reinterpret_cast<const double*>(y.data);
+    const auto pairs = backtrack_pairs_reversed(state);
+
+    double numerator = 0.0;
+    double denominator = 0.0;
+    std::size_t index = 0;
+    while (index < pairs.size()) {
+        if (index + 1 >= pairs.size()) {
+            const auto [i, j] = pairs[index];
+            numerator += std::abs(x[i] - y[j]);
+            denominator += std::abs(y[j]);
+            ++index;
+            continue;
+        }
+
+        const PathSegmentKind kind = path_segment_kind(pairs[index], pairs[index + 1]);
+        if (kind == PathSegmentKind::None) {
+            const auto [i, j] = pairs[index];
+            numerator += std::abs(x[i] - y[j]);
+            denominator += std::abs(y[j]);
+            ++index;
+            continue;
+        }
+
+        std::size_t run = 1;
+        while (index + run < pairs.size() && path_segment_continues(pairs[index + run - 1], pairs[index + run], kind)) {
+            ++run;
+        }
+
+        if (can_simd && run >= simd_run_threshold) {
+            const auto [end_i, end_j] = pairs[index];
+            const auto [start_i, start_j] = pairs[index + run - 1];
+            L1Sums sums;
+            if (kind == PathSegmentKind::Diagonal) {
+                sums = iso18571_native::l1_pair_contiguous(
+                    x_data + start_i,
+                    y_data + start_j,
+                    run,
+                    simd_level
+                );
+            } else if (kind == PathSegmentKind::Vertical) {
+                sums = iso18571_native::l1_x_constant_contiguous(
+                    x_data + start_i,
+                    y_data[end_j],
+                    run,
+                    simd_level
+                );
+            } else {
+                sums = iso18571_native::l1_constant_y_contiguous(
+                    x_data[end_i],
+                    y_data + start_j,
+                    run,
+                    simd_level
+                );
+            }
+            numerator += sums.numerator;
+            denominator += sums.denominator;
+        } else {
+            for (std::size_t offset = 0; offset < run; ++offset) {
+                const auto [i, j] = pairs[index + offset];
+                numerator += std::abs(x[i] - y[j]);
+                denominator += std::abs(y[j]);
+            }
+        }
+        index += run;
+    }
+
+    return numerator / denominator;
+}
+
 double magnitude_ratio_with_kernel(
     const ArrayView& x,
     const ArrayView& y,
@@ -1069,9 +1361,23 @@ double magnitude_ratio_with_kernel(
     const VariantConfig& config,
     py::ssize_t max_threads
 ) {
+    if ((config.simd_dtw_local_cost || config.simd_magnitude_path) && (!is_contiguous(x) || !is_contiguous(y))) {
+        const std::vector<double> contiguous_x = copy_values(x);
+        const std::vector<double> contiguous_y = copy_values(y);
+        return magnitude_ratio_with_kernel(
+            view_from_vector(contiguous_x),
+            view_from_vector(contiguous_y),
+            window_size,
+            config,
+            max_threads
+        );
+    }
+
     if (config.parallel_mode == ParallelMode::Diagonal) {
         const auto state = compute_directions_diagonal_parallel(x, y, x.n, window_size, max_threads);
-        return magnitude_ratio_from_state(x, y, state);
+        return config.simd_magnitude_path
+            ? magnitude_ratio_from_state_segmented(x, y, state, config.simd_selection.selected)
+            : magnitude_ratio_from_state(x, y, state);
     }
     if (config.parallel_mode == ParallelMode::Blocked) {
         const auto state = compute_directions_blocked_wavefront(
@@ -1080,24 +1386,63 @@ double magnitude_ratio_with_kernel(
             x.n,
             window_size,
             config.block_size,
-            max_threads
+            max_threads,
+            config.simd_selection.selected,
+            config.simd_dtw_local_cost
         );
-        return magnitude_ratio_from_state(x, y, state);
+        return config.simd_magnitude_path
+            ? magnitude_ratio_from_state_segmented(x, y, state, config.simd_selection.selected)
+            : magnitude_ratio_from_state(x, y, state);
     }
 
     if (config.dtw_layout == DtwLayout::Current) {
-        return magnitude_ratio_from_views(x, y, window_size);
+        const auto state = compute_directions(
+            x,
+            y,
+            x.n,
+            window_size,
+            config.simd_selection.selected,
+            config.simd_dtw_local_cost
+        );
+        return config.simd_magnitude_path
+            ? magnitude_ratio_from_state_segmented(x, y, state, config.simd_selection.selected)
+            : magnitude_ratio_from_state(x, y, state);
     }
     if (config.dtw_layout == DtwLayout::RangePrecompute) {
-        const auto state = compute_directions_range_precompute(x, y, x.n, window_size);
-        return magnitude_ratio_from_state(x, y, state);
+        const auto state = compute_directions_range_precompute(
+            x,
+            y,
+            x.n,
+            window_size,
+            config.simd_selection.selected,
+            config.simd_dtw_local_cost
+        );
+        return config.simd_magnitude_path
+            ? magnitude_ratio_from_state_segmented(x, y, state, config.simd_selection.selected)
+            : magnitude_ratio_from_state(x, y, state);
     }
     if (config.dtw_layout == DtwLayout::IndexIncremental) {
-        const auto state = compute_directions_index_incremental(x, y, x.n, window_size);
-        return magnitude_ratio_from_state(x, y, state);
+        const auto state = compute_directions_index_incremental(
+            x,
+            y,
+            x.n,
+            window_size,
+            config.simd_selection.selected,
+            config.simd_dtw_local_cost
+        );
+        return config.simd_magnitude_path
+            ? magnitude_ratio_from_state_segmented(x, y, state, config.simd_selection.selected)
+            : magnitude_ratio_from_state(x, y, state);
     }
     if (config.dtw_layout == DtwLayout::CompactDirection) {
-        const auto state = compute_directions_bitpacked(x, y, x.n, window_size);
+        const auto state = compute_directions_bitpacked(
+            x,
+            y,
+            x.n,
+            window_size,
+            config.simd_selection.selected,
+            config.simd_dtw_local_cost
+        );
         return magnitude_ratio_from_bit_state(x, y, state);
     }
     throw std::invalid_argument("Unsupported ISO DTW kernel variant");
@@ -1153,7 +1498,8 @@ VariantConfig variant_config_from_spec(
     ReductionMode reduction_mode,
     ParallelMode parallel_mode,
     py::ssize_t block_size,
-    SimdLevel simd_level
+    SimdLevel simd_level,
+    SimdTargetMode simd_target_mode
 ) {
     VariantConfig config;
     config.dtw_layout = dtw_layout;
@@ -1161,6 +1507,7 @@ VariantConfig variant_config_from_spec(
     config.parallel_mode = parallel_mode;
     config.block_size = block_size;
     config.requested_simd = simd_level;
+    config.simd_target_mode = simd_target_mode;
     config.simd_selection = iso18571_native::select_simd_level(simd_level);
 
     if (parallel_mode == ParallelMode::Blocked && block_size <= 0) {
@@ -1176,8 +1523,34 @@ VariantConfig variant_config_from_spec(
         reduction_mode == ReductionMode::FusedSlope || reduction_mode == ReductionMode::All;
     config.shared_shift_workspace =
         reduction_mode == ReductionMode::SharedShiftWorkspace || reduction_mode == ReductionMode::All;
+    config.simd_phase_products =
+        simd_target_mode == SimdTargetMode::PhaseProducts || simd_target_mode == SimdTargetMode::All;
+    config.simd_dtw_local_cost =
+        simd_target_mode == SimdTargetMode::DtwLocalCost || simd_target_mode == SimdTargetMode::All;
+    config.simd_slope_smoothing =
+        simd_target_mode == SimdTargetMode::SlopeSmoothing || simd_target_mode == SimdTargetMode::All;
+    config.simd_magnitude_path =
+        simd_target_mode == SimdTargetMode::MagnitudePath || simd_target_mode == SimdTargetMode::All;
 
     return config;
+}
+
+const char* simd_target_mode_name(SimdTargetMode mode) {
+    switch (mode) {
+        case SimdTargetMode::GradientOnly:
+            return "gradient_only";
+        case SimdTargetMode::PhaseProducts:
+            return "phase_products";
+        case SimdTargetMode::DtwLocalCost:
+            return "dtw_local_cost";
+        case SimdTargetMode::SlopeSmoothing:
+            return "slope_smoothing";
+        case SimdTargetMode::MagnitudePath:
+            return "magnitude_path";
+        case SimdTargetMode::All:
+            return "all";
+    }
+    return "unknown";
 }
 
 ScoreParams score_params_from_dict(const py::dict& params) {
@@ -1284,13 +1657,60 @@ ArrayView view_from_vector(const std::vector<double>& values) {
     return view;
 }
 
+bool is_contiguous(const ArrayView& values) {
+    return values.stride == static_cast<py::ssize_t>(sizeof(double));
+}
+
 const double* contiguous_data(const ArrayView& values) {
     return reinterpret_cast<const double*>(values.data);
 }
 
+const double* contiguous_value_ptr(const ArrayView& values, py::ssize_t index) {
+    if (!is_contiguous(values)) {
+        return nullptr;
+    }
+    return contiguous_data(values) + index;
+}
+
+const double* contiguous_value_ptr(const CurveView& values, py::ssize_t index) {
+    if (values.row_stride != static_cast<py::ssize_t>(sizeof(double))) {
+        return nullptr;
+    }
+    return reinterpret_cast<const double*>(values.data + index * values.row_stride + values.column_stride);
+}
+
+template <typename Series>
+double product_sum_for_shift(
+    const Series& reference,
+    const Series& comparison,
+    py::ssize_t reference_start,
+    py::ssize_t comparison_start,
+    py::ssize_t length,
+    SimdLevel simd_level,
+    bool use_simd
+) {
+    const double* reference_ptr = contiguous_value_ptr(reference, reference_start);
+    const double* comparison_ptr = contiguous_value_ptr(comparison, comparison_start);
+    if (use_simd && reference_ptr != nullptr && comparison_ptr != nullptr) {
+        return iso18571_native::dot_product_contiguous(
+            reference_ptr,
+            comparison_ptr,
+            static_cast<std::size_t>(length),
+            simd_level
+        );
+    }
+
+    double out = 0.0;
+    for (py::ssize_t idx = 0; idx < length; ++idx) {
+        out += reference.value(reference_start + idx) * comparison.value(comparison_start + idx);
+    }
+    return out;
+}
+
+template <typename Series>
 double correlation_for_shift(
-    const CurveView& reference,
-    const CurveView& comparison,
+    const Series& reference,
+    const Series& comparison,
     py::ssize_t reference_start,
     py::ssize_t comparison_start,
     py::ssize_t length
@@ -1333,7 +1753,8 @@ double correlation_for_shift(
     return correlation;
 }
 
-PhaseCache build_phase_cache(const CurveView& reference, const CurveView& comparison) {
+template <typename Series>
+PhaseCache build_phase_cache(const Series& reference, const Series& comparison) {
     PhaseCache cache;
     const std::size_t size = static_cast<std::size_t>(reference.n + 1);
     cache.reference_sum.assign(size, 0.0);
@@ -1358,13 +1779,16 @@ double prefix_range(const std::vector<double>& values, py::ssize_t start, py::ss
     return values[static_cast<std::size_t>(start + length)] - values[static_cast<std::size_t>(start)];
 }
 
+template <typename Series>
 double correlation_for_shift(
-    const CurveView& reference,
-    const CurveView& comparison,
+    const Series& reference,
+    const Series& comparison,
     const PhaseCache& cache,
     py::ssize_t reference_start,
     py::ssize_t comparison_start,
-    py::ssize_t length
+    py::ssize_t length,
+    SimdLevel simd_level = SimdLevel::Scalar,
+    bool use_simd = false
 ) {
     if (length < 32) {
         return correlation_for_shift(reference, comparison, reference_start, comparison_start, length);
@@ -1376,10 +1800,15 @@ double correlation_for_shift(
     const double reference_square_sum = prefix_range(cache.reference_square_sum, reference_start, length);
     const double comparison_square_sum = prefix_range(cache.comparison_square_sum, comparison_start, length);
 
-    double product_sum = 0.0;
-    for (py::ssize_t idx = 0; idx < length; ++idx) {
-        product_sum += reference.value(reference_start + idx) * comparison.value(comparison_start + idx);
-    }
+    const double product_sum = product_sum_for_shift(
+        reference,
+        comparison,
+        reference_start,
+        comparison_start,
+        length,
+        simd_level,
+        use_simd
+    );
 
     const double numerator = product_sum - (reference_sum * comparison_sum / n);
     const double reference_var = reference_square_sum - (reference_sum * reference_sum / n);
@@ -1434,12 +1863,15 @@ double correlation_from_cached_product(
     return correlation;
 }
 
+template <typename Series>
 std::pair<double, double> dual_correlations_for_shift(
-    const CurveView& reference,
-    const CurveView& comparison,
+    const Series& reference,
+    const Series& comparison,
     const PhaseCache& cache,
     py::ssize_t shift,
-    py::ssize_t length
+    py::ssize_t length,
+    SimdLevel simd_level = SimdLevel::Scalar,
+    bool use_simd = false
 ) {
     if (length < 32) {
         return {
@@ -1448,12 +1880,8 @@ std::pair<double, double> dual_correlations_for_shift(
         };
     }
 
-    double left_product_sum = 0.0;
-    double right_product_sum = 0.0;
-    for (py::ssize_t idx = 0; idx < length; ++idx) {
-        left_product_sum += reference.value(idx) * comparison.value(shift + idx);
-        right_product_sum += reference.value(shift + idx) * comparison.value(idx);
-    }
+    const double left_product_sum = product_sum_for_shift(reference, comparison, 0, shift, length, simd_level, use_simd);
+    const double right_product_sum = product_sum_for_shift(reference, comparison, shift, 0, length, simd_level, use_simd);
 
     double left = correlation_from_cached_product(cache, 0, shift, length, left_product_sum);
     double right = correlation_from_cached_product(cache, shift, 0, length, right_product_sum);
@@ -1466,7 +1894,8 @@ std::pair<double, double> dual_correlations_for_shift(
     return {left, right};
 }
 
-ShiftResult compute_shift(const CurveView& reference, const CurveView& comparison, const ScoreParams& params) {
+template <typename Series>
+ShiftResult compute_shift(const Series& reference, const Series& comparison, const ScoreParams& params) {
     ShiftResult shift;
     shift.length = reference.n;
     shift.max_shift = std::round((1.0 - params.init_min) * 100.0) / 100.0;
@@ -1505,7 +1934,15 @@ ShiftResult compute_shift(const CurveView& reference, const CurveView& compariso
     return shift;
 }
 
-ShiftResult compute_shift_dual_product(const CurveView& reference, const CurveView& comparison, const ScoreParams& params) {
+template <typename Series>
+ShiftResult compute_shift_dual_product(
+    const Series& reference,
+    const Series& comparison,
+    const ScoreParams& params,
+    SimdLevel simd_level = SimdLevel::Scalar,
+    bool use_simd = false
+) {
+    constexpr double confirmation_margin = 1e-10;
     ShiftResult shift;
     shift.length = reference.n;
     shift.max_shift = std::round((1.0 - params.init_min) * 100.0) / 100.0;
@@ -1520,8 +1957,11 @@ ShiftResult compute_shift_dual_product(const CurveView& reference, const CurveVi
 
     for (py::ssize_t idx = 1; idx < bounded_window_size; ++idx) {
         const py::ssize_t length = reference.n - idx;
-        const auto correlations = dual_correlations_for_shift(reference, comparison, cache, idx, length);
-        const double ccr_left = correlations.first;
+        const auto correlations = dual_correlations_for_shift(reference, comparison, cache, idx, length, simd_level, use_simd);
+        double ccr_left = correlations.first;
+        if (use_simd && ccr_left + confirmation_margin >= ccr_max) {
+            ccr_left = correlation_for_shift(reference, comparison, cache, 0, idx, length);
+        }
         if (ccr_left > ccr_max) {
             ccr_max = ccr_left;
             shift.n_eps = idx;
@@ -1531,7 +1971,10 @@ ShiftResult compute_shift_dual_product(const CurveView& reference, const CurveVi
             shift.rho_e = ccr_left;
         }
 
-        const double ccr_right = correlations.second;
+        double ccr_right = correlations.second;
+        if (use_simd && ccr_right + confirmation_margin >= ccr_max) {
+            ccr_right = correlation_for_shift(reference, comparison, cache, idx, 0, length);
+        }
         if (ccr_right > ccr_max) {
             ccr_max = ccr_right;
             shift.n_eps = idx;
@@ -1666,7 +2109,12 @@ void gradient_values(const ArrayView& values, double dt, std::vector<double>& gr
     gradient[static_cast<std::size_t>(n - 1)] = (values[n - 1] - values[n - 2]) / dt;
 }
 
-void smooth_slopes(const std::vector<double>& gradient, std::vector<double>& smoothed) {
+void smooth_slopes(
+    const std::vector<double>& gradient,
+    std::vector<double>& smoothed,
+    SimdLevel simd_level = SimdLevel::Scalar,
+    bool use_simd = false
+) {
     const py::ssize_t n = static_cast<py::ssize_t>(gradient.size());
     smoothed.assign(static_cast<std::size_t>(n), 0.0);
 
@@ -1683,12 +2131,21 @@ void smooth_slopes(const std::vector<double>& gradient, std::vector<double>& smo
         smoothed[static_cast<std::size_t>(n - idx - 1)] = end_sum / static_cast<double>(nr);
     }
 
-    for (py::ssize_t idx = 4; idx < n - 4; ++idx) {
-        double sum = 0.0;
-        for (py::ssize_t j = idx - 4; j <= idx + 4; ++j) {
-            sum += gradient[static_cast<std::size_t>(j)];
+    if (use_simd) {
+        iso18571_native::smooth9_contiguous(
+            gradient.data(),
+            static_cast<std::size_t>(n),
+            smoothed.data(),
+            simd_level
+        );
+    } else {
+        for (py::ssize_t idx = 4; idx < n - 4; ++idx) {
+            double sum = 0.0;
+            for (py::ssize_t j = idx - 4; j <= idx + 4; ++j) {
+                sum += gradient[static_cast<std::size_t>(j)];
+            }
+            smoothed[static_cast<std::size_t>(idx)] = sum / 9.0;
         }
-        smoothed[static_cast<std::size_t>(idx)] = sum / 9.0;
     }
 }
 
@@ -1696,7 +2153,8 @@ double slope_score_from_values(
     const ArrayView& reference_values,
     const ArrayView& comparison_values,
     const ScoreParams& params,
-    SimdLevel simd_level
+    SimdLevel simd_level,
+    bool simd_slope_smoothing = false
 ) {
     if (reference_values.n < 9) {
         throw std::invalid_argument("Shifted curves must have at least 9 samples for slope rating");
@@ -1708,8 +2166,8 @@ double slope_score_from_values(
     std::vector<double> reference_smoothed;
     gradient_values(comparison_values, params.dt, comparison_gradient, simd_level);
     gradient_values(reference_values, params.dt, reference_gradient, simd_level);
-    smooth_slopes(comparison_gradient, comparison_smoothed);
-    smooth_slopes(reference_gradient, reference_smoothed);
+    smooth_slopes(comparison_gradient, comparison_smoothed, simd_level, simd_slope_smoothing);
+    smooth_slopes(reference_gradient, reference_smoothed, simd_level, simd_slope_smoothing);
 
     double numerator = 0.0;
     double denominator = 0.0;
@@ -1823,9 +2281,23 @@ ScoreResult score_components_native_variant(
     py::ssize_t max_threads
 ) {
     ScoreResult score;
-    score.shift = config.phase_dual_product
-        ? compute_shift_dual_product(reference, comparison, params)
-        : compute_shift(reference, comparison, params);
+    if (config.phase_dual_product && config.simd_phase_products) {
+        const ArrayView reference_values = value_view_from_curve(reference, 0, reference.n);
+        const ArrayView comparison_values = value_view_from_curve(comparison, 0, comparison.n);
+        const std::vector<double> contiguous_reference = copy_values(reference_values);
+        const std::vector<double> contiguous_comparison = copy_values(comparison_values);
+        score.shift = compute_shift_dual_product(
+            view_from_vector(contiguous_reference),
+            view_from_vector(contiguous_comparison),
+            params,
+            config.simd_selection.selected,
+            true
+        );
+    } else {
+        score.shift = config.phase_dual_product
+            ? compute_shift_dual_product(reference, comparison, params)
+            : compute_shift(reference, comparison, params);
+    }
     score.z = corridor_score(reference, comparison, params);
     score.ep = phase_score(reference, params, score.shift);
 
@@ -1844,7 +2316,7 @@ ScoreResult score_components_native_variant(
             config,
             max_threads
         );
-        score.es = config.fused_slope
+        score.es = config.fused_slope && !config.simd_slope_smoothing
             ? fused_slope_score_from_values(
                 contiguous_reference_view,
                 contiguous_comparison_view,
@@ -1855,13 +2327,20 @@ ScoreResult score_components_native_variant(
                 contiguous_reference_view,
                 contiguous_comparison_view,
                 params,
-                config.simd_selection.selected
+                config.simd_selection.selected,
+                config.simd_slope_smoothing
             );
     } else {
         score.em = magnitude_score_from_values(reference_values, comparison_values, params, config, max_threads);
-        score.es = config.fused_slope
+        score.es = config.fused_slope && !config.simd_slope_smoothing
             ? fused_slope_score_from_values(reference_values, comparison_values, params, config.simd_selection.selected)
-            : slope_score_from_values(reference_values, comparison_values, params, config.simd_selection.selected);
+            : slope_score_from_values(
+                reference_values,
+                comparison_values,
+                params,
+                config.simd_selection.selected,
+                config.simd_slope_smoothing
+            );
     }
 
     score.r = params.w_z * score.z + params.w_p * score.ep + params.w_m * score.em + params.w_s * score.es;
@@ -1932,6 +2411,7 @@ double magnitude_ratio_variant_spec(
     ParallelMode parallel_mode,
     py::ssize_t block_size,
     SimdLevel simd_level,
+    SimdTargetMode simd_target_mode,
     py::ssize_t max_threads
 ) {
     const auto views = validate_inputs(x, y);
@@ -1940,7 +2420,8 @@ double magnitude_ratio_variant_spec(
         ReductionMode::None,
         parallel_mode,
         block_size,
-        simd_level
+        simd_level,
+        simd_target_mode
     );
 
     double ratio = 0.0;
@@ -2030,6 +2511,7 @@ py::dict score_components_variant_spec(
     ParallelMode parallel_mode,
     py::ssize_t block_size,
     SimdLevel simd_level,
+    SimdTargetMode simd_target_mode,
     py::ssize_t max_threads
 ) {
     const auto views = validate_curves(reference_curve, comparison_curve);
@@ -2039,7 +2521,8 @@ py::dict score_components_variant_spec(
         reduction_mode,
         parallel_mode,
         block_size,
-        simd_level
+        simd_level,
+        simd_target_mode
     );
 
     ScoreResult score;
@@ -2053,6 +2536,7 @@ py::dict score_components_variant_spec(
     out["requested_simd_level"] = iso18571_native::simd_level_name(config.simd_selection.requested);
     out["selected_simd_level"] = iso18571_native::simd_level_name(config.simd_selection.selected);
     out["simd_fallback"] = config.simd_selection.fallback;
+    out["simd_target_mode"] = simd_target_mode_name(config.simd_target_mode);
     return out;
 }
 
@@ -2101,6 +2585,13 @@ PYBIND11_MODULE(_core, m) {
         .value("NoParallel", ParallelMode::None)
         .value("Diagonal", ParallelMode::Diagonal)
         .value("Blocked", ParallelMode::Blocked);
+    py::enum_<SimdTargetMode>(m, "SimdTargetMode")
+        .value("GradientOnly", SimdTargetMode::GradientOnly)
+        .value("PhaseProducts", SimdTargetMode::PhaseProducts)
+        .value("DtwLocalCost", SimdTargetMode::DtwLocalCost)
+        .value("SlopeSmoothing", SimdTargetMode::SlopeSmoothing)
+        .value("MagnitudePath", SimdTargetMode::MagnitudePath)
+        .value("All", SimdTargetMode::All);
     py::enum_<SimdLevel>(m, "SimdLevel")
         .value("Scalar", SimdLevel::Scalar)
         .value("Sse2", SimdLevel::Sse2)
@@ -2121,6 +2612,7 @@ PYBIND11_MODULE(_core, m) {
         py::arg("parallel_mode"),
         py::arg("block_size"),
         py::arg("simd_level"),
+        py::arg("simd_target_mode"),
         py::arg("max_threads") = 1
     );
     m.def("_parallel_barrier_overhead", &parallel_barrier_overhead, py::arg("iterations"), py::arg("max_threads"));
@@ -2136,6 +2628,7 @@ PYBIND11_MODULE(_core, m) {
         py::arg("parallel_mode"),
         py::arg("block_size"),
         py::arg("simd_level"),
+        py::arg("simd_target_mode"),
         py::arg("max_threads") = 1
     );
 }

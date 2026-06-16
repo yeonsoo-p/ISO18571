@@ -9,6 +9,7 @@ from iso18571_native import (
     ParallelMode,
     ReductionMode,
     SimdLevel,
+    SimdTargetMode,
     _magnitude_ratio_variant_spec,
     _score_components_variant_spec,
     _simd_info,
@@ -154,17 +155,17 @@ def test_native_preserves_iso_tie_order_for_zero_curves() -> None:
 def test_native_experimental_variants_match_public_magnitude_ratio() -> None:
     rng = np.random.default_rng(18572)
     variants = (
-        (DtwLayout.Current, ParallelMode.NoParallel, 0, SimdLevel.Scalar, 1),
-        (DtwLayout.RangePrecompute, ParallelMode.NoParallel, 0, SimdLevel.Scalar, 1),
-        (DtwLayout.IndexIncremental, ParallelMode.NoParallel, 0, SimdLevel.Scalar, 1),
-        (DtwLayout.CompactDirection, ParallelMode.NoParallel, 0, SimdLevel.Scalar, 1),
-        (DtwLayout.Current, ParallelMode.Diagonal, 0, SimdLevel.Scalar, 2),
+        (DtwLayout.Current, ParallelMode.NoParallel, 0, SimdLevel.Scalar, SimdTargetMode.GradientOnly, 1),
+        (DtwLayout.RangePrecompute, ParallelMode.NoParallel, 0, SimdLevel.Scalar, SimdTargetMode.GradientOnly, 1),
+        (DtwLayout.IndexIncremental, ParallelMode.NoParallel, 0, SimdLevel.Scalar, SimdTargetMode.GradientOnly, 1),
+        (DtwLayout.CompactDirection, ParallelMode.NoParallel, 0, SimdLevel.Scalar, SimdTargetMode.GradientOnly, 1),
+        (DtwLayout.Current, ParallelMode.Diagonal, 0, SimdLevel.Scalar, SimdTargetMode.GradientOnly, 2),
     )
     for n in (17, 64, 129):
         x = rng.normal(size=n)
         y = 0.9 * x + rng.normal(scale=0.2, size=n)
         expected = magnitude_ratio(x, y, 0.1)
-        for dtw_layout, parallel_mode, block_size, simd_level, max_threads in variants:
+        for dtw_layout, parallel_mode, block_size, simd_level, simd_target_mode, max_threads in variants:
             observed = _magnitude_ratio_variant_spec(
                 x,
                 y,
@@ -173,6 +174,7 @@ def test_native_experimental_variants_match_public_magnitude_ratio() -> None:
                 parallel_mode,
                 block_size,
                 simd_level,
+                simd_target_mode,
                 max_threads,
             )
             np.testing.assert_allclose(
@@ -191,25 +193,74 @@ def test_native_score_component_variants_match_public_scorer() -> None:
         phase_shift_annex_case("phase_multitone_shift_020", 129),
     )
     variants = (
-        (DtwLayout.Current, ReductionMode.NoReduction, ParallelMode.NoParallel, 0, SimdLevel.Scalar, 1),
-        (DtwLayout.RangePrecompute, ReductionMode.NoReduction, ParallelMode.NoParallel, 0, SimdLevel.Scalar, 1),
-        (DtwLayout.IndexIncremental, ReductionMode.PhaseDualProduct, ParallelMode.NoParallel, 0, SimdLevel.Scalar, 1),
+        (
+            DtwLayout.Current,
+            ReductionMode.NoReduction,
+            ParallelMode.NoParallel,
+            0,
+            SimdLevel.Scalar,
+            SimdTargetMode.GradientOnly,
+            1,
+        ),
+        (
+            DtwLayout.RangePrecompute,
+            ReductionMode.NoReduction,
+            ParallelMode.NoParallel,
+            0,
+            SimdLevel.Scalar,
+            SimdTargetMode.GradientOnly,
+            1,
+        ),
+        (
+            DtwLayout.IndexIncremental,
+            ReductionMode.PhaseDualProduct,
+            ParallelMode.NoParallel,
+            0,
+            SimdLevel.Scalar,
+            SimdTargetMode.GradientOnly,
+            1,
+        ),
         (
             DtwLayout.CompactDirection,
             ReductionMode.SharedShiftWorkspace,
             ParallelMode.NoParallel,
             0,
             SimdLevel.Scalar,
+            SimdTargetMode.GradientOnly,
             1,
         ),
-        (DtwLayout.IndexIncremental, ReductionMode.All, ParallelMode.NoParallel, 0, SimdLevel.Scalar, 1),
-        (DtwLayout.Current, ReductionMode.All, ParallelMode.Blocked, 64, SimdLevel.Scalar, 2),
+        (
+            DtwLayout.IndexIncremental,
+            ReductionMode.All,
+            ParallelMode.NoParallel,
+            0,
+            SimdLevel.Scalar,
+            SimdTargetMode.GradientOnly,
+            1,
+        ),
+        (
+            DtwLayout.Current,
+            ReductionMode.All,
+            ParallelMode.Blocked,
+            64,
+            SimdLevel.Scalar,
+            SimdTargetMode.GradientOnly,
+            2,
+        ),
     )
     keys = ("Z", "EP", "EM", "ES", "R", "n_eps", "rho_e", "reference_start", "comparison_start", "shift_length")
 
     for case in cases:
         expected = score_components(case.reference_curve, case.comparison_curve, {"dt": case.dt})
-        for dtw_layout, reduction_mode, parallel_mode, block_size, simd_level, max_threads in variants:
+        for (
+            dtw_layout,
+            reduction_mode,
+            parallel_mode,
+            block_size,
+            simd_level,
+            simd_target_mode,
+            max_threads,
+        ) in variants:
             observed = _score_components_variant_spec(
                 case.reference_curve,
                 case.comparison_curve,
@@ -219,9 +270,10 @@ def test_native_score_component_variants_match_public_scorer() -> None:
                 parallel_mode,
                 block_size,
                 simd_level,
+                simd_target_mode,
                 max_threads,
             )
-            variant_label = f"{dtw_layout} {reduction_mode} {parallel_mode} {simd_level}"
+            variant_label = f"{dtw_layout} {reduction_mode} {parallel_mode} {simd_level} {simd_target_mode}"
             for key in keys:
                 np.testing.assert_allclose(
                     observed[key],
@@ -231,6 +283,93 @@ def test_native_score_component_variants_match_public_scorer() -> None:
                     equal_nan=True,
                     err_msg=f"{case.name} {variant_label} {key}",
                 )
+
+
+def test_native_simd_target_modes_match_public_scorer() -> None:
+    cases = (
+        fixed_signal_annex_case("chirp", 129),
+        fixed_signal_annex_case("sparse_spikes", 129),
+        phase_shift_annex_case("phase_multitone_shift_020", 129),
+    )
+    simd_target_modes = (
+        SimdTargetMode.PhaseProducts,
+        SimdTargetMode.DtwLocalCost,
+        SimdTargetMode.SlopeSmoothing,
+        SimdTargetMode.MagnitudePath,
+        SimdTargetMode.All,
+    )
+    simd_levels = (SimdLevel.Scalar, SimdLevel.Sse2, SimdLevel.Avx2, SimdLevel.Avx2Fma)
+    keys = ("Z", "EP", "EM", "ES", "R", "n_eps", "rho_e", "reference_start", "comparison_start", "shift_length")
+
+    for case in cases:
+        expected = score_components(case.reference_curve, case.comparison_curve, {"dt": case.dt})
+        for simd_target_mode in simd_target_modes:
+            for simd_level in simd_levels:
+                observed = _score_components_variant_spec(
+                    case.reference_curve,
+                    case.comparison_curve,
+                    {"dt": case.dt},
+                    DtwLayout.Current,
+                    ReductionMode.All,
+                    ParallelMode.Blocked,
+                    64,
+                    simd_level,
+                    simd_target_mode,
+                    2,
+                )
+                variant_label = f"{simd_target_mode} {simd_level}"
+                assert observed["simd_target_mode"] in {
+                    "phase_products",
+                    "dtw_local_cost",
+                    "slope_smoothing",
+                    "magnitude_path",
+                    "all",
+                }
+                for key in keys:
+                    np.testing.assert_allclose(
+                        observed[key],
+                        expected[key],
+                        rtol=1e-12,
+                        atol=1e-12,
+                        equal_nan=True,
+                        err_msg=f"{case.name} {variant_label} {key}",
+                    )
+
+
+def test_native_phase_product_simd_preserves_near_tie_shift_decision() -> None:
+    n = 257
+    t = np.linspace(0.0, 1.0, n)
+    reference_values = (
+        np.sin(2.0 * np.pi * 7.0 * t) + 0.35 * np.sin(2.0 * np.pi * 13.0 * t) + 1e-11 * np.linspace(-1.0, 1.0, n)
+    )
+    comparison_values = np.roll(reference_values, 1)
+    comparison_values[0] = reference_values[0] + 1e-11
+    reference_curve = np.column_stack((t, reference_values))
+    comparison_curve = np.column_stack((t, comparison_values))
+    expected = score_components(reference_curve, comparison_curve, {"dt": 1.0 / (n - 1)})
+
+    for simd_level in (SimdLevel.Scalar, SimdLevel.Sse2, SimdLevel.Avx2, SimdLevel.Avx2Fma):
+        observed = _score_components_variant_spec(
+            reference_curve,
+            comparison_curve,
+            {"dt": 1.0 / (n - 1)},
+            DtwLayout.Current,
+            ReductionMode.All,
+            ParallelMode.NoParallel,
+            0,
+            simd_level,
+            SimdTargetMode.PhaseProducts,
+            1,
+        )
+        for key in ("n_eps", "rho_e", "reference_start", "comparison_start", "shift_length"):
+            np.testing.assert_allclose(
+                observed[key],
+                expected[key],
+                rtol=1e-12,
+                atol=1e-12,
+                equal_nan=True,
+                err_msg=f"{simd_level} {key}",
+            )
 
 
 def test_native_enum_variant_api_reports_simd_metadata_and_auto_dispatches() -> None:
@@ -249,6 +388,7 @@ def test_native_enum_variant_api_reports_simd_metadata_and_auto_dispatches() -> 
         ParallelMode.NoParallel,
         0,
         SimdLevel.Auto,
+        SimdTargetMode.All,
         1,
     )
     assert observed["requested_simd_level"] == "auto"
@@ -268,6 +408,7 @@ def test_native_enum_variant_api_rejects_invalid_blocked_specs() -> None:
             ParallelMode.Blocked,
             0,
             SimdLevel.Scalar,
+            SimdTargetMode.GradientOnly,
             1,
         )
     except ValueError:

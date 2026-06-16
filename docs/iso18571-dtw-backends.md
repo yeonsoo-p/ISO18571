@@ -153,10 +153,15 @@ and a per-regime class. It is intentionally not a universal ranking.
 
 SIMD experiments are an additional enum-based atlas axis. Benchmark environment
 variables remain readable strings, but tests map them to native `DtwLayout`,
-`ReductionMode`, `ParallelMode`, and `SimdLevel` values before calling C++.
+`ReductionMode`, `ParallelMode`, `SimdLevel`, and `SimdTargetMode` values before
+calling C++.
 Supported SIMD levels are `scalar`, `sse2`, `avx2`, `avx2_fma`, and `auto`;
 AVX-512 is intentionally excluded. `auto` is runtime dispatch behavior for
 smoke/parity checks, not a regime benchmark axis.
+Supported SIMD target modes are `gradient_only`, `phase_products`,
+`dtw_local_cost`, `slope_smoothing`, `magnitude_path`, and `all`. The default is
+`gradient_only`; set `ISO18571_REGIME_SIMD_TARGETS` explicitly for hotspot
+target experiments.
 
 Focused atlas runs can be filtered with environment variables:
 
@@ -166,6 +171,7 @@ ISO18571_REGIME_LENGTHS=8192,16384,32768,65536 \
 ISO18571_REGIME_THREADS=1,2,4,8,12,16,24 \
 ISO18571_REGIME_VARIANTS=dtw_current+reduce_none+parallel_none,dtw_current+all_reductions+blocked128 \
 ISO18571_REGIME_SIMD_LEVELS=scalar,sse2,avx2,avx2_fma \
+ISO18571_REGIME_SIMD_TARGETS=gradient_only,phase_products,dtw_local_cost,slope_smoothing,magnitude_path \
 uv run --with pytest --with pytest-benchmark \
   python -m pytest -q tests/test_iso18571_regime_benchmarks.py \
   -o addopts= -m regime \
@@ -192,6 +198,14 @@ tested family, but the best thread count was size dependent: 8 threads was
 strong around input length 8192, 12 threads around 12288-16384, and 16/24
 threads around 32768-65536. The analyzer produced candidate thresholds, but
 this remains an atlas result rather than a production dispatch policy.
+
+Latest SIMD-target smoke result: for nominal lengths `4096, 8192` across chirp,
+Gaussian noise, sparse spikes, and analytic phase families, all 540 target-mode
+rows passed parity checks. The analyzer's first candidate in this small slice
+was `dtw_current+all_reductions+blocked128+simd_avx2+target_phase_products` with
+8 threads at `effective_n >= 7782`; this is a smoke result, not a production
+dispatch policy. The next broad atlas should focus `phase_products` before
+pairing targets.
 
 Build a Linux wheel:
 

@@ -1,5 +1,6 @@
 #include "simd.hpp"
 
+#include <cmath>
 #include <cstddef>
 
 #if defined(__AVX2__) && defined(__FMA__)
@@ -27,6 +28,67 @@ void gradient_contiguous_avx2_fma(const double* values, std::size_t n, double dt
     out[n - 1] = (values[n - 1] - values[n - 2]) / dt;
 #else
     gradient_contiguous_scalar(values, n, dt, out);
+#endif
+}
+
+double dot_product_contiguous_avx2_fma(const double* x, const double* y, std::size_t n) {
+#if defined(ISO18571_HAS_AVX2_FMA_INTRINSICS)
+    __m256d acc = _mm256_setzero_pd();
+    std::size_t idx = 0;
+    for (; idx + 3 < n; idx += 4) {
+        const __m256d vx = _mm256_loadu_pd(x + idx);
+        const __m256d vy = _mm256_loadu_pd(y + idx);
+        acc = _mm256_fmadd_pd(vx, vy, acc);
+    }
+    double lanes[4];
+    _mm256_storeu_pd(lanes, acc);
+    double out = lanes[0] + lanes[1] + lanes[2] + lanes[3];
+    for (; idx < n; ++idx) {
+        out += x[idx] * y[idx];
+    }
+    return out;
+#else
+    return dot_product_contiguous_scalar(x, y, n);
+#endif
+}
+
+void local_cost_contiguous_avx2_fma(double x_value, const double* y, std::size_t n, double* out) {
+#if defined(ISO18571_HAS_AVX2_FMA_INTRINSICS)
+    local_cost_contiguous_avx2(x_value, y, n, out);
+#else
+    local_cost_contiguous_scalar(x_value, y, n, out);
+#endif
+}
+
+void smooth9_contiguous_avx2_fma(const double* gradient, std::size_t n, double* out) {
+#if defined(ISO18571_HAS_AVX2_FMA_INTRINSICS)
+    smooth9_contiguous_avx2(gradient, n, out);
+#else
+    smooth9_contiguous_scalar(gradient, n, out);
+#endif
+}
+
+L1Sums l1_pair_contiguous_avx2_fma(const double* x, const double* y, std::size_t n) {
+#if defined(ISO18571_HAS_AVX2_FMA_INTRINSICS)
+    return l1_pair_contiguous_avx2(x, y, n);
+#else
+    return l1_pair_contiguous_scalar(x, y, n);
+#endif
+}
+
+L1Sums l1_x_constant_contiguous_avx2_fma(const double* x, double y_value, std::size_t n) {
+#if defined(ISO18571_HAS_AVX2_FMA_INTRINSICS)
+    return l1_x_constant_contiguous_avx2(x, y_value, n);
+#else
+    return l1_x_constant_contiguous_scalar(x, y_value, n);
+#endif
+}
+
+L1Sums l1_constant_y_contiguous_avx2_fma(double x_value, const double* y, std::size_t n) {
+#if defined(ISO18571_HAS_AVX2_FMA_INTRINSICS)
+    return l1_constant_y_contiguous_avx2(x_value, y, n);
+#else
+    return l1_constant_y_contiguous_scalar(x_value, y, n);
 #endif
 }
 

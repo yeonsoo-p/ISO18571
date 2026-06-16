@@ -7,7 +7,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
-BASELINE_VARIANT = "dtw_current+reduce_none+parallel_none+simd_scalar"
+BASELINE_VARIANT = "dtw_current+reduce_none+parallel_none+simd_scalar+target_gradient_only"
 
 
 @dataclass(frozen=True)
@@ -20,6 +20,7 @@ class Row:
     requested_simd_level: str
     selected_simd_level: str
     simd_fallback: bool
+    simd_target_mode: str
     max_threads: int
     median: float
     iqr: float
@@ -83,6 +84,7 @@ def load_rows(paths: list[str]) -> list[Row]:
             selected_simd_level = str(extra.get("selected_simd_level", requested_simd_level))
             raw_fallback = extra.get("simd_fallback", False)
             simd_fallback = raw_fallback if isinstance(raw_fallback, bool) else str(raw_fallback).lower() == "true"
+            simd_target_mode = str(extra.get("simd_target_mode", "gradient_only"))
             max_threads = int(extra.get("max_threads", parsed.get("max_threads", "1")))
             q1 = float(stats.get("q1", stats["median"]))
             q3 = float(stats.get("q3", stats["median"]))
@@ -96,6 +98,7 @@ def load_rows(paths: list[str]) -> list[Row]:
                     requested_simd_level=requested_simd_level,
                     selected_simd_level=selected_simd_level,
                     simd_fallback=simd_fallback,
+                    simd_target_mode=simd_target_mode,
                     max_threads=max_threads,
                     median=float(stats["median"]),
                     iqr=max(0.0, q3 - q1),
@@ -193,14 +196,15 @@ def main() -> int:
     classifications = classify_rows(rows)
 
     print(
-        "| effective_n | cells | family | variant | requested_simd | selected_simd | fallback | threads | median_ms | iqr_ms | ratio_to_current | class |"
+        "| effective_n | cells | family | variant | requested_simd | selected_simd | fallback | simd_target | threads | median_ms | iqr_ms | ratio_to_current | class |"
     )
-    print("|---:|---:|---|---|---|---|---|---:|---:|---:|---:|---|")
+    print("|---:|---:|---|---|---|---|---|---|---:|---:|---:|---:|---|")
     for row in sorted(rows, key=lambda item: (item.effective_n, item.family, item.variant, item.max_threads)):
         status, ratio = classifications[row]
         print(
             f"| {row.effective_n} | {row.cells} | {row.family} | `{row.variant}` | "
-            f"{row.requested_simd_level} | {row.selected_simd_level} | {row.simd_fallback} | {row.max_threads} | "
+            f"{row.requested_simd_level} | {row.selected_simd_level} | {row.simd_fallback} | "
+            f"{row.simd_target_mode} | {row.max_threads} | "
             f"{row.median * 1000.0:.3f} | {row.iqr * 1000.0:.3f} | {ratio:.3f} | {status} |"
         )
 

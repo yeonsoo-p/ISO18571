@@ -79,8 +79,9 @@
     `ISO18571_REGIME_VARIANTS`.
   - SIMD experiments use enum-based private hooks, not C++ string-token
     execution paths. Human-readable env vars are mapped to `DtwLayout`,
-    `ReductionMode`, `ParallelMode`, and `SimdLevel` in Python before calling
-    `_score_components_variant_spec` or `_magnitude_ratio_variant_spec`.
+    `ReductionMode`, `ParallelMode`, `SimdLevel`, and `SimdTargetMode` in
+    Python before calling `_score_components_variant_spec` or
+    `_magnitude_ratio_variant_spec`.
   - supported SIMD levels are scalar, SSE2, AVX2, AVX2+FMA, and auto; AVX-512
     is intentionally not implemented. Runtime dispatch must fall back safely
     for prebuilt wheels.
@@ -89,6 +90,10 @@
     explicit `scalar`, `sse2`, `avx2`, and `avx2_fma` SIMD levels.
   - filter SIMD atlas runs with `ISO18571_REGIME_SIMD_LEVELS`, for example
     `scalar,avx2,avx2_fma`.
+  - filter SIMD hotspot target runs with `ISO18571_REGIME_SIMD_TARGETS`, for
+    example `phase_products,dtw_local_cost,slope_smoothing,magnitude_path`.
+    Leave it unset for ordinary regime runs; the default target is
+    `gradient_only` to avoid enormous deselected pytest collections.
   - inspect compiler output with
     `tools/iso18571/emit_native_assembly.py` and
     `tools/iso18571/report_assembly_wrinkles.py`; assembly artifacts belong
@@ -104,6 +109,11 @@
     size-regime policy over `dtw_current+all_reductions+blocked128` only after a
     repeated validation run confirms the crossover; keep public production
     scoring unchanged until then.
+  - current SIMD-target smoke result: target-mode parity is green for
+    `phase_products`, `dtw_local_cost`, `slope_smoothing`, `magnitude_path`, and
+    `all`. In the first 4096/8192 smoke atlas, `phase_products` was the most
+    interesting medium-regime target; broaden that target first before combining
+    targets.
 - Experiment tracking:
   - append every meaningful experiment to
     `docs/iso18571-dtw-experiment-log.md`;

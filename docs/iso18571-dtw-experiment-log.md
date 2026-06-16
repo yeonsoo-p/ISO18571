@@ -651,6 +651,9 @@
   - `uv run --with ruff ruff format .`
   - `uv run --with ruff ruff check .`
   - `uv run --with ruff ruff format --check .`
+  - `uv build --wheel`
+  - `uv run --with dist/euroncap-0.1.0-cp313-cp313-linux_x86_64.whl python tools/iso18571/wheel_smoke.py`
+  - `uv run --with pybind11 python tools/iso18571/emit_native_assembly.py --output-dir .benchmarks/iso18571-asm && uv run python tools/iso18571/report_assembly_wrinkles.py .benchmarks/iso18571-asm`
   - `uv pip install -e .`
   - `uv run --with pytest --with pytest-benchmark python -m pytest -q`
   - `uv run --with pytest --with pytest-benchmark --with scipy --with dtwalign --with dtaidistance --with dtw-python --with librosa python -m pytest -q tests/test_iso18571_backends.py --iso18571-backends local_iso_numpy,local_iso_native,dtwalign,dtaidistance,dtw_python,librosa`
@@ -787,3 +790,85 @@
     enabling size-based dispatch, then target vectorization candidates in
     phase-product reductions, DTW local-cost staging, slope smoothing, and
     magnitude-path accumulation.
+
+## 2026-06-16 17:47 KST - SIMD Hotspot Target Modes
+
+- Git status: clean at start of batch.
+- Hypothesis:
+  - adding explicit SIMD target modes will let the atlas distinguish phase
+    products, DTW local-cost staging, slope smoothing, and magnitude-path
+    accumulation without changing public production scoring;
+  - phase-product reductions are likely to be the first meaningful target
+    because they avoid changing DTW recurrence order and can be scalar-confirmed
+    before shift decisions are stored.
+- Files changed:
+  - native SIMD headers and scalar/SSE2/AVX2/AVX2+FMA units;
+  - native variant config, pybind enum exports, and private variant signatures;
+  - backend, regime, threshold, and analyzer tests/tools;
+  - AGENTS notes, backend docs, and this experiment log.
+- Commands:
+  - `uv pip install -e .`
+  - `uv run --with pytest --with pytest-benchmark python -m pytest -q tests/test_iso18571_backends.py --iso18571-backends local_iso_numpy,local_iso_native`
+  - `ISO18571_REGIME_FAMILIES=chirp ISO18571_REGIME_LENGTHS=4096 ISO18571_REGIME_THREADS=1 ISO18571_REGIME_VARIANTS=dtw_current+all_reductions+parallel_none ISO18571_REGIME_SIMD_LEVELS=scalar,avx2 ISO18571_REGIME_SIMD_TARGETS=gradient_only,phase_products,dtw_local_cost,slope_smoothing,magnitude_path uv run --with pytest --with pytest-benchmark python -m pytest -q tests/test_iso18571_regime_benchmarks.py -o addopts= -m regime --benchmark-disable`
+  - `mkdir -p .benchmarks/iso18571-simd-target-smoke && ISO18571_REGIME_FAMILIES=chirp,gaussian_noise,sparse_spikes,phase_multitone_shift_020,phase_chirp_shift_050,phase_smooth_step_shift_180 ISO18571_REGIME_LENGTHS=4096,8192 ISO18571_REGIME_THREADS=1,8 ISO18571_REGIME_VARIANTS=dtw_current+reduce_none+parallel_none,dtw_current+all_reductions+blocked128 ISO18571_REGIME_SIMD_LEVELS=scalar,avx2,avx2_fma ISO18571_REGIME_SIMD_TARGETS=gradient_only,phase_products,dtw_local_cost,slope_smoothing,magnitude_path uv run --with pytest --with pytest-benchmark python -m pytest -q tests/test_iso18571_regime_benchmarks.py -o addopts= -m regime --benchmark-warmup off --benchmark-min-rounds 1 --benchmark-max-time 0.01 --benchmark-quiet --benchmark-json .benchmarks/iso18571-simd-target-smoke/regime.json`
+  - `uv run python tools/iso18571/analyze_variant_regimes.py .benchmarks/iso18571-simd-target-smoke/regime.json > .benchmarks/iso18571-simd-target-smoke/summary.md`
+  - `uv run --with pytest --with pytest-benchmark python -m pytest -q`
+  - `uv run --with pytest --with pytest-benchmark --with scipy --with dtwalign --with dtaidistance --with dtw-python --with librosa python -m pytest -q tests/test_iso18571_backends.py --iso18571-backends local_iso_numpy,local_iso_native,dtwalign,dtaidistance,dtw_python,librosa`
+  - `uv run --with pytest --with pytest-benchmark --with scipy --with dtwalign --with dtw-python --with librosa python -m pytest -q tests/test_rating_original_parity.py -o addopts= -m oracle`
+  - `uv run --with pytest --with pytest-benchmark python -m pytest -q tests/test_rating_original_parity.py -o addopts= -m stress`
+  - `uv run --with ruff ruff check --fix .`
+  - `uv run --with ruff ruff format .`
+  - `uv run --with ruff ruff check .`
+  - `uv run --with ruff ruff format --check .`
+- Validation result:
+  - editable CMake build succeeded without visible compiler warnings;
+  - focused native backend tests: `17 passed`;
+  - regime target-axis smoke without benchmarking: `10 passed`;
+  - measured target smoke atlas: `540 passed in 57.93s`;
+  - default pytest after keeping target modes opt-in for regime collection:
+    `19 passed, 111622 deselected`;
+  - eligible backend matrix: `25 passed`;
+  - oracle parity: `1 passed, 2 deselected`;
+  - long generated native stress: `1 passed, 2 deselected`;
+  - Ruff check/format passed after reformatting two Python files.
+  - wheel build and wheel smoke succeeded;
+  - assembly emission/report succeeded.
+- Implementation notes:
+  - `SimdTargetMode` is exported through pybind and `iso18571_native`;
+  - private variant hooks now require explicit target mode arguments;
+  - phase-product SIMD uses contiguous value workspaces and scalar-confirms any
+    candidate within `1e-10` of the current best or any candidate that could
+    become the new best;
+  - DTW local-cost staging SIMD prepares row/block costs but leaves recurrence
+    and predecessor tie decisions scalar;
+  - slope smoothing keeps edges scalar and vectorizes only interior 9-point
+    windows;
+  - magnitude-path accumulation backtracks the exact path, groups long
+    contiguous diagonal/vertical/horizontal runs, and falls back to scalar for
+    short or irregular runs.
+- Benchmark/result:
+  - in the 4096/8192 smoke atlas, all target modes preserved parity;
+  - the analyzer's first candidate was
+    `dtw_current+all_reductions+blocked128+simd_avx2+target_phase_products`
+    with 8 threads at `effective_n >= 7782`, mean ratio `0.402` over 5 covered
+    rows;
+  - several target rows remained unstable or dominated in the small medium slice,
+    so this result should guide the next broader atlas rather than production
+    dispatch.
+- Assembly observations:
+  - `_core.s`: 126869 lines, vector instructions visible through inlined code,
+    and pybind-visible calls/stack traffic still dominate the simple scan;
+  - `simd_avx2.s`: 90 YMM lines and no obvious wrinkle from the simple scan;
+  - `simd_avx2_fma.s`: 15 YMM lines and 2 FMA lines, so the phase dot-product
+    FMA kernel is now visible in emitted assembly;
+  - `simd_sse2.s`: vector instructions present with no obvious wrinkle.
+- Conclusion:
+  - the SIMD target-mode infrastructure is in place and correctness gates are
+    green;
+  - production scoring remains unchanged;
+  - `phase_products` is the first target worth broadening across larger lengths
+    and thread counts.
+- Next hypothesis:
+  - run a broader `phase_products` atlas across `4096,8192,12288,16384,32768,
+    65536` and then test pairwise combinations only if a single target remains
+    preferred or competitive across families.
