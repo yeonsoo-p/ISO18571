@@ -17,6 +17,7 @@ REMOVED_NATIVE_STRING_HOOKS = (
     "_score_components_" + "variant(",
     "_magnitude_ratio_" + "variant(",
 )
+INLINE_IMPORT_SCAN_ROOTS = ("iso18571", "iso18571_native", "tests", "tools", "main.py")
 
 
 def test_tests_use_assert_raise_and_marker_deselection_only() -> None:
@@ -31,13 +32,16 @@ def test_tests_use_assert_raise_and_marker_deselection_only() -> None:
     assert not violations, "\n".join(violations)
 
 
-def test_test_modules_do_not_use_inline_imports() -> None:
-    root = Path(__file__).resolve().parent
+def test_project_python_does_not_use_inline_imports() -> None:
+    root = Path(__file__).resolve().parents[1]
     violations = []
-    for path in sorted(root.glob("test_*.py")):
-        text = path.read_text()
-        if INLINE_IMPORT_PATTERN.search(text):
-            violations.append(f"{path.relative_to(root.parent)} contains an inline import")
+    for scan_root in INLINE_IMPORT_SCAN_ROOTS:
+        path = root / scan_root
+        candidates = [path] if path.is_file() else sorted(path.rglob("*.py"))
+        for candidate in candidates:
+            text = candidate.read_text()
+            if INLINE_IMPORT_PATTERN.search(text):
+                violations.append(f"{candidate.relative_to(root)} contains an inline import")
 
     assert not violations, "\n".join(violations)
 

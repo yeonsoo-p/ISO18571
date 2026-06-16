@@ -31,9 +31,9 @@ target_include_directories(_core PRIVATE src/iso18571_native)
 target_compile_definitions(_core PRIVATE ${ISO18571_NATIVE_DEFINITIONS})
 
 if(MSVC)
-    target_compile_options(_core PRIVATE /O2 /fp:precise)
+    target_compile_options(_core PRIVATE /O2 /fp:precise /W4 /permissive-)
 else()
-    target_compile_options(_core PRIVATE -O3)
+    target_compile_options(_core PRIVATE -O3 -Wall -Wextra -Wpedantic)
 endif()
 
 if(ISO18571_PROCESSOR MATCHES "x86_64|amd64|x64")
@@ -50,9 +50,14 @@ if(ISO18571_PROCESSOR MATCHES "x86_64|amd64|x64")
     endif()
 endif()
 
+if(NOT MSVC)
+    set_source_files_properties(src/iso18571_native/_core.cpp PROPERTIES COMPILE_OPTIONS "-Wno-pedantic")
+endif()
+
 install(TARGETS _core
     LIBRARY DESTINATION iso18571_native
     RUNTIME DESTINATION iso18571_native
 )
+install(FILES iso18571/__init__.py iso18571/optional.py iso18571/rating.py DESTINATION iso18571)
 install(FILES iso18571_native/__init__.py DESTINATION iso18571_native)
-install(FILES rating.py main.py DESTINATION .)
+install(FILES main.py DESTINATION .)

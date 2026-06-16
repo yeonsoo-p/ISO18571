@@ -1,5 +1,7 @@
 import numpy as np
 
+from iso18571.optional import optional_attr, optional_module
+
 
 class CurveLengthError(Exception):
     pass
@@ -48,6 +50,20 @@ def _normalise_dtw_backend(backend: str) -> str:
         return DTW_BACKEND_ALIASES[backend]
     except KeyError as exc:
         raise ValueError(f"Unknown DTW backend '{backend}'. Valid backends: {', '.join(DTW_BACKENDS)}") from exc
+
+
+def _backend_module(module_name: str, package_name: str, backend_name: str):
+    try:
+        return optional_module(module_name, package_name, backend_name)
+    except ImportError as exc:
+        raise DTWBackendError(str(exc)) from exc
+
+
+def _backend_attr(module_name: str, attr_name: str, package_name: str, backend_name: str):
+    try:
+        return optional_attr(module_name, attr_name, package_name, backend_name)
+    except ImportError as exc:
+        raise DTWBackendError(str(exc)) from exc
 
 
 def _dtw_window_radius(n: int, window_size: float) -> int:
@@ -256,10 +272,7 @@ def _compute_magnitude_local_iso_numpy(
 def _compute_magnitude_local_iso_native(
     x: np.ndarray, y: np.ndarray, window_size: float
 ) -> tuple[np.ndarray, np.ndarray]:
-    try:
-        from iso18571_native import warp_path
-    except ImportError as exc:
-        raise DTWBackendError("The native ISO/TS 18571 backend is not built") from exc
+    warp_path = _backend_attr("iso18571_native", "warp_path", "iso18571_native", DTW_BACKEND_LOCAL_ISO_NATIVE)
 
     path = warp_path(
         np.asarray(x, dtype=np.float64),
@@ -270,10 +283,9 @@ def _compute_magnitude_local_iso_native(
 
 
 def _compute_magnitude_ratio_local_iso_native(x: np.ndarray, y: np.ndarray, window_size: float) -> float:
-    try:
-        from iso18571_native import magnitude_ratio
-    except ImportError as exc:
-        raise DTWBackendError("The native ISO/TS 18571 backend is not built") from exc
+    magnitude_ratio = _backend_attr(
+        "iso18571_native", "magnitude_ratio", "iso18571_native", DTW_BACKEND_LOCAL_ISO_NATIVE
+    )
 
     return float(
         magnitude_ratio(
@@ -302,10 +314,9 @@ def _score_components_local_iso_native(
     w_s: float,
     dt: float,
 ) -> dict[str, float]:
-    try:
-        from iso18571_native import score_components
-    except ImportError as exc:
-        raise DTWBackendError("The native ISO/TS 18571 backend is not built") from exc
+    score_components = _backend_attr(
+        "iso18571_native", "score_components", "iso18571_native", DTW_BACKEND_LOCAL_ISO_NATIVE
+    )
 
     return score_components(
         np.asarray(reference_curve, dtype=np.float64),
@@ -329,12 +340,9 @@ def _score_components_local_iso_native(
 
 
 def _compute_magnitude_dtwalign(x: np.ndarray, y: np.ndarray, window_size: float) -> tuple[np.ndarray, np.ndarray]:
-    try:
-        from dtwalign import dtw_low
-        from dtwalign.step_pattern import UserStepPattern
-        from dtwalign.window import SakoechibaWindow
-    except ImportError as exc:
-        raise DTWBackendError("The 'dtwalign' package is required for dtw_backend='dtwalign'") from exc
+    dtw_low = _backend_attr("dtwalign", "dtw_low", "dtwalign", DTW_BACKEND_DTWALIGN)
+    UserStepPattern = _backend_attr("dtwalign.step_pattern", "UserStepPattern", "dtwalign", DTW_BACKEND_DTWALIGN)
+    SakoechibaWindow = _backend_attr("dtwalign.window", "SakoechibaWindow", "dtwalign", DTW_BACKEND_DTWALIGN)
 
     n = x.shape[0]
     radius = _dtw_window_radius(n, window_size)
@@ -351,10 +359,7 @@ def _compute_magnitude_dtwalign(x: np.ndarray, y: np.ndarray, window_size: float
 
 
 def _compute_magnitude_dtaidistance(x: np.ndarray, y: np.ndarray, window_size: float) -> tuple[np.ndarray, np.ndarray]:
-    try:
-        from dtaidistance import dtw
-    except ImportError as exc:
-        raise DTWBackendError("The 'dtaidistance' package is required for dtw_backend='dtaidistance'") from exc
+    dtw = _backend_module("dtaidistance.dtw", "dtaidistance", DTW_BACKEND_DTAIDISTANCE)
 
     radius = _dtw_window_radius(x.shape[0], window_size)
     _, paths = dtw.warping_paths(
@@ -370,10 +375,7 @@ def _compute_magnitude_dtaidistance(x: np.ndarray, y: np.ndarray, window_size: f
 
 
 def _compute_magnitude_dtw_python(x: np.ndarray, y: np.ndarray, window_size: float) -> tuple[np.ndarray, np.ndarray]:
-    try:
-        import dtw
-    except ImportError as exc:
-        raise DTWBackendError("The 'dtw-python' package is required for dtw_backend='dtw_python'") from exc
+    dtw = _backend_module("dtw", "dtw-python", DTW_BACKEND_DTW_PYTHON)
 
     radius = _dtw_window_radius(x.shape[0], window_size)
     cost = np.square(x[:, np.newaxis] - y[np.newaxis, :])
@@ -389,10 +391,7 @@ def _compute_magnitude_dtw_python(x: np.ndarray, y: np.ndarray, window_size: flo
 
 
 def _compute_magnitude_tslearn(x: np.ndarray, y: np.ndarray, window_size: float) -> tuple[np.ndarray, np.ndarray]:
-    try:
-        from tslearn.metrics import dtw_path_from_metric
-    except ImportError as exc:
-        raise DTWBackendError("The 'tslearn' package is required for dtw_backend='tslearn'") from exc
+    dtw_path_from_metric = _backend_attr("tslearn.metrics", "dtw_path_from_metric", "tslearn", DTW_BACKEND_TSLEARN)
 
     radius = _dtw_window_radius(x.shape[0], window_size) - 1
     path, _ = dtw_path_from_metric(
@@ -407,10 +406,7 @@ def _compute_magnitude_tslearn(x: np.ndarray, y: np.ndarray, window_size: float)
 
 
 def _compute_magnitude_librosa(x: np.ndarray, y: np.ndarray, window_size: float) -> tuple[np.ndarray, np.ndarray]:
-    try:
-        import librosa
-    except ImportError as exc:
-        raise DTWBackendError("The 'librosa' package is required for dtw_backend='librosa'") from exc
+    librosa = _backend_module("librosa", "librosa", DTW_BACKEND_LIBROSA)
 
     cost = _local_cost_matrix(x, y, window_size)
     step_sizes = np.asarray([[1, 0], [0, 1], [1, 1]], dtype=np.uint32)

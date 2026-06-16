@@ -3,12 +3,12 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-import rating
+import iso18571
+from iso18571_native import score_components
 from tests.iso18571_annex import AnnexCase
 from tests.iso18571_signals import signal_case
 from tests.iso18571_test_helpers import (
     rating_original_iso,
-    score_components,
     score_with_expected_numeric_warnings,
 )
 
@@ -21,7 +21,7 @@ def _scores_from_backend(case: AnnexCase, backend: str) -> dict[str, float | int
     if backend == ORACLE_BACKEND:
         iso = rating_original_iso(case.reference_curve, case.comparison_curve)
     else:
-        iso = rating.ISO18571(
+        iso = iso18571.ISO18571(
             case.reference_curve,
             case.comparison_curve,
             dt=case.dt,

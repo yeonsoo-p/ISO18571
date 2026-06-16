@@ -25,14 +25,26 @@ def compiler() -> str:
     return shutil.which("c++") or shutil.which("g++") or shutil.which("clang++") or "c++"
 
 
+def pybind11_include_flags(*, msvc: bool) -> list[str]:
+    output = subprocess.check_output([sys.executable, "-m", "pybind11", "--includes"], text=True)
+    flags = output.split()
+    if not msvc:
+        return flags
+    return [f"/I{flag[2:]}" if flag.startswith("-I") else flag for flag in flags]
+
+
 def unix_commands(out_dir: Path) -> list[list[str]]:
     cxx = compiler()
     common = [
         cxx,
         "-std=c++17",
         "-O3",
+        "-Wall",
+        "-Wextra",
+        "-Wpedantic",
         "-I",
         str(SRC_DIR),
+        *pybind11_include_flags(msvc=False),
         "-DISO18571_COMPILED_SCALAR=1",
         "-DISO18571_COMPILED_SSE2=1",
         "-DISO18571_COMPILED_AVX2=1",
@@ -40,6 +52,7 @@ def unix_commands(out_dir: Path) -> list[list[str]]:
         "-S",
     ]
     sources = (
+        ("_core.cpp", ("-Wno-pedantic",)),
         ("simd_scalar.cpp", ()),
         ("simd_sse2.cpp", ("-msse2",)),
         ("simd_avx2.cpp", ("-mavx2",)),
@@ -54,6 +67,7 @@ def unix_commands(out_dir: Path) -> list[list[str]]:
 
 def msvc_commands(out_dir: Path) -> list[list[str]]:
     sources = (
+        ("_core.cpp", ()),
         ("simd_scalar.cpp", ()),
         ("simd_sse2.cpp", ()),
         ("simd_avx2.cpp", ("/arch:AVX2",)),
@@ -69,8 +83,11 @@ def msvc_commands(out_dir: Path) -> list[list[str]]:
                 "/std:c++17",
                 "/O2",
                 "/fp:precise",
+                "/W4",
+                "/permissive-",
                 "/EHsc",
                 f"/I{SRC_DIR}",
+                *pybind11_include_flags(msvc=True),
                 "/DISO18571_COMPILED_SCALAR=1",
                 "/DISO18571_COMPILED_SSE2=1",
                 "/DISO18571_COMPILED_AVX2=1",

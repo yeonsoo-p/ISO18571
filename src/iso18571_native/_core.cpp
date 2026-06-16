@@ -2056,7 +2056,7 @@ py::dict score_components_variant_spec(
     return out;
 }
 
-py::dict simd_info() {
+py::dict simd_info_dict() {
     const SimdCapabilities capabilities = iso18571_native::simd_capabilities();
     py::dict out;
     out["compiled_scalar"] = capabilities.compiled_scalar;
@@ -2108,7 +2108,7 @@ PYBIND11_MODULE(_core, m) {
         .value("Avx2Fma", SimdLevel::Avx2Fma)
         .value("Auto", SimdLevel::Auto);
     m.def("backend_info", &backend_info);
-    m.def("_simd_info", &simd_info);
+    m.def("_simd_info", &simd_info_dict);
     m.def("warp_path", &warp_path, py::arg("x"), py::arg("y"), py::arg("window_size"));
     m.def("magnitude_ratio", &magnitude_ratio, py::arg("x"), py::arg("y"), py::arg("window_size"));
     m.def(

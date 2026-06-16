@@ -155,16 +155,17 @@ SIMD experiments are an additional enum-based atlas axis. Benchmark environment
 variables remain readable strings, but tests map them to native `DtwLayout`,
 `ReductionMode`, `ParallelMode`, and `SimdLevel` values before calling C++.
 Supported SIMD levels are `scalar`, `sse2`, `avx2`, `avx2_fma`, and `auto`;
-AVX-512 is intentionally excluded.
+AVX-512 is intentionally excluded. `auto` is runtime dispatch behavior for
+smoke/parity checks, not a regime benchmark axis.
 
 Focused atlas runs can be filtered with environment variables:
 
 ```bash
 ISO18571_REGIME_FAMILIES=chirp,gaussian_noise,phase_chirp_shift_050 \
 ISO18571_REGIME_LENGTHS=8192,16384,32768,65536 \
-ISO18571_REGIME_THREADS=4,8 \
+ISO18571_REGIME_THREADS=1,2,4,8,12,16,24 \
 ISO18571_REGIME_VARIANTS=dtw_current+reduce_none+parallel_none,dtw_current+all_reductions+blocked128 \
-ISO18571_REGIME_SIMD_LEVELS=scalar,auto \
+ISO18571_REGIME_SIMD_LEVELS=scalar,sse2,avx2,avx2_fma \
 uv run --with pytest --with pytest-benchmark \
   python -m pytest -q tests/test_iso18571_regime_benchmarks.py \
   -o addopts= -m regime \
@@ -183,19 +184,14 @@ uv run python tools/iso18571/report_assembly_wrinkles.py \
   .benchmarks/iso18571-asm
 ```
 
-Latest large-regime focused result: for nominal lengths `8192, 16384, 32768,
-65536` across chirp, Gaussian noise, and analytic phase families,
-`dtw_current+all_reductions+blocked128` with 8 threads was the best measured
-variant for every case. The analyzer proposed `effective_n >= 6717` as the
-stable dispatch threshold for that measured slice.
-
-Latest SIMD-focused atlas result: for lengths `512, 1430, 4096, 8192, 16384,
-32768, 65536` across chirp, Gaussian noise, sparse spikes, and analytic phase
-families, all 1260 enum/SIMD rows passed parity checks. The earliest stable
-dispatch candidate in that measured matrix was `effective_n >= 16286` to
-`dtw_current+all_reductions+blocked128+simd_auto` with 8 threads, mean ratio
-`0.432` versus scalar current. SIMD itself was secondary to blocked wavefront
-parallelism in this batch.
+Latest no-auto thread-ceiling atlas result: for nominal lengths `4096, 8192,
+12288, 16384, 32768, 65536` across chirp, Gaussian noise, sparse spikes, and
+analytic phase families, all 1296 enum/SIMD rows passed parity checks.
+`dtw_current+all_reductions+blocked128` beat the scalar serial baseline in every
+tested family, but the best thread count was size dependent: 8 threads was
+strong around input length 8192, 12 threads around 12288-16384, and 16/24
+threads around 32768-65536. The analyzer produced candidate thresholds, but
+this remains an atlas result rather than a production dispatch policy.
 
 Build a Linux wheel:
 

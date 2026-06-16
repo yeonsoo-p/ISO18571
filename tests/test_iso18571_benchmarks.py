@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from rating import ISO18571
+from iso18571 import ISO18571
 from tests.iso18571_annex import THEORETICAL_INTEGRITY
 
 

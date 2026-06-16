@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from rating import DTW_BACKENDS, _normalise_dtw_backend
+from iso18571.rating import DTW_BACKENDS, _normalise_dtw_backend
 from tests.iso18571_annex import (
     DEFAULT_ANNEX_DIR,
     FIXED_SIGNAL_STRESS_LENGTHS,

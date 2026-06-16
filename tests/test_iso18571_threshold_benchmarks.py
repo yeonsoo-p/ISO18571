@@ -4,15 +4,15 @@ import os
 
 import numpy as np
 import pytest
-from iso18571_native._core import (
+
+from iso18571_native import (
     DtwLayout,
     ParallelMode,
     SimdLevel,
     _magnitude_ratio_variant_spec,
     _parallel_barrier_overhead,
+    magnitude_ratio,
 )
-
-from iso18571_native import magnitude_ratio
 from tests.iso18571_signals import signal_case
 
 LAYOUT_VARIANTS = (
@@ -28,7 +28,7 @@ LAYOUT_CASES = (
 )
 THRESHOLD_FAMILIES = ("sine_amp_offset", "chirp", "sparse_spikes", "gaussian_noise")
 THRESHOLD_LENGTHS = (1430, 4096, 8192, 12288, 16384, 24576, 32768)
-THREAD_COUNTS = (1, 2, 4, 8)
+THREAD_COUNTS = (1, 2, 4, 8, 12, 16, 24)
 
 
 def _values(family: str, n: int) -> tuple[np.ndarray, np.ndarray]:

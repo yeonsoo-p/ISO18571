@@ -689,3 +689,101 @@
   - continue optimization work by targeting SIMD work that can affect more than
     contiguous slope-gradient generation, likely phase-product reductions or
     DTW-local-cost staging, while preserving reduction-order parity.
+
+## 2026-06-16 17:08 KST - Package API Cleanup And No-Auto Thread Atlas
+
+- Git status: dirty at start of batch with package/API cleanup in progress.
+- Hypothesis:
+  - removing the root `rating.py` shim and using `iso18571.ISO18571` directly
+    will reduce ambiguity without changing scorer behavior;
+  - keeping `SimdLevel.Auto` out of the matrix will make the SIMD/thread atlas
+    easier to interpret;
+  - trying 12/16/24 threads in addition to 8 should reveal size regimes rather
+    than a single universal thread count.
+- Files changed:
+  - moved the scorer implementation to `iso18571/rating.py` and exported
+    `ISO18571` from `iso18571`;
+  - removed root `rating.py` and root `rating_original.py`;
+  - loaded the oracle explicitly from ignored `ref/rating_original.py`;
+  - updated `main.py` as the operator CLI surface;
+  - exported native enum/spec experiment APIs from `iso18571_native`;
+  - removed weak one-use test wrappers and kept only shared oracle/warning
+    helpers;
+  - removed `simd_auto` from regime benchmark defaults and made explicit auto
+    use fail in matrix specs;
+  - added warning-as-error pytest policy and extended the no-inline-import scan
+    across project Python;
+  - enabled C++ warning flags and emitted `_core.cpp` assembly with a narrow
+    pybind11 pedantic-warning suppression.
+- Commands:
+  - `uv run --with ruff ruff check --fix .`
+  - `uv run --with ruff ruff format .`
+  - `uv run --with ruff ruff check .`
+  - `uv run --with ruff ruff format --check .`
+  - `uv pip install -e .`
+  - `uv run --with pytest --with pytest-benchmark python -m pytest -q`
+  - `uv run --with pytest --with pytest-benchmark --with scipy --with dtwalign --with dtaidistance --with dtw-python --with librosa python -m pytest -q tests/test_iso18571_backends.py --iso18571-backends local_iso_numpy,local_iso_native,dtwalign,dtaidistance,dtw_python,librosa`
+  - `uv run --with pytest --with pytest-benchmark --with scipy --with dtwalign --with dtw-python --with librosa python -m pytest -q tests/test_rating_original_parity.py -o addopts= -m oracle`
+  - `uv run --with pytest --with pytest-benchmark python -m pytest -q tests/test_rating_original_parity.py -o addopts= -m stress`
+  - `uv build --wheel`
+  - `uv run --with dist/euroncap-0.1.0-cp313-cp313-linux_x86_64.whl python tools/iso18571/wheel_smoke.py`
+  - `uv run --with pybind11 python tools/iso18571/emit_native_assembly.py --output-dir .benchmarks/iso18571-asm && uv run python tools/iso18571/report_assembly_wrinkles.py .benchmarks/iso18571-asm`
+  - `ISO18571_REGIME_FAMILIES=chirp,gaussian_noise,sparse_spikes,phase_multitone_shift_020,phase_chirp_shift_050,phase_smooth_step_shift_180 ISO18571_REGIME_LENGTHS=4096,8192,12288,16384,32768,65536 ISO18571_REGIME_THREADS=1,2,4,8,12,16,24 ISO18571_REGIME_VARIANTS=dtw_current+reduce_none+parallel_none,dtw_current+all_reductions+parallel_none,dtw_current+all_reductions+blocked128 ISO18571_REGIME_SIMD_LEVELS=scalar,sse2,avx2,avx2_fma uv run --with pytest --with pytest-benchmark python -m pytest -q tests/test_iso18571_regime_benchmarks.py -o addopts= -m regime --benchmark-warmup off --benchmark-min-rounds 1 --benchmark-max-time 0.02 --benchmark-quiet --benchmark-json .benchmarks/iso18571-regime-no-auto-thread-ceiling/regime.json`
+  - `uv run python tools/iso18571/analyze_variant_regimes.py .benchmarks/iso18571-regime-no-auto-thread-ceiling/regime.json > .benchmarks/iso18571-regime-no-auto-thread-ceiling/summary.md`
+- Validation result:
+  - Ruff fixed 4 mechanical issues, then `ruff check` and `ruff format --check`
+    passed;
+  - editable CMake build succeeded without visible compiler warnings;
+  - default pytest: `17 passed, 111622 deselected`;
+  - eligible backend matrix: `23 passed`;
+  - oracle parity from `ref/rating_original.py`: `1 passed, 2 deselected`;
+  - long generated native stress: `1 passed, 2 deselected`;
+  - wheel build and wheel smoke succeeded;
+  - assembly emission/report succeeded after `_core.cpp` pybind pedantic macro
+    warning was handled narrowly;
+  - no-auto thread/SIMD atlas: `1296 passed in 2143.33s`.
+- Benchmark/result:
+  - blocked wavefront with all reductions beat the plain scalar baseline for
+    every tested family at input lengths 4096, 8192, 12288, 16384, 32768, and
+    65536;
+  - scalar baseline wins by input length: `0/6` families at every tested length;
+  - best-thread counts by input length:
+    - 4096: 12 threads won 3 families, 4 threads won 2, 8 threads won 1;
+    - 8192: 8 threads won 4 families, 12 threads won 2;
+    - 12288: 12 threads won 5 families, 8 threads won 1;
+    - 16384: 12 threads won 3 families, 16 won 2, 8 won 1;
+    - 32768: 24 threads won 3 families, 16 won 2, 12 won 1;
+    - 65536: 16 threads won 4 families, 24 won 2.
+  - mean best-row ratio to scalar baseline improved with size:
+    - 4096: `0.690`;
+    - 8192: `0.478`;
+    - 12288: `0.394`;
+    - 16384: `0.360`;
+    - 32768: `0.356`;
+    - 65536: `0.332`.
+  - analyzer dispatch candidates started at `effective_n >= 12288` with
+    `dtw_current+all_reductions+blocked128+simd_scalar` and 16 threads, but
+    family-level winners were mixed enough that this remains an atlas result,
+    not a production dispatch policy.
+- Assembly observations:
+  - `_core.s` is now emitted and contains many pybind-visible calls and stack
+    traffic, so manual inspection should distinguish binding code from scorer
+    hot loops before drawing conclusions;
+  - `simd_avx2.s` and `simd_sse2.s` showed expected vector instructions in the
+    simple scan;
+  - `simd_avx2_fma.s` still emitted no FMA instructions for the current SIMD
+    gradient target, so AVX2+FMA is not yet doing meaningful FMA work.
+- Conclusion:
+  - the package now exposes `iso18571.ISO18571` without a root `rating.py`
+    compatibility shim;
+  - `SimdLevel.Auto` remains runtime auto-dispatch for explicit smoke/parity
+    checks, but benchmark matrices use only explicit SIMD levels;
+  - 8 threads was not the maximum tested: 12, 16, and 24 were tested, and the
+    best choice is size-regime dependent;
+  - for the tested sub-16k inputs, naive scalar was not best, but the preferred
+    parallel thread count was not universal.
+- Next hypothesis:
+  - repeat the no-auto atlas with a more production-like timing budget before
+    enabling size-based dispatch, then target vectorization candidates in
+    phase-product reductions, DTW local-cost staging, slope smoothing, and
+    magnitude-path accumulation.

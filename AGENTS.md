@@ -19,7 +19,7 @@
   - preserve predecessor tie priority: vertical, horizontal, diagonal;
   - Annex scores must match expected `R`, `Z`, `EP`, `EM`, and `ES` within
     `0.001`.
-  - signal-family parity tests against `rating_original.py` live in
+  - signal-family parity tests against `ref/rating_original.py` live in
     `tests/test_rating_original_parity.py` and use generated Annex-shaped cases
     from `tests/iso18571_annex.py`;
   - generated Annex parity must compare `rating_original`, `local_iso_native`,
@@ -34,8 +34,8 @@
     excludes `oracle`, `stress`, `benchmark`, `threshold`, and `regime`.
   - prefer shared helpers in `tests/iso18571_test_helpers.py` before adding new
     test-local plumbing;
-  - do not add inline imports inside `tests/test_*.py`; module-level imports or
-    helper functions keep the test surface auditable.
+  - do not add inline imports in project Python; module-level imports or shared
+    optional-dependency loaders keep the test and package surfaces auditable.
   - expected degenerate numeric warnings must be caught and asserted explicitly;
     unexpected warnings should fail tests.
 - Build and style gates:
@@ -50,6 +50,14 @@
     `uv run --with ruff ruff format --check .`.
   - CMake builds should keep GCC/Clang `-O3`, MSVC `/O2 /fp:precise`, and no
     fast-math or native-CPU flags.
+  - project C++ code should build with warning flags enabled. The `_core.cpp`
+    pybind11 module definition has a narrow pedantic-warning suppression for the
+    pybind11 variadic macro; do not broaden warning suppressions without
+    documenting the reason.
+- Python API:
+  - the public scorer is `iso18571.ISO18571`;
+  - the root `rating.py` compatibility shim has been removed by user request;
+  - keep `main.py` as the operator/CLI surface.
 - Benchmark rules:
   - run backend benchmarks in fresh interpreter processes;
   - compare prep/first-use against `dtw_python`;
@@ -76,21 +84,26 @@
   - supported SIMD levels are scalar, SSE2, AVX2, AVX2+FMA, and auto; AVX-512
     is intentionally not implemented. Runtime dispatch must fall back safely
     for prebuilt wheels.
+  - `SimdLevel.Auto` is a runtime dispatch feature for explicit smoke/parity
+    tests, not a benchmark matrix axis. Regime benchmark matrices should use
+    explicit `scalar`, `sse2`, `avx2`, and `avx2_fma` SIMD levels.
   - filter SIMD atlas runs with `ISO18571_REGIME_SIMD_LEVELS`, for example
-    `scalar,avx2,avx2_fma,auto`.
+    `scalar,avx2,avx2_fma`.
   - inspect compiler output with
     `tools/iso18571/emit_native_assembly.py` and
     `tools/iso18571/report_assembly_wrinkles.py`; assembly artifacts belong
     under `.benchmarks/` and findings are reporting-only unless the user asks
     for a follow-up optimization batch.
-  - current large-slice candidate: `effective_n >= 6717` dispatch to
-    `dtw_current+all_reductions+blocked128` with 8 threads, pending broader
-    production-dispatch validation.
-  - current SIMD-focused candidate: `effective_n >= 16286` dispatch to
-    `dtw_current+all_reductions+blocked128+simd_auto` with 8 threads. In the
-    first SIMD atlas, SIMD was secondary to blocked wavefront parallelism; next
-    SIMD work should target phase-product reductions or DTW-local-cost staging
-    only if reduction-order parity can be preserved.
+  - current no-auto thread-ceiling atlas result: blocked wavefront parallelism
+    wins all tested fixed/phase/noise families at input lengths 4096 through
+    65536, but the best thread count is size-dependent. In the 2026-06-16
+    no-auto atlas, 8 threads was strongest around input length 8192, 12 threads
+    around 12288-16384, and 16/24 threads around 32768-65536. Do not hard-code a
+    universal thread count from this result.
+  - current production-dispatch candidate remains experimental: use a
+    size-regime policy over `dtw_current+all_reductions+blocked128` only after a
+    repeated validation run confirms the crossover; keep public production
+    scoring unchanged until then.
 - Experiment tracking:
   - append every meaningful experiment to
     `docs/iso18571-dtw-experiment-log.md`;

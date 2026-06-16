@@ -6,18 +6,18 @@ from functools import lru_cache
 
 import numpy as np
 import pytest
-from iso18571_native._core import (
+
+from iso18571_native import (
     DtwLayout,
     ParallelMode,
     ReductionMode,
     SimdLevel,
     _score_components_variant_spec,
+    score_components,
 )
-
-from iso18571_native import score_components
 from tests.iso18571_annex import fixed_signal_annex_case, phase_shift_annex_case
 
-REGIME_LENGTHS = (64, 129, 512, 1430, 4096, 8192, 16384, 32768, 65536)
+REGIME_LENGTHS = (4096, 8192, 12288, 16384, 32768, 65536)
 REGIME_FAMILIES = (
     "sine_amp_offset",
     "chirp",
@@ -31,8 +31,8 @@ REGIME_FAMILIES = (
 DTW_LAYOUTS = ("dtw_current", "dtw_range_precompute", "dtw_index_incremental", "dtw_compact_direction")
 REDUCTIONS = ("reduce_none", "phase_dual_product", "fused_slope", "shared_shift_workspace", "all_reductions")
 PARALLEL_FORMS = ("parallel_none", "blocked64", "blocked128", "blocked256", "blocked512")
-SIMD_LEVELS = ("scalar", "sse2", "avx2", "avx2_fma", "auto")
-THREAD_COUNTS = (1, 2, 4, 8)
+SIMD_LEVELS = ("scalar", "sse2", "avx2", "avx2_fma")
+THREAD_COUNTS = (1, 2, 4, 8, 12, 16, 24)
 
 DTW_LAYOUT_MAP = {
     "dtw_current": DtwLayout.Current,
@@ -52,7 +52,6 @@ SIMD_LEVEL_MAP = {
     "sse2": SimdLevel.Sse2,
     "avx2": SimdLevel.Avx2,
     "avx2_fma": SimdLevel.Avx2Fma,
-    "auto": SimdLevel.Auto,
 }
 
 
@@ -105,6 +104,15 @@ def _split_variant(variant: str) -> tuple[str, str, str, str | None]:
     return dtw_layout, reduction, parallel_form, simd_level
 
 
+def _simd_level_from_label(simd_level: str) -> SimdLevel:
+    if simd_level == "auto":
+        raise AssertionError("simd_auto is dispatch behavior, not a benchmark matrix level")
+    try:
+        return SIMD_LEVEL_MAP[simd_level]
+    except KeyError as exc:
+        raise AssertionError(f"unknown SIMD level {simd_level}") from exc
+
+
 @lru_cache(maxsize=None)
 def _case(family: str, n: int):
     if family.startswith("phase_"):
@@ -147,7 +155,7 @@ def _variant_params():
                                 parallel_mode,
                                 block_size,
                                 simd_level,
-                                SIMD_LEVEL_MAP[simd_level],
+                                _simd_level_from_label(simd_level),
                                 max_threads,
                                 id=f"{family}__n{n}__{variant_label}__t{max_threads}",
                             )
@@ -171,7 +179,7 @@ def _variant_params():
                                         parallel_mode,
                                         block_size,
                                         simd_level,
-                                        SIMD_LEVEL_MAP[simd_level],
+                                        _simd_level_from_label(simd_level),
                                         max_threads,
                                         id=f"{family}__n{n}__{variant}__t{max_threads}",
                                     )
