@@ -401,3 +401,74 @@
   barriers and focus on larger-grain parallelism, cache-aware tiling inside the
   band, or a compiled scorer-level split that preserves exact ISO predecessor
   order while reducing synchronization frequency.
+
+## 2026-06-16 14:12 KST - Analytic Phase Annexes And Native Regime Atlas
+
+- Git status: clean at start of batch on `master` after commit `9daa63b`.
+- Hypothesis: performance work should map which exact variant is better by
+  data-size regime rather than accepting or rejecting variants globally.
+  Analytic phase-shift cases should be part of the generated Annex coverage,
+  and parity should compare `rating_original`, `local_iso_native`,
+  `dtw_python`, and `librosa`.
+- Files changed:
+  - `tests/iso18571_signals.py`;
+  - `tests/iso18571_annex.py`;
+  - `tests/conftest.py`;
+  - `tests/test_rating_original_parity.py`;
+  - `tests/test_iso18571_backends.py`;
+  - added `tests/test_iso18571_regime_benchmarks.py`;
+  - `rating.py`;
+  - `src/iso18571_native/_core.cpp`;
+  - added `tools/iso18571/analyze_variant_regimes.py`;
+  - `pytest.ini`;
+  - `AGENTS.md`;
+  - `docs/iso18571-dtw-backends.md`;
+  - `docs/iso18571-dtw-experiment-log.md`.
+- Commands:
+  - `uv pip install -e .`
+  - `uv run --with pytest --with pytest-benchmark python -m pytest -q tests/test_iso18571_backends.py --iso18571-backends local_iso_native -k "score_component_variants or experimental_variants"`
+  - `uv run --with pytest --with pytest-benchmark python -m pytest -q`
+  - `uv run --with pytest --with pytest-benchmark --with dtwalign --with scipy --with dtw-python --with librosa python -m pytest -q tests/test_rating_original_parity.py -o addopts= -m oracle`
+  - `uv run --with pytest --with pytest-benchmark --with dtwalign --with dtaidistance --with dtw-python --with librosa --with scipy python -m pytest -q tests/test_iso18571_backends.py --iso18571-backends local_iso_numpy,local_iso_native,dtwalign,dtaidistance,dtw_python,librosa`
+  - `uv run --with pytest --with pytest-benchmark python -m pytest -q tests/test_rating_original_parity.py -o addopts= -m stress`
+  - `uv run --with pytest --with pytest-benchmark python -m pytest -q tests/test_iso18571_regime_benchmarks.py -o addopts= -m regime -k "sine_amp_offset__n64" --benchmark-warmup off --benchmark-min-rounds 1 --benchmark-max-time 0.1 --benchmark-json .benchmarks/iso18571-regime-smoke/regime.json`
+  - `uv run python tools/iso18571/analyze_variant_regimes.py .benchmarks/iso18571-regime-smoke/regime.json`
+  - `rg -n "pytest\\.(skip|fail|importorskip|raises|xfail)|@pytest\\.mark\\.(skip|xfail)" tests pytest.ini`
+  - `rg -n "^\\s*return\\s*$" tests`
+- Validation result:
+  - default suite: `13 passed, 24637 deselected`, no skips;
+  - cross-backend generated Annex parity: `1 passed, 2 deselected`, no skips;
+  - long generated Annex native stress, including 65536-point cases:
+    `1 passed, 2 deselected`;
+  - eligible backend matrix: `21 passed`;
+  - private scorer variant smoke: `2 passed, 9 deselected`;
+  - forbidden pytest outcome API scan and silent-return scan found no matches.
+- Correctness finding:
+  - cross-backend parity exposed that the shared Python scorer could turn
+    near-zero-variance constant correlations into `1.0` while
+    `rating_original` returned `NaN`;
+  - `rating.py` now falls back to `np.corrcoef` for numerically degenerate
+    shifted-correlation windows, preserving oracle behavior for constants and
+    tiny phase-shift cases.
+- Benchmark/result:
+  - added analytic phase-shift generated Annex families:
+    multitone shifts, chirp shift, pulse shift, and smooth-step shift;
+  - added `_score_components_variant` as a private native hook for full-scorer
+    variants;
+  - added exact native variants for DTW range precompute, index-incremental
+    direction indexing, compact direction storage, shared shifted workspace,
+    phase dual-product, fused slope, and blocked wavefront DTW;
+  - regime smoke for `sine_amp_offset`, `n=64` ran 340 benchmark rows;
+    current serial variants were preferred/competitive in the tiny regime,
+    while blocked/threaded variants were dominated there, as expected.
+- Conclusion:
+  - the implementation now supports performance-regime mapping by
+    `effective_n` and DTW cell count instead of global accept/reject decisions;
+  - production `score_components` remains unchanged until a stable
+    data-size-dispatch policy is proven across families;
+  - blocked wavefront is now a real kernel behind the private variant hook, but
+    it still needs large-regime atlas runs to find its crossover.
+- Next hypothesis: run a filtered atlas over `8192`, `16384`, `32768`, and
+  `65536` for the phase/chirp/noise families to characterize where blocked
+  wavefront starts beating serial, then use the analyzer to propose an
+  `effective_n` dispatch threshold only if it is stable across families.

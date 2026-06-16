@@ -29,6 +29,14 @@ SIGNAL_FAMILIES = (
     "piecewise_discontinuous",
 )
 
+PHASE_SHIFT_SIGNAL_FAMILIES = (
+    "phase_multitone_shift_005",
+    "phase_multitone_shift_020",
+    "phase_chirp_shift_050",
+    "phase_pulses_shift_100",
+    "phase_smooth_step_shift_180",
+)
+
 
 def curve(values: np.ndarray, dt: float = 0.0001) -> np.ndarray:
     time = np.arange(values.shape[0], dtype=np.float64) * dt
@@ -94,5 +102,59 @@ def signal_case(family: str, n: int) -> SignalCase:
         comparison = reference + np.where(t > 0.5, -0.07, 0.04)
     else:
         raise ValueError(f"Unknown signal family {family}")
+
+    return SignalCase(family=family, reference=curve(reference), comparison=curve(comparison))
+
+
+def _phase_multitone(t: np.ndarray) -> np.ndarray:
+    return (
+        0.65 * np.sin(2.0 * np.pi * 3.0 * t)
+        + 0.25 * np.sin(2.0 * np.pi * 7.0 * t + 0.35)
+        + 0.10 * np.cos(2.0 * np.pi * 11.0 * t - 0.2)
+    )
+
+
+def _phase_chirp(t: np.ndarray) -> np.ndarray:
+    return np.sin(2.0 * np.pi * (1.5 * t + 10.0 * t * t))
+
+
+def _phase_pulses(t: np.ndarray) -> np.ndarray:
+    centers = np.asarray([0.18, 0.41, 0.73], dtype=np.float64)
+    widths = np.asarray([0.012, 0.025, 0.018], dtype=np.float64)
+    amplitudes = np.asarray([1.0, -0.75, 0.55], dtype=np.float64)
+    values = np.zeros_like(t)
+    for center, width, amplitude in zip(centers, widths, amplitudes, strict=True):
+        values += amplitude * np.exp(-0.5 * ((t - center) / width) ** 2)
+    return values
+
+
+def _phase_smooth_step(t: np.ndarray) -> np.ndarray:
+    return 0.75 * np.tanh((t - 0.38) / 0.025) - 0.45 * np.tanh((t - 0.68) / 0.035)
+
+
+def analytic_phase_signal_case(family: str, n: int) -> SignalCase:
+    t = np.linspace(0.0, 1.0, n, endpoint=False, dtype=np.float64)
+    if family == "phase_multitone_shift_005":
+        shift = 0.005
+        reference = _phase_multitone(t)
+        comparison = _phase_multitone(t - shift)
+    elif family == "phase_multitone_shift_020":
+        shift = 0.020
+        reference = _phase_multitone(t)
+        comparison = _phase_multitone(t - shift)
+    elif family == "phase_chirp_shift_050":
+        shift = 0.050
+        reference = _phase_chirp(t)
+        comparison = _phase_chirp(t - shift)
+    elif family == "phase_pulses_shift_100":
+        shift = 0.100
+        reference = _phase_pulses(t)
+        comparison = _phase_pulses(t - shift)
+    elif family == "phase_smooth_step_shift_180":
+        shift = 0.180
+        reference = _phase_smooth_step(t)
+        comparison = _phase_smooth_step(t - shift)
+    else:
+        raise ValueError(f"Unknown analytic phase signal family {family}")
 
     return SignalCase(family=family, reference=curve(reference), comparison=curve(comparison))

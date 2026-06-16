@@ -6,9 +6,11 @@ from rating import DTW_BACKENDS, _normalise_dtw_backend
 from tests.iso18571_annex import (
     DEFAULT_ANNEX_DIR,
     FIXED_SIGNAL_STRESS_LENGTHS,
+    PHASE_SHIFT_STRESS_LENGTHS,
     load_annex_cases,
     load_fixed_signal_annex_cases,
     load_fixed_signal_benchmark_annex_cases,
+    load_phase_shift_annex_cases,
 )
 
 
@@ -49,8 +51,28 @@ def fixed_signal_annex_cases():
 
 
 @pytest.fixture(scope="session")
+def phase_shift_annex_cases():
+    return load_phase_shift_annex_cases()
+
+
+@pytest.fixture(scope="session")
+def generated_annex_cases(fixed_signal_annex_cases, phase_shift_annex_cases):
+    return [*fixed_signal_annex_cases, *phase_shift_annex_cases]
+
+
+@pytest.fixture(scope="session")
 def fixed_signal_stress_annex_cases():
     return load_fixed_signal_annex_cases(lengths=FIXED_SIGNAL_STRESS_LENGTHS)
+
+
+@pytest.fixture(scope="session")
+def phase_shift_stress_annex_cases():
+    return load_phase_shift_annex_cases(lengths=PHASE_SHIFT_STRESS_LENGTHS)
+
+
+@pytest.fixture(scope="session")
+def generated_stress_annex_cases(fixed_signal_stress_annex_cases, phase_shift_stress_annex_cases):
+    return [*fixed_signal_stress_annex_cases, *phase_shift_stress_annex_cases]
 
 
 @pytest.fixture(scope="session")

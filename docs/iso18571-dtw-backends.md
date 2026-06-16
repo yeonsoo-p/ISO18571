@@ -60,10 +60,12 @@ uv run --with pytest --with pytest-benchmark \
   --iso18571-backends local_iso_numpy,local_iso_native
 ```
 
-Validate generated fixed-signal Annex parity against `rating_original.py`:
+Validate generated Annex parity across `rating_original`, `local_iso_native`,
+`dtw_python`, and `librosa`:
 
 ```bash
-uv run --with pytest --with pytest-benchmark --with dtwalign --with scipy \
+uv run --with pytest --with pytest-benchmark \
+  --with dtwalign --with scipy --with dtw-python --with librosa \
   python -m pytest -q tests/test_rating_original_parity.py \
   -o addopts= -m oracle
 ```
@@ -129,6 +131,25 @@ uv run --with pytest --with pytest-benchmark \
 uv run python tools/iso18571/analyze_parallel_threshold.py \
   .benchmarks/iso18571-threshold/threshold.json
 ```
+
+Run the native full-scorer performance-regime atlas:
+
+```bash
+uv run --with pytest --with pytest-benchmark \
+  python -m pytest -q tests/test_iso18571_regime_benchmarks.py \
+  -o addopts= -m regime \
+  --benchmark-warmup off \
+  --benchmark-min-rounds 1 \
+  --benchmark-max-time 0.1 \
+  --benchmark-json .benchmarks/iso18571-regime/regime.json
+
+uv run python tools/iso18571/analyze_variant_regimes.py \
+  .benchmarks/iso18571-regime/regime.json
+```
+
+The regime atlas reports each variant by `effective_n`, DTW cell count, signal
+family, thread count, median runtime, IQR, speed ratio to current serial native,
+and a per-regime class. It is intentionally not a universal ranking.
 
 Build a Linux wheel:
 

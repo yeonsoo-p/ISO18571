@@ -161,3 +161,44 @@ def test_native_experimental_variants_match_public_magnitude_ratio() -> None:
         for variant, max_threads in variants:
             observed = _magnitude_ratio_variant(x, y, 0.1, variant, max_threads)
             np.testing.assert_allclose(observed, expected, rtol=1e-12, atol=1e-12, err_msg=f"{variant} n={n}")
+
+
+def test_native_score_component_variants_match_public_scorer() -> None:
+    from iso18571_native import score_components
+    from iso18571_native._core import _score_components_variant
+    from tests.iso18571_annex import fixed_signal_annex_case, phase_shift_annex_case
+
+    cases = (
+        fixed_signal_annex_case("sine_noise", 129),
+        fixed_signal_annex_case("sparse_spikes", 129),
+        phase_shift_annex_case("phase_multitone_shift_020", 129),
+    )
+    variants = (
+        ("dtw_current+reduce_none+parallel_none", 1),
+        ("dtw_range_precompute+reduce_none+parallel_none", 1),
+        ("dtw_index_incremental+phase_dual_product+parallel_none", 1),
+        ("dtw_compact_direction+shared_shift_workspace+parallel_none", 1),
+        ("dtw_index_incremental+all_reductions+parallel_none", 1),
+        ("dtw_current+all_reductions+blocked64", 2),
+    )
+    keys = ("Z", "EP", "EM", "ES", "R", "n_eps", "rho_e", "reference_start", "comparison_start", "shift_length")
+
+    for case in cases:
+        expected = score_components(case.reference_curve, case.comparison_curve, {"dt": case.dt})
+        for variant, max_threads in variants:
+            observed = _score_components_variant(
+                case.reference_curve,
+                case.comparison_curve,
+                {"dt": case.dt},
+                variant,
+                max_threads,
+            )
+            for key in keys:
+                np.testing.assert_allclose(
+                    observed[key],
+                    expected[key],
+                    rtol=1e-12,
+                    atol=1e-12,
+                    equal_nan=True,
+                    err_msg=f"{case.name} {variant} {key}",
+                )

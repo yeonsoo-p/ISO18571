@@ -80,9 +80,25 @@ def _correlation_from_sums(
     numerator = product_sum - (x_sum * y_sum / length)
     x_var = x_square_sum - (x_sum * x_sum / length)
     y_var = y_square_sum - (y_sum * y_sum / length)
+    x_scale = np.maximum(x_square_sum, np.abs(x_sum * x_sum / length))
+    y_scale = np.maximum(y_square_sum, np.abs(y_sum * y_sum / length))
+    x_tol = np.finfo(float).eps * np.maximum(1.0, x_scale) * 64.0
+    y_tol = np.finfo(float).eps * np.maximum(1.0, y_scale) * 64.0
     with np.errstate(divide="ignore", invalid="ignore"):
         correlation = numerator / np.sqrt(x_var * y_var)
+    correlation = np.where((x_var <= x_tol) | (y_var <= y_tol), np.nan, correlation)
     return np.clip(correlation, -1.0, 1.0)
+
+
+def _near_zero_variance_mask(
+    value_sum: np.ndarray,
+    square_sum: np.ndarray,
+    length: np.ndarray,
+) -> np.ndarray:
+    variance = square_sum - (value_sum * value_sum / length)
+    scale = np.maximum(square_sum, np.abs(value_sum * value_sum / length))
+    tolerance = np.finfo(float).eps * np.maximum(1.0, scale) * 64.0
+    return variance <= tolerance
 
 
 def _shifted_correlations(reference_values: np.ndarray, comparison_values: np.ndarray, window_size: int) -> tuple[np.ndarray, np.ndarray]:
@@ -120,6 +136,22 @@ def _shifted_correlations(reference_values: np.ndarray, comparison_values: np.nd
         left_comparison_square_sum,
         lengths,
     )
+    left_fallback = _near_zero_variance_mask(
+        left_reference_sum,
+        left_reference_square_sum,
+        lengths,
+    ) | _near_zero_variance_mask(
+        left_comparison_sum,
+        left_comparison_square_sum,
+        lengths,
+    )
+    for idx in np.flatnonzero(left_fallback):
+        shift = int(shifts[idx])
+        if shift == 0:
+            left_correlations[idx] = np.corrcoef(reference_values, comparison_values)[0][-1]
+        else:
+            left_correlations[idx] = np.corrcoef(reference_values[:-shift], comparison_values[shift:])[0][-1]
+
     right_correlations = _correlation_from_sums(
         right_product_sum,
         right_reference_sum,
@@ -128,6 +160,22 @@ def _shifted_correlations(reference_values: np.ndarray, comparison_values: np.nd
         right_comparison_square_sum,
         lengths,
     )
+    right_fallback = _near_zero_variance_mask(
+        right_reference_sum,
+        right_reference_square_sum,
+        lengths,
+    ) | _near_zero_variance_mask(
+        right_comparison_sum,
+        right_comparison_square_sum,
+        lengths,
+    )
+    for idx in np.flatnonzero(right_fallback):
+        shift = int(shifts[idx])
+        if shift == 0:
+            right_correlations[idx] = np.corrcoef(reference_values, comparison_values)[0][-1]
+        else:
+            right_correlations[idx] = np.corrcoef(reference_values[shift:], comparison_values[:-shift])[0][-1]
+
     return left_correlations, right_correlations
 
 

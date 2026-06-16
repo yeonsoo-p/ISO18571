@@ -21,14 +21,17 @@
     `0.001`.
   - signal-family parity tests against `rating_original.py` live in
     `tests/test_rating_original_parity.py` and use generated Annex-shaped cases
-    from `tests/iso18571_annex.py`; avoid perfectly affine synthetic ramps as
-    strict phase-oracle cases because NumPy/BLAS last-bit behavior can decide
-    strict-correlation ties.
+    from `tests/iso18571_annex.py`;
+  - generated Annex parity must compare `rating_original`, `local_iso_native`,
+    `dtw_python`, and `librosa` for `n_eps`, `rho_e`, unrounded scores, and
+    rounded scores;
+  - avoid perfectly affine synthetic ramps as strict phase-oracle cases because
+    NumPy/BLAS last-bit behavior can decide strict-correlation ties.
 - Test hygiene:
   - do not use pytest outcome helpers in tests or `tests/conftest.py`;
     outcomes should be normal `assert` or explicit `raise AssertionError`;
   - use marker categories and deselection instead of skips. Default pytest
-    excludes `oracle`, `stress`, `benchmark`, and `threshold`.
+    excludes `oracle`, `stress`, `benchmark`, `threshold`, and `regime`.
 - Benchmark rules:
   - run backend benchmarks in fresh interpreter processes;
   - compare prep/first-use against `dtw_python`;
@@ -41,6 +44,10 @@
   - run `tests/test_iso18571_threshold_benchmarks.py -o addopts= -m threshold`
     only for parallelization threshold experiments, then analyze the JSON with
     `tools/iso18571/analyze_parallel_threshold.py`.
+  - run `tests/test_iso18571_regime_benchmarks.py -o addopts= -m regime` for
+    the performance atlas. Analyze its JSON with
+    `tools/iso18571/analyze_variant_regimes.py`; classify by `effective_n` and
+    DTW cell count rather than choosing a universal winner.
 - Experiment tracking:
   - append every meaningful experiment to
     `docs/iso18571-dtw-experiment-log.md`;

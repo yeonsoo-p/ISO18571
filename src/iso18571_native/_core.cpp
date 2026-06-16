@@ -2,6 +2,7 @@
 #include <pybind11/pybind11.h>
 
 #include <algorithm>
+#include <atomic>
 #include <condition_variable>
 #include <cmath>
 #include <cstdint>
@@ -128,6 +129,36 @@ struct PhaseCache {
     std::vector<double> comparison_square_sum;
 };
 
+enum class DtwKernel {
+    Current,
+    RangePrecompute,
+    IndexIncremental,
+    CompactDirection,
+    DiagonalParallel,
+    BlockedWavefront,
+};
+
+struct VariantConfig {
+    DtwKernel dtw_kernel = DtwKernel::Current;
+    bool phase_dual_product = false;
+    bool fused_slope = false;
+    bool shared_shift_workspace = false;
+    py::ssize_t block_size = 0;
+};
+
+struct RowRanges {
+    std::vector<py::ssize_t> starts;
+    std::vector<py::ssize_t> stops;
+    std::vector<py::ssize_t> direction_bases;
+};
+
+struct BlockBoundary {
+    std::vector<double> bottom;
+    std::vector<double> right;
+    double bottom_right = std::numeric_limits<double>::infinity();
+    bool active = false;
+};
+
 py::ssize_t window_radius(py::ssize_t n, double window_size) {
     if (n <= 0) {
         throw std::invalid_argument("DTW input arrays must not be empty");
@@ -159,6 +190,19 @@ py::ssize_t ceil_div2(py::ssize_t value) {
 
 py::ssize_t bit_direction_size(py::ssize_t n, py::ssize_t band_width) {
     return (n * band_width * 2 + 7) / 8;
+}
+
+RowRanges build_row_ranges(py::ssize_t n, py::ssize_t radius, py::ssize_t band_width) {
+    RowRanges ranges;
+    ranges.starts.resize(static_cast<std::size_t>(n));
+    ranges.stops.resize(static_cast<std::size_t>(n));
+    ranges.direction_bases.resize(static_cast<std::size_t>(n));
+    for (py::ssize_t i = 0; i < n; ++i) {
+        ranges.starts[static_cast<std::size_t>(i)] = std::max<py::ssize_t>(0, i - radius + 1);
+        ranges.stops[static_cast<std::size_t>(i)] = std::min<py::ssize_t>(n, i + radius);
+        ranges.direction_bases[static_cast<std::size_t>(i)] = i * band_width;
+    }
+    return ranges;
 }
 
 void set_bit_direction(BitDtwState& state, py::ssize_t i, py::ssize_t j, std::uint8_t direction) {
@@ -261,6 +305,122 @@ DtwState compute_directions(
     double window_size
 ) {
     return compute_directions(x, y, n, window_size, [](py::ssize_t, py::ssize_t, double) {});
+}
+
+template <bool PrecomputeRanges>
+DtwState compute_directions_incremental(
+    const ArrayView& x,
+    const ArrayView& y,
+    py::ssize_t n,
+    double window_size
+) {
+    DtwState state;
+    state.n = n;
+    state.radius = window_radius(n, window_size);
+    state.band_width = 2 * state.radius - 1;
+    state.directions.assign(static_cast<std::size_t>(n * state.band_width), DIR_NONE);
+
+    RowRanges ranges;
+    if constexpr (PrecomputeRanges) {
+        ranges = build_row_ranges(n, state.radius, state.band_width);
+    }
+
+    const double inf = std::numeric_limits<double>::infinity();
+    std::vector<double> previous(static_cast<std::size_t>(n), inf);
+    std::vector<double> current(static_cast<std::size_t>(n), inf);
+
+    for (py::ssize_t i = 0; i < n; ++i) {
+        const py::ssize_t j_start = PrecomputeRanges
+            ? ranges.starts[static_cast<std::size_t>(i)]
+            : std::max<py::ssize_t>(0, i - state.radius + 1);
+        const py::ssize_t j_stop = PrecomputeRanges
+            ? ranges.stops[static_cast<std::size_t>(i)]
+            : std::min<py::ssize_t>(n, i + state.radius);
+        const py::ssize_t direction_offset = j_start - (i - state.radius + 1);
+        const py::ssize_t direction_base = (
+            PrecomputeRanges
+                ? ranges.direction_bases[static_cast<std::size_t>(i)]
+                : i * state.band_width
+        ) + direction_offset;
+        const py::ssize_t previous_start = i > 0
+            ? (PrecomputeRanges
+                ? ranges.starts[static_cast<std::size_t>(i - 1)]
+                : std::max<py::ssize_t>(0, i - state.radius))
+            : 0;
+        const py::ssize_t previous_stop = i > 0
+            ? (PrecomputeRanges
+                ? ranges.stops[static_cast<std::size_t>(i - 1)]
+                : std::min<py::ssize_t>(n, i + state.radius - 1))
+            : 0;
+
+        py::ssize_t direction_idx = direction_base;
+        for (py::ssize_t j = j_start; j < j_stop; ++j, ++direction_idx) {
+            const double delta = x[i] - y[j];
+            const double local_cost = delta * delta;
+            double accumulated = inf;
+            std::uint8_t direction = DIR_NONE;
+
+            if (i == 0 && j == 0) {
+                accumulated = local_cost;
+            } else {
+                double best_previous = inf;
+
+                if (i > 0 && j >= previous_start && j < previous_stop) {
+                    best_previous = previous[static_cast<std::size_t>(j)];
+                    direction = DIR_VERTICAL;
+                }
+                if (j > j_start) {
+                    const double candidate = current[static_cast<std::size_t>(j - 1)];
+                    if (candidate < best_previous) {
+                        best_previous = candidate;
+                        direction = DIR_HORIZONTAL;
+                    }
+                }
+                if (i > 0 && j > 0 && j - 1 >= previous_start && j - 1 < previous_stop) {
+                    const double candidate = previous[static_cast<std::size_t>(j - 1)];
+                    if (candidate < best_previous) {
+                        best_previous = candidate;
+                        direction = DIR_DIAGONAL;
+                    }
+                }
+
+                if (std::isfinite(best_previous)) {
+                    accumulated = local_cost + best_previous;
+                } else {
+                    direction = DIR_NONE;
+                }
+            }
+
+            current[static_cast<std::size_t>(j)] = accumulated;
+            state.directions[static_cast<std::size_t>(direction_idx)] = direction;
+        }
+
+        std::swap(previous, current);
+    }
+
+    if (!std::isfinite(previous[static_cast<std::size_t>(n - 1)])) {
+        throw std::runtime_error("No valid ISO DTW path found");
+    }
+
+    return state;
+}
+
+DtwState compute_directions_index_incremental(
+    const ArrayView& x,
+    const ArrayView& y,
+    py::ssize_t n,
+    double window_size
+) {
+    return compute_directions_incremental<false>(x, y, n, window_size);
+}
+
+DtwState compute_directions_range_precompute(
+    const ArrayView& x,
+    const ArrayView& y,
+    py::ssize_t n,
+    double window_size
+) {
+    return compute_directions_incremental<true>(x, y, n, window_size);
 }
 
 template <typename State, typename SetDirection>
@@ -527,6 +687,259 @@ DtwState compute_directions_diagonal_parallel(
     return state;
 }
 
+bool block_intersects_band(
+    py::ssize_t i0,
+    py::ssize_t i1,
+    py::ssize_t j0,
+    py::ssize_t j1,
+    py::ssize_t radius
+) {
+    py::ssize_t distance = 0;
+    if (i1 <= j0) {
+        distance = j0 - (i1 - 1);
+    } else if (j1 <= i0) {
+        distance = i0 - (j1 - 1);
+    }
+    return distance < radius;
+}
+
+void compute_block_wavefront_task(
+    const ArrayView& x,
+    const ArrayView& y,
+    DtwState& state,
+    std::vector<BlockBoundary>& boundaries,
+    py::ssize_t block_count,
+    py::ssize_t block_size,
+    py::ssize_t block_i,
+    py::ssize_t block_j
+) {
+    const double inf = std::numeric_limits<double>::infinity();
+    const py::ssize_t i0 = block_i * block_size;
+    const py::ssize_t i1 = std::min<py::ssize_t>(state.n, i0 + block_size);
+    const py::ssize_t j0 = block_j * block_size;
+    const py::ssize_t j1 = std::min<py::ssize_t>(state.n, j0 + block_size);
+    const py::ssize_t row_count = i1 - i0;
+    const py::ssize_t column_count = j1 - j0;
+    const std::size_t boundary_index = static_cast<std::size_t>(block_i * block_count + block_j);
+
+    BlockBoundary& boundary = boundaries[boundary_index];
+    boundary.bottom.assign(static_cast<std::size_t>(column_count), inf);
+    boundary.right.assign(static_cast<std::size_t>(row_count), inf);
+    boundary.bottom_right = inf;
+    boundary.active = true;
+
+    const BlockBoundary* top = nullptr;
+    const BlockBoundary* left = nullptr;
+    const BlockBoundary* corner = nullptr;
+    if (block_i > 0) {
+        const BlockBoundary& candidate = boundaries[static_cast<std::size_t>((block_i - 1) * block_count + block_j)];
+        if (candidate.active) {
+            top = &candidate;
+        }
+    }
+    if (block_j > 0) {
+        const BlockBoundary& candidate = boundaries[static_cast<std::size_t>(block_i * block_count + block_j - 1)];
+        if (candidate.active) {
+            left = &candidate;
+        }
+    }
+    if (block_i > 0 && block_j > 0) {
+        const BlockBoundary& candidate = boundaries[static_cast<std::size_t>((block_i - 1) * block_count + block_j - 1)];
+        if (candidate.active) {
+            corner = &candidate;
+        }
+    }
+
+    std::vector<double> previous(static_cast<std::size_t>(column_count), inf);
+    std::vector<double> current(static_cast<std::size_t>(column_count), inf);
+
+    auto top_value = [&](py::ssize_t column_offset) -> double {
+        if (top == nullptr || column_offset < 0 || column_offset >= static_cast<py::ssize_t>(top->bottom.size())) {
+            return inf;
+        }
+        return top->bottom[static_cast<std::size_t>(column_offset)];
+    };
+    auto left_value = [&](py::ssize_t row_offset) -> double {
+        if (left == nullptr || row_offset < 0 || row_offset >= static_cast<py::ssize_t>(left->right.size())) {
+            return inf;
+        }
+        return left->right[static_cast<std::size_t>(row_offset)];
+    };
+    const double corner_value = corner == nullptr ? inf : corner->bottom_right;
+
+    for (py::ssize_t row_offset = 0; row_offset < row_count; ++row_offset) {
+        std::fill(current.begin(), current.end(), inf);
+        const py::ssize_t i = i0 + row_offset;
+        const py::ssize_t j_start = std::max<py::ssize_t>(j0, i - state.radius + 1);
+        const py::ssize_t j_stop = std::min<py::ssize_t>(j1, i + state.radius);
+
+        for (py::ssize_t j = j_start; j < j_stop; ++j) {
+            const py::ssize_t column_offset = j - j0;
+            const double delta = x[i] - y[j];
+            const double local_cost = delta * delta;
+            double accumulated = inf;
+            std::uint8_t direction = DIR_NONE;
+
+            if (i == 0 && j == 0) {
+                accumulated = local_cost;
+            } else {
+                double best_previous = inf;
+
+                if (i > 0 && valid_cell(i - 1, j, state.n, state.radius)) {
+                    best_previous = row_offset > 0 ? previous[static_cast<std::size_t>(column_offset)] : top_value(column_offset);
+                    direction = DIR_VERTICAL;
+                }
+                if (j > 0 && valid_cell(i, j - 1, state.n, state.radius)) {
+                    const double candidate = column_offset > 0
+                        ? current[static_cast<std::size_t>(column_offset - 1)]
+                        : left_value(row_offset);
+                    if (candidate < best_previous) {
+                        best_previous = candidate;
+                        direction = DIR_HORIZONTAL;
+                    }
+                }
+                if (i > 0 && j > 0 && valid_cell(i - 1, j - 1, state.n, state.radius)) {
+                    double candidate = inf;
+                    if (row_offset > 0 && column_offset > 0) {
+                        candidate = previous[static_cast<std::size_t>(column_offset - 1)];
+                    } else if (row_offset == 0 && column_offset > 0) {
+                        candidate = top_value(column_offset - 1);
+                    } else if (row_offset > 0 && column_offset == 0) {
+                        candidate = left_value(row_offset - 1);
+                    } else {
+                        candidate = corner_value;
+                    }
+                    if (candidate < best_previous) {
+                        best_previous = candidate;
+                        direction = DIR_DIAGONAL;
+                    }
+                }
+
+                if (std::isfinite(best_previous)) {
+                    accumulated = local_cost + best_previous;
+                } else {
+                    direction = DIR_NONE;
+                }
+            }
+
+            current[static_cast<std::size_t>(column_offset)] = accumulated;
+            state.directions[static_cast<std::size_t>(
+                direction_index(i, j, state.radius, state.band_width)
+            )] = direction;
+        }
+
+        boundary.right[static_cast<std::size_t>(row_offset)] = current[static_cast<std::size_t>(column_count - 1)];
+        std::swap(previous, current);
+    }
+
+    boundary.bottom = previous;
+    boundary.bottom_right = boundary.bottom.empty() ? inf : boundary.bottom.back();
+}
+
+DtwState compute_directions_blocked_wavefront(
+    const ArrayView& x,
+    const ArrayView& y,
+    py::ssize_t n,
+    double window_size,
+    py::ssize_t block_size,
+    py::ssize_t max_threads
+) {
+    if (block_size <= 0) {
+        throw std::invalid_argument("Blocked ISO DTW requires a positive block size");
+    }
+
+    DtwState state;
+    state.n = n;
+    state.radius = window_radius(n, window_size);
+    state.band_width = 2 * state.radius - 1;
+    state.directions.assign(static_cast<std::size_t>(n * state.band_width), DIR_NONE);
+
+    const py::ssize_t block_count = (n + block_size - 1) / block_size;
+    std::vector<std::vector<std::pair<py::ssize_t, py::ssize_t>>> diagonals(
+        static_cast<std::size_t>(2 * block_count - 1)
+    );
+    for (py::ssize_t block_i = 0; block_i < block_count; ++block_i) {
+        const py::ssize_t i0 = block_i * block_size;
+        const py::ssize_t i1 = std::min<py::ssize_t>(n, i0 + block_size);
+        for (py::ssize_t block_j = 0; block_j < block_count; ++block_j) {
+            const py::ssize_t j0 = block_j * block_size;
+            const py::ssize_t j1 = std::min<py::ssize_t>(n, j0 + block_size);
+            if (block_intersects_band(i0, i1, j0, j1, state.radius)) {
+                diagonals[static_cast<std::size_t>(block_i + block_j)].emplace_back(block_i, block_j);
+            }
+        }
+    }
+
+    std::vector<BlockBoundary> boundaries(static_cast<std::size_t>(block_count * block_count));
+    const std::size_t hardware_threads = std::max(1u, std::thread::hardware_concurrency());
+    const std::size_t thread_count = static_cast<std::size_t>(
+        std::max<py::ssize_t>(1, std::min<py::ssize_t>(max_threads, static_cast<py::ssize_t>(hardware_threads)))
+    );
+
+    if (thread_count <= 1) {
+        for (const auto& tasks : diagonals) {
+            for (const auto& task : tasks) {
+                compute_block_wavefront_task(x, y, state, boundaries, block_count, block_size, task.first, task.second);
+            }
+        }
+    } else {
+        ReusableBarrier barrier(thread_count);
+        std::atomic<std::size_t> next_task{0};
+        std::exception_ptr worker_exception = nullptr;
+        std::mutex exception_mutex;
+
+        auto worker = [&](std::size_t) {
+            try {
+                for (const auto& tasks : diagonals) {
+                    next_task.store(0, std::memory_order_relaxed);
+                    barrier.wait();
+                    while (true) {
+                        const std::size_t task_index = next_task.fetch_add(1, std::memory_order_relaxed);
+                        if (task_index >= tasks.size()) {
+                            break;
+                        }
+                        const auto& task = tasks[task_index];
+                        compute_block_wavefront_task(
+                            x,
+                            y,
+                            state,
+                            boundaries,
+                            block_count,
+                            block_size,
+                            task.first,
+                            task.second
+                        );
+                    }
+                    barrier.wait();
+                }
+            } catch (...) {
+                std::lock_guard<std::mutex> lock(exception_mutex);
+                if (!worker_exception) {
+                    worker_exception = std::current_exception();
+                }
+            }
+        };
+
+        std::vector<std::thread> threads;
+        threads.reserve(thread_count);
+        for (std::size_t thread_index = 0; thread_index < thread_count; ++thread_index) {
+            threads.emplace_back(worker, thread_index);
+        }
+        for (auto& thread : threads) {
+            thread.join();
+        }
+        if (worker_exception) {
+            std::rethrow_exception(worker_exception);
+        }
+    }
+
+    const BlockBoundary& final_boundary = boundaries[static_cast<std::size_t>((block_count - 1) * block_count + block_count - 1)];
+    if (!final_boundary.active || !std::isfinite(final_boundary.bottom_right)) {
+        throw std::runtime_error("No valid ISO DTW path found");
+    }
+    return state;
+}
+
 double magnitude_ratio_from_views(const ArrayView& x, const ArrayView& y, double window_size) {
     const auto n = x.n;
     const auto state = compute_directions(x, y, n, window_size);
@@ -627,6 +1040,46 @@ double magnitude_ratio_from_bit_state(const ArrayView& x, const ArrayView& y, co
     return numerator / denominator;
 }
 
+double magnitude_ratio_with_kernel(
+    const ArrayView& x,
+    const ArrayView& y,
+    double window_size,
+    const VariantConfig& config,
+    py::ssize_t max_threads
+) {
+    if (config.dtw_kernel == DtwKernel::Current) {
+        return magnitude_ratio_from_views(x, y, window_size);
+    }
+    if (config.dtw_kernel == DtwKernel::RangePrecompute) {
+        const auto state = compute_directions_range_precompute(x, y, x.n, window_size);
+        return magnitude_ratio_from_state(x, y, state);
+    }
+    if (config.dtw_kernel == DtwKernel::IndexIncremental) {
+        const auto state = compute_directions_index_incremental(x, y, x.n, window_size);
+        return magnitude_ratio_from_state(x, y, state);
+    }
+    if (config.dtw_kernel == DtwKernel::CompactDirection) {
+        const auto state = compute_directions_bitpacked(x, y, x.n, window_size);
+        return magnitude_ratio_from_bit_state(x, y, state);
+    }
+    if (config.dtw_kernel == DtwKernel::DiagonalParallel) {
+        const auto state = compute_directions_diagonal_parallel(x, y, x.n, window_size, max_threads);
+        return magnitude_ratio_from_state(x, y, state);
+    }
+    if (config.dtw_kernel == DtwKernel::BlockedWavefront) {
+        const auto state = compute_directions_blocked_wavefront(
+            x,
+            y,
+            x.n,
+            window_size,
+            config.block_size,
+            max_threads
+        );
+        return magnitude_ratio_from_state(x, y, state);
+    }
+    throw std::invalid_argument("Unsupported ISO DTW kernel variant");
+}
+
 double magnitude_ratio_variant_from_views(
     const ArrayView& x,
     const ArrayView& y,
@@ -644,6 +1097,14 @@ double magnitude_ratio_variant_from_views(
     }
     if (variant == "band_row") {
         const auto state = compute_directions_band_row(x, y, x.n, window_size);
+        return magnitude_ratio_from_state(x, y, state);
+    }
+    if (variant == "range_precompute") {
+        const auto state = compute_directions_range_precompute(x, y, x.n, window_size);
+        return magnitude_ratio_from_state(x, y, state);
+    }
+    if (variant == "index_incremental") {
+        const auto state = compute_directions_index_incremental(x, y, x.n, window_size);
         return magnitude_ratio_from_state(x, y, state);
     }
     if (variant == "bitpacked_direction") {
@@ -700,6 +1161,51 @@ T get_param(const py::dict& params, const char* name, T default_value) {
         return py::cast<T>(params[py::str(name)]);
     }
     return default_value;
+}
+
+VariantConfig parse_variant(const std::string& variant) {
+    VariantConfig config;
+    if (variant.empty() || variant == "serial_current" || variant == "dtw_current" || variant == "current") {
+        return config;
+    }
+
+    std::size_t start = 0;
+    while (start <= variant.size()) {
+        const std::size_t end = variant.find('+', start);
+        const std::string token = variant.substr(start, end == std::string::npos ? std::string::npos : end - start);
+
+        if (token.empty() || token == "serial_current" || token == "dtw_current" || token == "reduce_none" ||
+            token == "parallel_none") {
+        } else if (token == "dtw_range_precompute") {
+            config.dtw_kernel = DtwKernel::RangePrecompute;
+        } else if (token == "dtw_index_incremental") {
+            config.dtw_kernel = DtwKernel::IndexIncremental;
+        } else if (token == "dtw_compact_direction") {
+            config.dtw_kernel = DtwKernel::CompactDirection;
+        } else if (token == "phase_dual_product") {
+            config.phase_dual_product = true;
+        } else if (token == "fused_slope") {
+            config.fused_slope = true;
+        } else if (token == "shared_shift_workspace") {
+            config.shared_shift_workspace = true;
+        } else if (token == "all_reductions") {
+            config.phase_dual_product = true;
+            config.fused_slope = true;
+            config.shared_shift_workspace = true;
+        } else if (token == "blocked64" || token == "blocked128" || token == "blocked256" || token == "blocked512") {
+            config.dtw_kernel = DtwKernel::BlockedWavefront;
+            config.block_size = static_cast<py::ssize_t>(std::stoll(token.substr(7)));
+        } else {
+            throw std::invalid_argument("Unknown ISO scorer variant token: " + token);
+        }
+
+        if (end == std::string::npos) {
+            break;
+        }
+        start = end + 1;
+    }
+
+    return config;
 }
 
 ScoreParams score_params_from_dict(const py::dict& params) {
@@ -919,6 +1425,71 @@ double correlation_for_shift(
     return correlation;
 }
 
+double correlation_from_cached_product(
+    const PhaseCache& cache,
+    py::ssize_t reference_start,
+    py::ssize_t comparison_start,
+    py::ssize_t length,
+    double product_sum
+) {
+    const double n = static_cast<double>(length);
+    const double reference_sum = prefix_range(cache.reference_sum, reference_start, length);
+    const double comparison_sum = prefix_range(cache.comparison_sum, comparison_start, length);
+    const double reference_square_sum = prefix_range(cache.reference_square_sum, reference_start, length);
+    const double comparison_square_sum = prefix_range(cache.comparison_square_sum, comparison_start, length);
+
+    const double numerator = product_sum - (reference_sum * comparison_sum / n);
+    const double reference_var = reference_square_sum - (reference_sum * reference_sum / n);
+    const double comparison_var = comparison_square_sum - (comparison_sum * comparison_sum / n);
+    const double reference_scale = std::max(reference_square_sum, std::abs(reference_sum * reference_sum / n));
+    const double comparison_scale = std::max(comparison_square_sum, std::abs(comparison_sum * comparison_sum / n));
+    const double reference_tol = std::numeric_limits<double>::epsilon() * std::max(1.0, reference_scale) * 64.0;
+    const double comparison_tol = std::numeric_limits<double>::epsilon() * std::max(1.0, comparison_scale) * 64.0;
+    if (reference_var <= reference_tol || comparison_var <= comparison_tol) {
+        return std::numeric_limits<double>::quiet_NaN();
+    }
+
+    double correlation = numerator / std::sqrt(reference_var * comparison_var);
+    if (correlation > 1.0) {
+        correlation = 1.0;
+    } else if (correlation < -1.0) {
+        correlation = -1.0;
+    }
+    return correlation;
+}
+
+std::pair<double, double> dual_correlations_for_shift(
+    const CurveView& reference,
+    const CurveView& comparison,
+    const PhaseCache& cache,
+    py::ssize_t shift,
+    py::ssize_t length
+) {
+    if (length < 32) {
+        return {
+            correlation_for_shift(reference, comparison, 0, shift, length),
+            correlation_for_shift(reference, comparison, shift, 0, length),
+        };
+    }
+
+    double left_product_sum = 0.0;
+    double right_product_sum = 0.0;
+    for (py::ssize_t idx = 0; idx < length; ++idx) {
+        left_product_sum += reference.value(idx) * comparison.value(shift + idx);
+        right_product_sum += reference.value(shift + idx) * comparison.value(idx);
+    }
+
+    double left = correlation_from_cached_product(cache, 0, shift, length, left_product_sum);
+    double right = correlation_from_cached_product(cache, shift, 0, length, right_product_sum);
+    if (std::isnan(left)) {
+        left = correlation_for_shift(reference, comparison, 0, shift, length);
+    }
+    if (std::isnan(right)) {
+        right = correlation_for_shift(reference, comparison, shift, 0, length);
+    }
+    return {left, right};
+}
+
 ShiftResult compute_shift(const CurveView& reference, const CurveView& comparison, const ScoreParams& params) {
     ShiftResult shift;
     shift.length = reference.n;
@@ -945,6 +1516,46 @@ ShiftResult compute_shift(const CurveView& reference, const CurveView& compariso
         }
 
         const double ccr_right = correlation_for_shift(reference, comparison, cache, idx, 0, length);
+        if (ccr_right > ccr_max) {
+            ccr_max = ccr_right;
+            shift.n_eps = idx;
+            shift.reference_start = idx;
+            shift.comparison_start = 0;
+            shift.length = length;
+            shift.rho_e = ccr_right;
+        }
+    }
+
+    return shift;
+}
+
+ShiftResult compute_shift_dual_product(const CurveView& reference, const CurveView& comparison, const ScoreParams& params) {
+    ShiftResult shift;
+    shift.length = reference.n;
+    shift.max_shift = std::round((1.0 - params.init_min) * 100.0) / 100.0;
+    const py::ssize_t window_size = static_cast<py::ssize_t>(
+        std::floor(static_cast<double>(comparison.n) * shift.max_shift) + 1.0
+    );
+    const py::ssize_t bounded_window_size = std::min(window_size, reference.n);
+    const PhaseCache cache = build_phase_cache(reference, comparison);
+
+    double ccr_max = correlation_for_shift(reference, comparison, cache, 0, 0, reference.n);
+    shift.rho_e = ccr_max;
+
+    for (py::ssize_t idx = 1; idx < bounded_window_size; ++idx) {
+        const py::ssize_t length = reference.n - idx;
+        const auto correlations = dual_correlations_for_shift(reference, comparison, cache, idx, length);
+        const double ccr_left = correlations.first;
+        if (ccr_left > ccr_max) {
+            ccr_max = ccr_left;
+            shift.n_eps = idx;
+            shift.reference_start = 0;
+            shift.comparison_start = idx;
+            shift.length = length;
+            shift.rho_e = ccr_left;
+        }
+
+        const double ccr_right = correlations.second;
         if (ccr_right > ccr_max) {
             ccr_max = ccr_right;
             shift.n_eps = idx;
@@ -1025,6 +1636,39 @@ double magnitude_score(const CurveView& reference, const CurveView& comparison, 
     return std::pow((params.eps_m - e_mag) / params.eps_m, static_cast<double>(params.k_m));
 }
 
+double magnitude_score_from_values(
+    const ArrayView& reference_values,
+    const ArrayView& comparison_values,
+    const ScoreParams& params,
+    const VariantConfig& config,
+    py::ssize_t max_threads
+) {
+    const bool comparison_contiguous = comparison_values.stride == static_cast<py::ssize_t>(sizeof(double));
+    const bool reference_contiguous = reference_values.stride == static_cast<py::ssize_t>(sizeof(double));
+    double e_mag = 0.0;
+    if (comparison_contiguous && reference_contiguous) {
+        e_mag = magnitude_ratio_with_kernel(comparison_values, reference_values, 0.1, config, max_threads);
+    } else {
+        const std::vector<double> contiguous_comparison = copy_values(comparison_values);
+        const std::vector<double> contiguous_reference = copy_values(reference_values);
+        e_mag = magnitude_ratio_with_kernel(
+            view_from_vector(contiguous_comparison),
+            view_from_vector(contiguous_reference),
+            0.1,
+            config,
+            max_threads
+        );
+    }
+
+    if (e_mag == 0.0) {
+        return 1.0;
+    }
+    if (e_mag > params.eps_m) {
+        return 0.0;
+    }
+    return std::pow((params.eps_m - e_mag) / params.eps_m, static_cast<double>(params.k_m));
+}
+
 void gradient_values(const ArrayView& values, double dt, std::vector<double>& gradient) {
     const py::ssize_t n = values.n;
     gradient.assign(static_cast<std::size_t>(n), 0.0);
@@ -1061,13 +1705,10 @@ void smooth_slopes(const std::vector<double>& gradient, std::vector<double>& smo
     }
 }
 
-double slope_score(const CurveView& reference, const CurveView& comparison, const ScoreParams& params, const ShiftResult& shift) {
-    if (shift.length < 9) {
+double slope_score_from_values(const ArrayView& reference_values, const ArrayView& comparison_values, const ScoreParams& params) {
+    if (reference_values.n < 9) {
         throw std::invalid_argument("Shifted curves must have at least 9 samples for slope rating");
     }
-
-    const ArrayView comparison_values = value_view_from_curve(comparison, shift.comparison_start, shift.length);
-    const ArrayView reference_values = value_view_from_curve(reference, shift.reference_start, shift.length);
 
     std::vector<double> comparison_gradient;
     std::vector<double> reference_gradient;
@@ -1080,7 +1721,7 @@ double slope_score(const CurveView& reference, const CurveView& comparison, cons
 
     double numerator = 0.0;
     double denominator = 0.0;
-    for (py::ssize_t idx = 0; idx < shift.length; ++idx) {
+    for (py::ssize_t idx = 0; idx < reference_values.n; ++idx) {
         numerator += std::abs(
             comparison_smoothed[static_cast<std::size_t>(idx)] -
             reference_smoothed[static_cast<std::size_t>(idx)]
@@ -1098,6 +1739,70 @@ double slope_score(const CurveView& reference, const CurveView& comparison, cons
     return (params.e_s - e_slope) / params.e_s;
 }
 
+double smoothed_slope_at(const std::vector<double>& gradient, py::ssize_t idx) {
+    const py::ssize_t n = static_cast<py::ssize_t>(gradient.size());
+    if (idx < 4) {
+        const py::ssize_t windows[4] = {1, 3, 5, 7};
+        const py::ssize_t nr = windows[idx];
+        double sum = 0.0;
+        for (py::ssize_t j = 0; j < nr; ++j) {
+            sum += gradient[static_cast<std::size_t>(j)];
+        }
+        return sum / static_cast<double>(nr);
+    }
+    if (idx >= n - 4) {
+        const py::ssize_t edge_idx = n - idx - 1;
+        const py::ssize_t windows[4] = {1, 3, 5, 7};
+        const py::ssize_t nr = windows[edge_idx];
+        double sum = 0.0;
+        for (py::ssize_t j = 0; j < nr; ++j) {
+            sum += gradient[static_cast<std::size_t>(n - nr + j)];
+        }
+        return sum / static_cast<double>(nr);
+    }
+
+    double sum = 0.0;
+    for (py::ssize_t j = idx - 4; j <= idx + 4; ++j) {
+        sum += gradient[static_cast<std::size_t>(j)];
+    }
+    return sum / 9.0;
+}
+
+double fused_slope_score_from_values(const ArrayView& reference_values, const ArrayView& comparison_values, const ScoreParams& params) {
+    if (reference_values.n < 9) {
+        throw std::invalid_argument("Shifted curves must have at least 9 samples for slope rating");
+    }
+
+    std::vector<double> comparison_gradient;
+    std::vector<double> reference_gradient;
+    gradient_values(comparison_values, params.dt, comparison_gradient);
+    gradient_values(reference_values, params.dt, reference_gradient);
+
+    double numerator = 0.0;
+    double denominator = 0.0;
+    for (py::ssize_t idx = 0; idx < reference_values.n; ++idx) {
+        const double comparison_smoothed = smoothed_slope_at(comparison_gradient, idx);
+        const double reference_smoothed = smoothed_slope_at(reference_gradient, idx);
+        numerator += std::abs(comparison_smoothed - reference_smoothed);
+        denominator += std::abs(reference_smoothed);
+    }
+
+    const double e_slope = numerator / denominator;
+    if (e_slope <= 0.0) {
+        return 1.0;
+    }
+    if (e_slope >= params.e_s) {
+        return 0.0;
+    }
+    return (params.e_s - e_slope) / params.e_s;
+}
+
+double slope_score(const CurveView& reference, const CurveView& comparison, const ScoreParams& params, const ShiftResult& shift) {
+    const ArrayView comparison_values = value_view_from_curve(comparison, shift.comparison_start, shift.length);
+    const ArrayView reference_values = value_view_from_curve(reference, shift.reference_start, shift.length);
+    return slope_score_from_values(reference_values, comparison_values, params);
+}
+
 ScoreResult score_components_native(const CurveView& reference, const CurveView& comparison, const ScoreParams& params) {
     ScoreResult score;
     score.shift = compute_shift(reference, comparison, params);
@@ -1105,6 +1810,49 @@ ScoreResult score_components_native(const CurveView& reference, const CurveView&
     score.ep = phase_score(reference, params, score.shift);
     score.em = magnitude_score(reference, comparison, params, score.shift);
     score.es = slope_score(reference, comparison, params, score.shift);
+    score.r = params.w_z * score.z + params.w_p * score.ep + params.w_m * score.em + params.w_s * score.es;
+    return score;
+}
+
+ScoreResult score_components_native_variant(
+    const CurveView& reference,
+    const CurveView& comparison,
+    const ScoreParams& params,
+    const VariantConfig& config,
+    py::ssize_t max_threads
+) {
+    ScoreResult score;
+    score.shift = config.phase_dual_product
+        ? compute_shift_dual_product(reference, comparison, params)
+        : compute_shift(reference, comparison, params);
+    score.z = corridor_score(reference, comparison, params);
+    score.ep = phase_score(reference, params, score.shift);
+
+    const ArrayView comparison_values = value_view_from_curve(comparison, score.shift.comparison_start, score.shift.length);
+    const ArrayView reference_values = value_view_from_curve(reference, score.shift.reference_start, score.shift.length);
+
+    if (config.shared_shift_workspace) {
+        const std::vector<double> contiguous_comparison = copy_values(comparison_values);
+        const std::vector<double> contiguous_reference = copy_values(reference_values);
+        const ArrayView contiguous_comparison_view = view_from_vector(contiguous_comparison);
+        const ArrayView contiguous_reference_view = view_from_vector(contiguous_reference);
+        score.em = magnitude_score_from_values(
+            contiguous_reference_view,
+            contiguous_comparison_view,
+            params,
+            config,
+            max_threads
+        );
+        score.es = config.fused_slope
+            ? fused_slope_score_from_values(contiguous_reference_view, contiguous_comparison_view, params)
+            : slope_score_from_values(contiguous_reference_view, contiguous_comparison_view, params);
+    } else {
+        score.em = magnitude_score_from_values(reference_values, comparison_values, params, config, max_threads);
+        score.es = config.fused_slope
+            ? fused_slope_score_from_values(reference_values, comparison_values, params)
+            : slope_score_from_values(reference_values, comparison_values, params);
+    }
+
     score.r = params.w_z * score.z + params.w_p * score.ep + params.w_m * score.em + params.w_s * score.es;
     return score;
 }
@@ -1239,6 +1987,37 @@ py::dict score_components(
     return out;
 }
 
+py::dict score_components_variant(
+    py::array_t<double, py::array::forcecast> reference_curve,
+    py::array_t<double, py::array::forcecast> comparison_curve,
+    py::dict params,
+    const std::string& variant,
+    py::ssize_t max_threads
+) {
+    const auto views = validate_curves(reference_curve, comparison_curve);
+    const ScoreParams score_params = score_params_from_dict(params);
+    const VariantConfig config = parse_variant(variant);
+
+    ScoreResult score;
+    {
+        py::gil_scoped_release release;
+        score = score_components_native_variant(views.first, views.second, score_params, config, max_threads);
+    }
+
+    py::dict out;
+    out["Z"] = score.z;
+    out["EP"] = score.ep;
+    out["EM"] = score.em;
+    out["ES"] = score.es;
+    out["R"] = score.r;
+    out["n_eps"] = score.shift.n_eps;
+    out["rho_e"] = score.shift.rho_e;
+    out["reference_start"] = score.shift.reference_start;
+    out["comparison_start"] = score.shift.comparison_start;
+    out["shift_length"] = score.shift.length;
+    return out;
+}
+
 py::dict backend_info() {
     py::dict info;
     info["name"] = "local_iso_native";
@@ -1259,4 +2038,5 @@ PYBIND11_MODULE(_core, m) {
     m.def("_magnitude_ratio_variant", &magnitude_ratio_variant, py::arg("x"), py::arg("y"), py::arg("window_size"), py::arg("variant"), py::arg("max_threads") = 1);
     m.def("_parallel_barrier_overhead", &parallel_barrier_overhead, py::arg("iterations"), py::arg("max_threads"));
     m.def("score_components", &score_components, py::arg("reference_curve"), py::arg("comparison_curve"), py::arg("params") = py::dict());
+    m.def("_score_components_variant", &score_components_variant, py::arg("reference_curve"), py::arg("comparison_curve"), py::arg("params"), py::arg("variant"), py::arg("max_threads") = 1);
 }
