@@ -215,3 +215,116 @@
 - Next hypothesis: use git to create a clean checkpoint if the user wants a
   commit; otherwise continue with Windows CI verification when a runner is
   available.
+
+## 2026-06-16 13:04 KST - Full Native Scorer Port And Signal-Aware Tests
+
+- Git status: checkpoint commit `5e29069` exists; full native scorer and tests
+  are uncommitted follow-on changes.
+- Hypothesis: porting the complete ISO/TS 18571 scorer to native code behind
+  `local_iso_native` will preserve Annex and `rating_original.py` behavior while
+  removing Python component-call overhead for NumPy-fed curves.
+- Files changed:
+  - `src/iso18571_native/_core.cpp`;
+  - `iso18571_native/__init__.py`;
+  - `rating.py`;
+  - `pytest.ini`;
+  - `tests/conftest.py`;
+  - `tests/iso18571_signals.py`;
+  - `tests/test_rating_original_parity.py`;
+  - `tests/test_iso18571_signal_benchmarks.py`.
+- Commands:
+  - `git add -A && git commit -m "checkpoint native ISO18571 backend baseline"`
+  - `uv pip install -e .`
+  - `uv run --with pytest --with dtwalign --with scipy python -m pytest -q tests/test_rating_original_parity.py`
+  - `uv run --with pytest --with pytest-benchmark python -m pytest -q tests/test_iso18571_backends.py --iso18571-backends local_iso_native`
+  - `uv run --with pytest --with pytest-benchmark --with dtwalign --with dtaidistance --with dtw-python --with librosa --with scipy python -m pytest -q tests/test_iso18571_backends.py --iso18571-backends local_iso_numpy,local_iso_native,dtwalign,dtaidistance,dtw_python,librosa`
+  - `uv run --with pytest --with pytest-benchmark --with dtwalign --with scipy python -m pytest -q`
+- Validation result:
+  - signal-aware `rating_original.py` parity: `99 passed`, long stress skipped
+    unless `--run-stress`;
+  - native Annex/backend validation: `9 passed`;
+  - eligible backend matrix: `39 passed`;
+  - full non-stress suite: `110 passed`, `61 skipped`.
+- Benchmark result before native scorer optimizations:
+  - `local_iso_native`: first-use `0.0162s`, steady median `0.0154s`;
+  - `dtw_python`: first-use `0.4457s`, steady median `0.2618s`;
+  - `librosa`: first-use `0.9754s`, steady median `0.2526s`.
+- Signal-family benchmark before native scorer optimizations:
+  - `short_sine_noise_129`: `20.095 us`;
+  - `annex_like_sine_amp_offset_1430`: `1.518 ms`;
+  - `long_smooth_chirp_8192`: `48.964 ms`;
+  - `long_noisy_gaussian_8192`: `99.921 ms`;
+  - `long_sparse_spikes_8192`: `47.854 ms`.
+- Conclusion: the full native scorer is correct against Annex and
+  non-degenerate `rating_original.py` parity cases. Perfectly affine ramps and
+  exact square-wave ties exposed library/numerical tie artifacts, so the shared
+  signal generator keeps the family shape but avoids strict oracle dependence
+  on NumPy/BLAS last-bit behavior.
+- Next hypothesis: phase alignment still repeats sum/square work per shift; a
+  prefix-sum phase path should improve all signal families without changing the
+  scorer API.
+
+## 2026-06-16 13:04 KST - Native Scorer Optimization Iterations
+
+- Git status: checkpoint commit `5e29069`; accepted native scorer optimization
+  changes remain uncommitted.
+- Hypothesis: optimize one native hotspot at a time and accept only changes that
+  keep parity/Annex green and avoid signal-family regressions.
+- Files changed:
+  - `src/iso18571_native/_core.cpp`;
+  - `docs/iso18571-dtw-backends.md`;
+  - `AGENTS.md`;
+  - `docs/iso18571-dtw-experiment-log.md`.
+- Commands:
+  - `uv pip install -e .`
+  - `uv run --with pytest --with pytest-benchmark --with dtwalign --with scipy python -m pytest -q tests/test_rating_original_parity.py tests/test_iso18571_backends.py --iso18571-backends local_iso_native`
+  - `uv run --with pytest --with pytest-benchmark python tools/iso18571/run_backend_benchmarks.py --output-dir .benchmarks/iso18571-phase-prefix --backends local_iso_native --max-time 5 --min-rounds 5`
+  - `uv run --with pytest --with pytest-benchmark python -m pytest -q tests/test_iso18571_signal_benchmarks.py --run-stress --benchmark-warmup off --benchmark-min-rounds 3 --benchmark-max-time 3 --benchmark-json .benchmarks/iso18571-phase-prefix/signal_family_native.json`
+  - same benchmark commands for `.benchmarks/iso18571-dtw-loop`,
+    `.benchmarks/iso18571-dtw-valid-simplified`,
+    `.benchmarks/iso18571-dtw-branchless-only`, and
+    `.benchmarks/iso18571-contiguous-magnitude`;
+  - targeted long stress timing for `sparse_spikes`, `chirp`, and
+    `gaussian_noise` at `16384` and `32768` samples;
+  - final full non-stress suite and eligible backend matrix.
+- Validation result:
+  - optimization validation gate: `108 passed`, `56 skipped`;
+  - final full non-stress suite: `110 passed`, `61 skipped`;
+  - final eligible backend matrix: `39 passed`.
+  - full long native stress sweep:
+    `56 passed, 99 deselected` for
+    `tests/test_rating_original_parity.py --run-stress -k native_scorer_handles_long_signal_families`.
+- Accepted optimization 1, phase-prefix correlation:
+  - replaces repeated sum/square passes with prefix sums plus one product pass
+    per shift, falling back to the two-pass NumPy-like correlation for short or
+    near-zero-variance windows;
+  - Annex steady median improved from `15.414 ms` to `10.494 ms`;
+  - signal medians improved to `17.409 us`, `1.027 ms`, `32.622 ms`,
+    `83.746 ms`, and `31.721 ms` for the five benchmark cases.
+- Rejected optimization, branchless/simplified DTW predecessor loop:
+  - branchless plus simplified validity checks improved noisy 8192 from
+    `83.746 ms` to `69.081 ms`, but regressed Annex from `10.494 ms` to
+    `11.688 ms` and smooth/sparse 8192 to roughly `37-40 ms`;
+  - branchless-only also regressed Annex and all signal rows;
+  - reverted under the no-signal-family-regression rule.
+- Accepted optimization 2, contiguous magnitude input:
+  - copies shifted `(n, 2)` value columns to contiguous native buffers before
+    full-scorer magnitude DTW when the value view is strided;
+  - Annex steady median improved from `10.494 ms` to `10.364 ms`;
+  - final signal medians: `short_sine_noise_129` `16.465 us`,
+    `annex_like_sine_amp_offset_1430` `1.020 ms`,
+    `long_smooth_chirp_8192` `32.487 ms`,
+    `long_noisy_gaussian_8192` `83.732 ms`,
+    `long_sparse_spikes_8192` `31.715 ms`.
+- Targeted long stress result:
+  - `sparse_spikes`: `139.527 ms` at `16384`, `552.897 ms` at `32768`;
+  - `chirp`: `140.624 ms` at `16384`, `559.584 ms` at `32768`;
+  - `gaussian_noise`: `341.641 ms` at `16384`, `1352.243 ms` at `32768`.
+- Conclusion: the accepted native full scorer beats both production comparison
+  targets and is sub-100 ms for the 8192-point signal benchmark set. Exact
+  32768-point Gaussian DTW remains above one second with the current
+  single-threaded exact Sakoe-Chiba dynamic program.
+- Next hypothesis: further 32k improvements require a larger DTW implementation
+  change, likely band-row memory/layout specialization, SIMD-friendly min
+  selection with signal-aware dispatch, or parallelization, each gated by the
+  same parity, Annex, and signal-family benchmarks.

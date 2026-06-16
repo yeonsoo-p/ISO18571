@@ -228,6 +228,50 @@ def _compute_magnitude_ratio_local_iso_native(x: np.ndarray, y: np.ndarray, wind
     ))
 
 
+def _score_components_local_iso_native(
+    reference_curve: np.ndarray,
+    comparison_curve: np.ndarray,
+    *,
+    k_z: float,
+    k_p: int,
+    k_m: int,
+    eps_m: float,
+    e_s: float,
+    init_min: float,
+    a_0: float,
+    b_0: float,
+    w_z: float,
+    w_p: float,
+    w_m: float,
+    w_s: float,
+    dt: float,
+) -> dict[str, float]:
+    try:
+        from iso18571_native import score_components
+    except ImportError as exc:
+        raise DTWBackendError("The native ISO/TS 18571 backend is not built") from exc
+
+    return score_components(
+        np.asarray(reference_curve, dtype=np.float64),
+        np.asarray(comparison_curve, dtype=np.float64),
+        {
+            "k_z": int(k_z),
+            "k_p": k_p,
+            "k_m": k_m,
+            "eps_m": eps_m,
+            "e_s": e_s,
+            "init_min": init_min,
+            "a_0": a_0,
+            "b_0": b_0,
+            "w_z": w_z,
+            "w_p": w_p,
+            "w_m": w_m,
+            "w_s": w_s,
+            "dt": dt,
+        },
+    )
+
+
 def _compute_magnitude_dtwalign(x: np.ndarray, y: np.ndarray, window_size: float) -> tuple[np.ndarray, np.ndarray]:
     try:
         from dtwalign import dtw_low
@@ -436,7 +480,40 @@ class ISO18571:
 
         self._max_shift = round(1.0 - self._init_min, 2)
 
-        self._cae_ts, self._t_ts, self._n_eps, self._rho_e = self._get_shifted_curve_and_pr()
+        self._native_scores = None
+        if self._dtw_backend == DTW_BACKEND_LOCAL_ISO_NATIVE:
+            self._native_scores = _score_components_local_iso_native(
+                self.reference_curve,
+                self.comparison_curve,
+                k_z=self._k_z,
+                k_p=self._k_p,
+                k_m=self._k_m,
+                eps_m=self._eps_m,
+                e_s=self._e_s,
+                init_min=self._init_min,
+                a_0=self._a_0,
+                b_0=self._b_0,
+                w_z=self._w_z,
+                w_p=self._w_p,
+                w_m=self._w_m,
+                w_s=self._w_s,
+                dt=self.dt,
+            )
+            reference_start = int(self._native_scores["reference_start"])
+            comparison_start = int(self._native_scores["comparison_start"])
+            shift_length = int(self._native_scores["shift_length"])
+            self._t_ts = self.reference_curve[reference_start:reference_start + shift_length, :].copy()
+            self._cae_ts = self.comparison_curve[comparison_start:comparison_start + shift_length, :].copy()
+            self._n_eps = int(self._native_scores["n_eps"])
+            self._rho_e = float(self._native_scores["rho_e"])
+        else:
+            self._cae_ts, self._t_ts, self._n_eps, self._rho_e = self._get_shifted_curve_and_pr()
+
+    @staticmethod
+    def _rating_value(value: float, ndigits: int):
+        if ndigits < 0:
+            return value
+        return round(value, ndigits=ndigits)
 
     def _get_shifted_curve_and_pr(self) -> (np.ndarray, np.ndarray, float, float):
         """Calculates the shifted curves, yielded by the highest correlation coefficients
@@ -515,6 +592,9 @@ class ISO18571:
 
         """
 
+        if self._native_scores is not None:
+            return ISO18571._rating_value(self._native_scores["Z"], ndigits)
+
         t_norm = max(np.abs(self.reference_curve[:, 1]))
         inner_corridor = self._a_0 * t_norm
         outer_corridor = self._b_0 * t_norm
@@ -548,6 +628,10 @@ class ISO18571:
 
         Returns: the phase rating, with a precision of ndigits
         """
+
+        if self._native_scores is not None:
+            return ISO18571._rating_value(self._native_scores["EP"], ndigits)
+
         curve_size = self.reference_curve.shape[0]
 
         # maximum allowable time shift threshold
@@ -575,6 +659,9 @@ class ISO18571:
 
         Returns: the magnitude rating, with a precision of ndigits
         """
+
+        if self._native_scores is not None:
+            return ISO18571._rating_value(self._native_scores["EM"], ndigits)
 
         if self._dtw_backend == DTW_BACKEND_LOCAL_ISO_NATIVE:
             e_mag = _compute_magnitude_ratio_local_iso_native(
@@ -612,6 +699,9 @@ class ISO18571:
 
         Returns: the slope rating, with a precision of ndigits
         """
+
+        if self._native_scores is not None:
+            return ISO18571._rating_value(self._native_scores["ES"], ndigits)
 
         # central difference
         cae_ts_0_d = np.gradient(self._cae_ts[:, 1], self.dt)
@@ -660,6 +750,9 @@ class ISO18571:
         Returns: overall_rating, which indicates the objective correlation of the analyzed signals, with a
                  precision of ndigits
         """
+
+        if self._native_scores is not None:
+            return ISO18571._rating_value(self._native_scores["R"], ndigits)
 
         z = self.corridor_rating(ndigits=-1)
         e_p = self.phase_rating(ndigits=-1)

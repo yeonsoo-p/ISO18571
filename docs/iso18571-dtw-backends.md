@@ -21,13 +21,25 @@ and benchmark warmup disabled.
 
 | Backend | First-use pass | Inferred prep | Steady median pass | Steady rounds |
 |---|---:|---:|---:|---:|
-| `dtw_python` | 0.4431s | 0.1807s | 0.2624s | 19 |
-| `librosa` | 0.9856s | 0.7331s | 0.2526s | 20 |
-| `local_iso_native` | 0.0159s | 0.0012s | 0.0147s | 331 |
+| `dtw_python` | 0.4457s | 0.1839s | 0.2618s | 20 |
+| `librosa` | 0.9754s | 0.7229s | 0.2526s | 20 |
+| `local_iso_native` | 0.0111s | 0.0007s | 0.0104s | 477 |
 
 Current native backend status: correctness validated for the Annex suite and
-both performance targets beaten on Linux. The full-score benchmark also includes
-a vectorized phase-correlation path shared by all backends.
+both performance targets beaten on Linux. The `local_iso_native` path now ports
+the full scorer into native code for NumPy-fed curves; other backends still
+share the Python scorer and only replace the magnitude-DTW step.
+
+Signal-family benchmark medians for `local_iso_native`, using
+`tests/test_iso18571_signal_benchmarks.py` with `--run-stress`:
+
+| Signal benchmark | Median |
+|---|---:|
+| `short_sine_noise_129` | 16.465 us |
+| `annex_like_sine_amp_offset_1430` | 1.020 ms |
+| `long_smooth_chirp_8192` | 32.487 ms |
+| `long_noisy_gaussian_8192` | 83.732 ms |
+| `long_sparse_spikes_8192` | 31.715 ms |
 
 ## Command Reference
 
@@ -64,6 +76,17 @@ uv run --with pytest --with pytest-benchmark --with dtw-python --with librosa --
   --max-time 5 --min-rounds 5
 
 uv run python tools/iso18571/summarize_benchmarks.py .benchmarks/iso18571/*.json
+```
+
+Benchmark native scoring by signal family:
+
+```bash
+uv run --with pytest --with pytest-benchmark \
+  python -m pytest -q tests/test_iso18571_signal_benchmarks.py \
+  --run-stress \
+  --benchmark-warmup off \
+  --benchmark-min-rounds 3 \
+  --benchmark-max-time 3
 ```
 
 Build a Linux wheel:

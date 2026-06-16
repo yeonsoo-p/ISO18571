@@ -17,6 +17,12 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         default=str(DEFAULT_ANNEX_DIR),
         help="Directory containing ISO/TS 18571 ed.2 Annex CSV files.",
     )
+    parser.addoption(
+        "--run-stress",
+        action="store_true",
+        default=False,
+        help="Run long ISO/TS 18571 signal stress tests.",
+    )
 
 
 def _selected_backends(config: pytest.Config) -> list[str]:
@@ -30,6 +36,15 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
     if "dtw_backend" in metafunc.fixturenames:
         backends = _selected_backends(metafunc.config)
         metafunc.parametrize("dtw_backend", backends, ids=backends)
+
+
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    if config.getoption("--run-stress"):
+        return
+    skip_stress = pytest.mark.skip(reason="need --run-stress option to run")
+    for item in items:
+        if "stress" in item.keywords:
+            item.add_marker(skip_stress)
 
 
 @pytest.fixture(scope="session")
