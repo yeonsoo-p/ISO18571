@@ -32,6 +32,10 @@ def main() -> int:
             "pytest",
             "-q",
             "tests/test_iso18571_benchmarks.py",
+            "-o",
+            "addopts=",
+            "-m",
+            "benchmark",
             "--iso18571-backends",
             backend,
             "--benchmark-min-rounds",
@@ -52,4 +56,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

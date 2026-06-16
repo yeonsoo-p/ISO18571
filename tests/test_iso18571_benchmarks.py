@@ -17,6 +17,10 @@ def _run_annex_pass(annex_cases, backend: str) -> None:
         iso.overall_rating(ndigits=-1)
 
 
+def _run_native_fixed_signal_annex_pass(fixed_signal_benchmark_annex_cases) -> None:
+    _run_annex_pass(fixed_signal_benchmark_annex_cases, "local_iso_native")
+
+
 @pytest.mark.benchmark
 def test_backend_first_use_end_to_end(benchmark, annex_cases, dtw_backend: str) -> None:
     passed, note = THEORETICAL_INTEGRITY[dtw_backend]
@@ -30,3 +34,9 @@ def test_backend_steady_state_calculation(benchmark, annex_cases, dtw_backend: s
     assert passed, note
     _run_annex_pass(annex_cases, dtw_backend)
     benchmark(lambda: _run_annex_pass(annex_cases, dtw_backend))
+
+
+@pytest.mark.benchmark
+def test_native_fixed_signal_annex_calculation(benchmark, fixed_signal_benchmark_annex_cases) -> None:
+    _run_native_fixed_signal_annex_pass(fixed_signal_benchmark_annex_cases)
+    benchmark(lambda: _run_native_fixed_signal_annex_pass(fixed_signal_benchmark_annex_cases))

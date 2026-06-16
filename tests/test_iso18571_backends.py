@@ -80,10 +80,7 @@ def test_backend_matches_iso_annex_reference_scores(annex_cases, dtw_backend: st
     )
 
 
-def test_native_path_matches_local_reference_for_annex_cases(annex_cases, dtw_backend: str) -> None:
-    if dtw_backend != "local_iso_native":
-        return
-
+def test_native_path_matches_local_reference_for_annex_cases(annex_cases) -> None:
     from iso18571_native import warp_path
 
     for case in annex_cases:
@@ -99,10 +96,7 @@ def test_native_path_matches_local_reference_for_annex_cases(annex_cases, dtw_ba
         np.testing.assert_array_equal(native_path, local_path, err_msg=case.name)
 
 
-def test_native_magnitude_ratio_matches_warped_curve_formula(annex_cases, dtw_backend: str) -> None:
-    if dtw_backend != "local_iso_native":
-        return
-
+def test_native_magnitude_ratio_matches_warped_curve_formula(annex_cases) -> None:
     from iso18571_native import magnitude_ratio
 
     for case in annex_cases:
@@ -121,10 +115,7 @@ def test_native_magnitude_ratio_matches_warped_curve_formula(annex_cases, dtw_ba
         assert abs(observed - expected) <= 1e-12, case.name
 
 
-def test_native_path_matches_local_reference_for_random_curves(dtw_backend: str) -> None:
-    if dtw_backend != "local_iso_native":
-        return
-
+def test_native_path_matches_local_reference_for_random_curves() -> None:
     from iso18571_native import warp_path
 
     rng = np.random.default_rng(18571)
@@ -138,10 +129,7 @@ def test_native_path_matches_local_reference_for_random_curves(dtw_backend: str)
             np.testing.assert_array_equal(observed, expected, err_msg=f"n={n} window={window_size}")
 
 
-def test_native_preserves_iso_tie_order_for_zero_curves(dtw_backend: str) -> None:
-    if dtw_backend != "local_iso_native":
-        return
-
+def test_native_preserves_iso_tie_order_for_zero_curves() -> None:
     from iso18571_native import magnitude_ratio, warp_path
 
     x = np.zeros(5, dtype=np.float64)
@@ -152,3 +140,24 @@ def test_native_preserves_iso_tie_order_for_zero_curves(dtw_backend: str) -> Non
     )
     np.testing.assert_array_equal(path, expected)
     assert np.isnan(magnitude_ratio(x, x, 1.0))
+
+
+def test_native_experimental_variants_match_public_magnitude_ratio() -> None:
+    from iso18571_native import magnitude_ratio
+    from iso18571_native._core import _magnitude_ratio_variant
+
+    rng = np.random.default_rng(18572)
+    variants = (
+        ("serial_current", 1),
+        ("contiguous_serial", 1),
+        ("band_row", 1),
+        ("bitpacked_direction", 1),
+        ("diagonal_parallel", 2),
+    )
+    for n in (17, 64, 129):
+        x = rng.normal(size=n)
+        y = 0.9 * x + rng.normal(scale=0.2, size=n)
+        expected = magnitude_ratio(x, y, 0.1)
+        for variant, max_threads in variants:
+            observed = _magnitude_ratio_variant(x, y, 0.1, variant, max_threads)
+            np.testing.assert_allclose(observed, expected, rtol=1e-12, atol=1e-12, err_msg=f"{variant} n={n}")

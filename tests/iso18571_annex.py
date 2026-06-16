@@ -7,6 +7,8 @@ from pathlib import Path
 
 import numpy as np
 
+from tests.iso18571_signals import SIGNAL_FAMILIES, signal_case
+
 
 SCORE_NAMES = ("R", "Z", "EP", "EM", "ES")
 DEFAULT_ANNEX_DIR = Path("ISO_TS 18571 ed.2 - Annex_data_csv_files")
@@ -46,7 +48,18 @@ class AnnexCase:
     reference_curve: np.ndarray
     comparison_curve: np.ndarray
     dt: float
-    expected: dict[str, float]
+    expected: dict[str, float] | None
+
+
+FIXED_SIGNAL_NORMAL_LENGTHS = (9, 10, 17, 64, 129, 512, 1430)
+FIXED_SIGNAL_STRESS_LENGTHS = (4096, 8192, 16384, 32768)
+FIXED_SIGNAL_BENCHMARK_SPECS = (
+    ("short_sine_noise", "sine_noise", 129),
+    ("annex_like_sine_amp_offset", "sine_amp_offset", 1430),
+    ("long_smooth_chirp", "chirp", 8192),
+    ("long_noisy_gaussian", "gaussian_noise", 8192),
+    ("long_sparse_spikes", "sparse_spikes", 8192),
+)
 
 
 def load_annex_cases(annex_dir: Path = DEFAULT_ANNEX_DIR) -> list[AnnexCase]:
@@ -80,3 +93,29 @@ def load_annex_cases(annex_dir: Path = DEFAULT_ANNEX_DIR) -> list[AnnexCase]:
     if len(cases) != 42:
         raise ValueError(f"Expected 42 Annex cases, found {len(cases)} in {annex_dir}")
     return cases
+
+
+def fixed_signal_annex_case(family: str, n: int, *, label: str | None = None) -> AnnexCase:
+    case = signal_case(family, n)
+    name = label or f"fixed_signal__{family}__n{n}"
+    return AnnexCase(
+        name=name,
+        reference_curve=case.reference,
+        comparison_curve=case.comparison,
+        dt=float(np.median(np.diff(case.reference[:, 0]))),
+        expected=None,
+    )
+
+
+def load_fixed_signal_annex_cases(
+    lengths: tuple[int, ...] = FIXED_SIGNAL_NORMAL_LENGTHS,
+    families: tuple[str, ...] = SIGNAL_FAMILIES,
+) -> list[AnnexCase]:
+    return [fixed_signal_annex_case(family, n) for n in lengths for family in families]
+
+
+def load_fixed_signal_benchmark_annex_cases() -> list[AnnexCase]:
+    return [
+        fixed_signal_annex_case(family, n, label=f"fixed_signal_benchmark__{label}__n{n}")
+        for label, family, n in FIXED_SIGNAL_BENCHMARK_SPECS
+    ]

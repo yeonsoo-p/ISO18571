@@ -2,11 +2,16 @@
 #include <pybind11/pybind11.h>
 
 #include <algorithm>
+#include <condition_variable>
 #include <cmath>
 #include <cstdint>
+#include <exception>
 #include <limits>
+#include <mutex>
 #include <stdexcept>
 #include <string>
+#include <thread>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -26,6 +31,38 @@ struct DtwState {
     std::vector<std::uint8_t> directions;
 };
 
+struct BitDtwState {
+    py::ssize_t n = 0;
+    py::ssize_t radius = 0;
+    py::ssize_t band_width = 0;
+    std::vector<std::uint8_t> directions;
+};
+
+class ReusableBarrier {
+public:
+    explicit ReusableBarrier(std::size_t parties) : parties_(parties), waiting_(0), generation_(0) {}
+
+    void wait() {
+        std::unique_lock<std::mutex> lock(mutex_);
+        const auto generation = generation_;
+        ++waiting_;
+        if (waiting_ == parties_) {
+            waiting_ = 0;
+            ++generation_;
+            condition_.notify_all();
+            return;
+        }
+        condition_.wait(lock, [&] { return generation != generation_; });
+    }
+
+private:
+    std::mutex mutex_;
+    std::condition_variable condition_;
+    std::size_t parties_;
+    std::size_t waiting_;
+    std::size_t generation_;
+};
+
 struct ArrayView {
     const char* data = nullptr;
     py::ssize_t stride = 0;
@@ -35,6 +72,9 @@ struct ArrayView {
         return *reinterpret_cast<const double*>(data + index * stride);
     }
 };
+
+std::vector<double> copy_values(const ArrayView& values);
+ArrayView view_from_vector(const std::vector<double>& values);
 
 struct CurveView {
     const char* data = nullptr;
@@ -108,6 +148,36 @@ py::ssize_t direction_index(py::ssize_t i, py::ssize_t j, py::ssize_t radius, py
     const py::ssize_t row_start = i - radius + 1;
     const py::ssize_t offset = j - row_start;
     return i * band_width + offset;
+}
+
+py::ssize_t ceil_div2(py::ssize_t value) {
+    if (value >= 0) {
+        return (value + 1) / 2;
+    }
+    return value / 2;
+}
+
+py::ssize_t bit_direction_size(py::ssize_t n, py::ssize_t band_width) {
+    return (n * band_width * 2 + 7) / 8;
+}
+
+void set_bit_direction(BitDtwState& state, py::ssize_t i, py::ssize_t j, std::uint8_t direction) {
+    const py::ssize_t cell_index = direction_index(i, j, state.radius, state.band_width);
+    const py::ssize_t bit_index = cell_index * 2;
+    const auto byte_index = static_cast<std::size_t>(bit_index / 8);
+    const auto shift = static_cast<unsigned>(bit_index % 8);
+    const std::uint8_t mask = static_cast<std::uint8_t>(0x03u << shift);
+    state.directions[byte_index] = static_cast<std::uint8_t>(
+        (state.directions[byte_index] & ~mask) | ((direction & 0x03u) << shift)
+    );
+}
+
+std::uint8_t get_bit_direction(const BitDtwState& state, py::ssize_t i, py::ssize_t j) {
+    const py::ssize_t cell_index = direction_index(i, j, state.radius, state.band_width);
+    const py::ssize_t bit_index = cell_index * 2;
+    const auto byte_index = static_cast<std::size_t>(bit_index / 8);
+    const auto shift = static_cast<unsigned>(bit_index % 8);
+    return static_cast<std::uint8_t>((state.directions[byte_index] >> shift) & 0x03u);
 }
 
 template <typename Func>
@@ -193,6 +263,270 @@ DtwState compute_directions(
     return compute_directions(x, y, n, window_size, [](py::ssize_t, py::ssize_t, double) {});
 }
 
+template <typename State, typename SetDirection>
+State compute_directions_band_row(
+    const ArrayView& x,
+    const ArrayView& y,
+    py::ssize_t n,
+    double window_size,
+    SetDirection&& set_direction
+) {
+    State state;
+    state.n = n;
+    state.radius = window_radius(n, window_size);
+    state.band_width = 2 * state.radius - 1;
+    if constexpr (std::is_same_v<State, BitDtwState>) {
+        state.directions.assign(static_cast<std::size_t>(bit_direction_size(n, state.band_width)), 0);
+    } else {
+        state.directions.assign(static_cast<std::size_t>(n * state.band_width), DIR_NONE);
+    }
+
+    const double inf = std::numeric_limits<double>::infinity();
+    std::vector<double> previous(static_cast<std::size_t>(state.band_width), inf);
+    std::vector<double> current(static_cast<std::size_t>(state.band_width), inf);
+
+    for (py::ssize_t i = 0; i < n; ++i) {
+        std::fill(current.begin(), current.end(), inf);
+        const py::ssize_t j_start = std::max<py::ssize_t>(0, i - state.radius + 1);
+        const py::ssize_t j_stop = std::min<py::ssize_t>(n, i + state.radius);
+
+        for (py::ssize_t j = j_start; j < j_stop; ++j) {
+            const py::ssize_t offset = j - i + state.radius - 1;
+            const double delta = x[i] - y[j];
+            const double local_cost = delta * delta;
+            double accumulated = inf;
+            std::uint8_t direction = DIR_NONE;
+
+            if (i == 0 && j == 0) {
+                accumulated = local_cost;
+            } else {
+                double best_previous = inf;
+
+                if (i > 0 && valid_cell(i - 1, j, n, state.radius)) {
+                    best_previous = previous[static_cast<std::size_t>(j - i + state.radius)];
+                    direction = DIR_VERTICAL;
+                }
+                if (j > 0 && j - 1 >= j_start) {
+                    const double candidate = current[static_cast<std::size_t>(offset - 1)];
+                    if (candidate < best_previous) {
+                        best_previous = candidate;
+                        direction = DIR_HORIZONTAL;
+                    }
+                }
+                if (i > 0 && j > 0 && valid_cell(i - 1, j - 1, n, state.radius)) {
+                    const double candidate = previous[static_cast<std::size_t>(j - i + state.radius - 1)];
+                    if (candidate < best_previous) {
+                        best_previous = candidate;
+                        direction = DIR_DIAGONAL;
+                    }
+                }
+
+                if (std::isfinite(best_previous)) {
+                    accumulated = local_cost + best_previous;
+                } else {
+                    direction = DIR_NONE;
+                }
+            }
+
+            current[static_cast<std::size_t>(offset)] = accumulated;
+            set_direction(state, i, j, direction);
+        }
+
+        std::swap(previous, current);
+    }
+
+    const py::ssize_t final_offset = state.radius - 1;
+    if (!std::isfinite(previous[static_cast<std::size_t>(final_offset)])) {
+        throw std::runtime_error("No valid ISO DTW path found");
+    }
+
+    return state;
+}
+
+DtwState compute_directions_band_row(
+    const ArrayView& x,
+    const ArrayView& y,
+    py::ssize_t n,
+    double window_size
+) {
+    return compute_directions_band_row<DtwState>(
+        x,
+        y,
+        n,
+        window_size,
+        [](DtwState& state, py::ssize_t i, py::ssize_t j, std::uint8_t direction) {
+            state.directions[static_cast<std::size_t>(direction_index(i, j, state.radius, state.band_width))] = direction;
+        }
+    );
+}
+
+BitDtwState compute_directions_bitpacked(
+    const ArrayView& x,
+    const ArrayView& y,
+    py::ssize_t n,
+    double window_size
+) {
+    return compute_directions_band_row<BitDtwState>(
+        x,
+        y,
+        n,
+        window_size,
+        [](BitDtwState& state, py::ssize_t i, py::ssize_t j, std::uint8_t direction) {
+            set_bit_direction(state, i, j, direction);
+        }
+    );
+}
+
+py::ssize_t diagonal_j_start(py::ssize_t diagonal, py::ssize_t n, py::ssize_t radius) {
+    const py::ssize_t matrix_start = std::max<py::ssize_t>(0, diagonal - (n - 1));
+    const py::ssize_t band_start = (diagonal - radius) / 2 + 1;
+    return std::max(matrix_start, band_start);
+}
+
+py::ssize_t diagonal_j_stop(py::ssize_t diagonal, py::ssize_t n, py::ssize_t radius) {
+    const py::ssize_t matrix_stop = std::min<py::ssize_t>(n - 1, diagonal) + 1;
+    const py::ssize_t band_stop = ceil_div2(diagonal + radius);
+    return std::min(matrix_stop, band_stop);
+}
+
+DtwState compute_directions_diagonal_parallel(
+    const ArrayView& x,
+    const ArrayView& y,
+    py::ssize_t n,
+    double window_size,
+    py::ssize_t max_threads
+) {
+    if (max_threads <= 1) {
+        return compute_directions_band_row(x, y, n, window_size);
+    }
+
+    DtwState state;
+    state.n = n;
+    state.radius = window_radius(n, window_size);
+    state.band_width = 2 * state.radius - 1;
+    state.directions.assign(static_cast<std::size_t>(n * state.band_width), DIR_NONE);
+
+    const std::size_t hardware_threads = std::max(1u, std::thread::hardware_concurrency());
+    const std::size_t thread_count = static_cast<std::size_t>(
+        std::max<py::ssize_t>(1, std::min<py::ssize_t>(max_threads, static_cast<py::ssize_t>(hardware_threads)))
+    );
+    if (thread_count <= 1) {
+        return compute_directions_band_row(x, y, n, window_size);
+    }
+
+    const double inf = std::numeric_limits<double>::infinity();
+    const py::ssize_t total_diagonals = 2 * n - 1;
+    ReusableBarrier barrier(thread_count);
+    std::exception_ptr worker_exception = nullptr;
+    std::mutex exception_mutex;
+
+    std::vector<double> previous_previous;
+    std::vector<double> previous;
+    std::vector<double> current;
+    py::ssize_t previous_previous_j_start = 0;
+    py::ssize_t previous_j_start = 0;
+    py::ssize_t current_j_start = 0;
+    py::ssize_t current_length = 0;
+
+    auto range_lookup = [](const std::vector<double>& values, py::ssize_t start, py::ssize_t j) -> double {
+        const py::ssize_t offset = j - start;
+        if (offset < 0 || offset >= static_cast<py::ssize_t>(values.size())) {
+            return std::numeric_limits<double>::infinity();
+        }
+        return values[static_cast<std::size_t>(offset)];
+    };
+
+    auto worker = [&](std::size_t thread_index) {
+        try {
+            for (py::ssize_t diagonal = 0; diagonal < total_diagonals; ++diagonal) {
+                if (thread_index == 0) {
+                    current_j_start = diagonal_j_start(diagonal, n, state.radius);
+                    const py::ssize_t j_stop = diagonal_j_stop(diagonal, n, state.radius);
+                    current_length = std::max<py::ssize_t>(0, j_stop - current_j_start);
+                    current.assign(static_cast<std::size_t>(current_length), inf);
+                }
+                barrier.wait();
+
+                for (py::ssize_t offset = static_cast<py::ssize_t>(thread_index);
+                     offset < current_length;
+                     offset += static_cast<py::ssize_t>(thread_count)) {
+                    const py::ssize_t j = current_j_start + offset;
+                    const py::ssize_t i = diagonal - j;
+                    const double delta = x[i] - y[j];
+                    const double local_cost = delta * delta;
+                    double accumulated = inf;
+                    std::uint8_t direction = DIR_NONE;
+
+                    if (i == 0 && j == 0) {
+                        accumulated = local_cost;
+                    } else {
+                        double best_previous = inf;
+
+                        if (i > 0 && valid_cell(i - 1, j, n, state.radius)) {
+                            best_previous = range_lookup(previous, previous_j_start, j);
+                            direction = DIR_VERTICAL;
+                        }
+                        if (j > 0 && valid_cell(i, j - 1, n, state.radius)) {
+                            const double candidate = range_lookup(previous, previous_j_start, j - 1);
+                            if (candidate < best_previous) {
+                                best_previous = candidate;
+                                direction = DIR_HORIZONTAL;
+                            }
+                        }
+                        if (i > 0 && j > 0 && valid_cell(i - 1, j - 1, n, state.radius)) {
+                            const double candidate = range_lookup(previous_previous, previous_previous_j_start, j - 1);
+                            if (candidate < best_previous) {
+                                best_previous = candidate;
+                                direction = DIR_DIAGONAL;
+                            }
+                        }
+
+                        if (std::isfinite(best_previous)) {
+                            accumulated = local_cost + best_previous;
+                        } else {
+                            direction = DIR_NONE;
+                        }
+                    }
+
+                    current[static_cast<std::size_t>(offset)] = accumulated;
+                    state.directions[static_cast<std::size_t>(direction_index(i, j, state.radius, state.band_width))] = direction;
+                }
+                barrier.wait();
+
+                if (thread_index == 0) {
+                    previous_previous_j_start = previous_j_start;
+                    previous_previous.swap(previous);
+                    previous_j_start = current_j_start;
+                    previous.swap(current);
+                }
+                barrier.wait();
+            }
+        } catch (...) {
+            std::lock_guard<std::mutex> lock(exception_mutex);
+            if (!worker_exception) {
+                worker_exception = std::current_exception();
+            }
+        }
+    };
+
+    std::vector<std::thread> threads;
+    threads.reserve(thread_count);
+    for (std::size_t thread_index = 0; thread_index < thread_count; ++thread_index) {
+        threads.emplace_back(worker, thread_index);
+    }
+    for (auto& thread : threads) {
+        thread.join();
+    }
+    if (worker_exception) {
+        std::rethrow_exception(worker_exception);
+    }
+
+    if (previous.empty() || !std::isfinite(previous.back())) {
+        throw std::runtime_error("No valid ISO DTW path found");
+    }
+    return state;
+}
+
 double magnitude_ratio_from_views(const ArrayView& x, const ArrayView& y, double window_size) {
     const auto n = x.n;
     const auto state = compute_directions(x, y, n, window_size);
@@ -227,6 +561,100 @@ double magnitude_ratio_from_views(const ArrayView& x, const ArrayView& y, double
     }
 
     return numerator / denominator;
+}
+
+double magnitude_ratio_from_state(const ArrayView& x, const ArrayView& y, const DtwState& state) {
+    double numerator = 0.0;
+    double denominator = 0.0;
+    py::ssize_t i = state.n - 1;
+    py::ssize_t j = state.n - 1;
+
+    while (true) {
+        numerator += std::abs(x[i] - y[j]);
+        denominator += std::abs(y[j]);
+
+        if (i == 0 && j == 0) {
+            break;
+        }
+
+        const auto direction = state.directions[static_cast<std::size_t>(
+            direction_index(i, j, state.radius, state.band_width)
+        )];
+
+        if (direction == DIR_VERTICAL) {
+            --i;
+        } else if (direction == DIR_HORIZONTAL) {
+            --j;
+        } else if (direction == DIR_DIAGONAL) {
+            --i;
+            --j;
+        } else {
+            throw std::runtime_error("No valid ISO DTW predecessor found");
+        }
+    }
+
+    return numerator / denominator;
+}
+
+double magnitude_ratio_from_bit_state(const ArrayView& x, const ArrayView& y, const BitDtwState& state) {
+    double numerator = 0.0;
+    double denominator = 0.0;
+    py::ssize_t i = state.n - 1;
+    py::ssize_t j = state.n - 1;
+
+    while (true) {
+        numerator += std::abs(x[i] - y[j]);
+        denominator += std::abs(y[j]);
+
+        if (i == 0 && j == 0) {
+            break;
+        }
+
+        const auto direction = get_bit_direction(state, i, j);
+
+        if (direction == DIR_VERTICAL) {
+            --i;
+        } else if (direction == DIR_HORIZONTAL) {
+            --j;
+        } else if (direction == DIR_DIAGONAL) {
+            --i;
+            --j;
+        } else {
+            throw std::runtime_error("No valid ISO DTW predecessor found");
+        }
+    }
+
+    return numerator / denominator;
+}
+
+double magnitude_ratio_variant_from_views(
+    const ArrayView& x,
+    const ArrayView& y,
+    double window_size,
+    const std::string& variant,
+    py::ssize_t max_threads
+) {
+    if (variant == "serial_current") {
+        return magnitude_ratio_from_views(x, y, window_size);
+    }
+    if (variant == "contiguous_serial") {
+        const std::vector<double> contiguous_x = copy_values(x);
+        const std::vector<double> contiguous_y = copy_values(y);
+        return magnitude_ratio_from_views(view_from_vector(contiguous_x), view_from_vector(contiguous_y), window_size);
+    }
+    if (variant == "band_row") {
+        const auto state = compute_directions_band_row(x, y, x.n, window_size);
+        return magnitude_ratio_from_state(x, y, state);
+    }
+    if (variant == "bitpacked_direction") {
+        const auto state = compute_directions_bitpacked(x, y, x.n, window_size);
+        return magnitude_ratio_from_bit_state(x, y, state);
+    }
+    if (variant == "diagonal_parallel") {
+        const auto state = compute_directions_diagonal_parallel(x, y, x.n, window_size, max_threads);
+        return magnitude_ratio_from_state(x, y, state);
+    }
+    throw std::invalid_argument("Unknown ISO DTW variant: " + variant);
 }
 
 std::vector<std::pair<py::ssize_t, py::ssize_t>> backtrack_pairs(const DtwState& state) {
@@ -737,6 +1165,52 @@ double magnitude_ratio(
     return ratio;
 }
 
+double magnitude_ratio_variant(
+    py::array_t<double, py::array::forcecast> x,
+    py::array_t<double, py::array::forcecast> y,
+    double window_size,
+    const std::string& variant,
+    py::ssize_t max_threads
+) {
+    const auto views = validate_inputs(x, y);
+
+    double ratio = 0.0;
+    {
+        py::gil_scoped_release release;
+        ratio = magnitude_ratio_variant_from_views(views.first, views.second, window_size, variant, max_threads);
+    }
+
+    return ratio;
+}
+
+void parallel_barrier_overhead(py::ssize_t iterations, py::ssize_t max_threads) {
+    const std::size_t hardware_threads = std::max(1u, std::thread::hardware_concurrency());
+    const std::size_t thread_count = static_cast<std::size_t>(
+        std::max<py::ssize_t>(1, std::min<py::ssize_t>(max_threads, static_cast<py::ssize_t>(hardware_threads)))
+    );
+    if (thread_count <= 1) {
+        for (py::ssize_t iteration = 0; iteration < iterations; ++iteration) {
+        }
+        return;
+    }
+
+    ReusableBarrier barrier(thread_count);
+    std::vector<std::thread> threads;
+    threads.reserve(thread_count);
+    for (std::size_t thread_index = 0; thread_index < thread_count; ++thread_index) {
+        threads.emplace_back([&] {
+            for (py::ssize_t iteration = 0; iteration < iterations; ++iteration) {
+                barrier.wait();
+                barrier.wait();
+                barrier.wait();
+            }
+        });
+    }
+    for (auto& thread : threads) {
+        thread.join();
+    }
+}
+
 py::dict score_components(
     py::array_t<double, py::array::forcecast> reference_curve,
     py::array_t<double, py::array::forcecast> comparison_curve,
@@ -782,5 +1256,7 @@ PYBIND11_MODULE(_core, m) {
     m.def("backend_info", &backend_info);
     m.def("warp_path", &warp_path, py::arg("x"), py::arg("y"), py::arg("window_size"));
     m.def("magnitude_ratio", &magnitude_ratio, py::arg("x"), py::arg("y"), py::arg("window_size"));
+    m.def("_magnitude_ratio_variant", &magnitude_ratio_variant, py::arg("x"), py::arg("y"), py::arg("window_size"), py::arg("variant"), py::arg("max_threads") = 1);
+    m.def("_parallel_barrier_overhead", &parallel_barrier_overhead, py::arg("iterations"), py::arg("max_threads"));
     m.def("score_components", &score_components, py::arg("reference_curve"), py::arg("comparison_curve"), py::arg("params") = py::dict());
 }

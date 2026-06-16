@@ -3,7 +3,13 @@ from __future__ import annotations
 import pytest
 
 from rating import DTW_BACKENDS, _normalise_dtw_backend
-from tests.iso18571_annex import DEFAULT_ANNEX_DIR, load_annex_cases
+from tests.iso18571_annex import (
+    DEFAULT_ANNEX_DIR,
+    FIXED_SIGNAL_STRESS_LENGTHS,
+    load_annex_cases,
+    load_fixed_signal_annex_cases,
+    load_fixed_signal_benchmark_annex_cases,
+)
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
@@ -16,12 +22,6 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         "--iso18571-annex-dir",
         default=str(DEFAULT_ANNEX_DIR),
         help="Directory containing ISO/TS 18571 ed.2 Annex CSV files.",
-    )
-    parser.addoption(
-        "--run-stress",
-        action="store_true",
-        default=False,
-        help="Run long ISO/TS 18571 signal stress tests.",
     )
 
 
@@ -38,15 +38,21 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
         metafunc.parametrize("dtw_backend", backends, ids=backends)
 
 
-def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
-    if config.getoption("--run-stress"):
-        return
-    skip_stress = pytest.mark.skip(reason="need --run-stress option to run")
-    for item in items:
-        if "stress" in item.keywords:
-            item.add_marker(skip_stress)
-
-
 @pytest.fixture(scope="session")
 def annex_cases(pytestconfig: pytest.Config):
     return load_annex_cases(DEFAULT_ANNEX_DIR.parent / pytestconfig.getoption("--iso18571-annex-dir"))
+
+
+@pytest.fixture(scope="session")
+def fixed_signal_annex_cases():
+    return load_fixed_signal_annex_cases()
+
+
+@pytest.fixture(scope="session")
+def fixed_signal_stress_annex_cases():
+    return load_fixed_signal_annex_cases(lengths=FIXED_SIGNAL_STRESS_LENGTHS)
+
+
+@pytest.fixture(scope="session")
+def fixed_signal_benchmark_annex_cases():
+    return load_fixed_signal_benchmark_annex_cases()

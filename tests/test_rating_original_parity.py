@@ -4,18 +4,17 @@ import numpy as np
 import pytest
 
 import rating
-from tests.iso18571_signals import SIGNAL_FAMILIES, SignalCase, signal_case
-
-rating_original = pytest.importorskip("rating_original")
+from tests.iso18571_annex import AnnexCase
+from tests.iso18571_signals import signal_case
 
 
 SCORE_KEYS = ("Z", "EP", "EM", "ES", "R")
-NORMAL_LENGTHS = (9, 10, 17, 64, 129, 512, 1430)
-STRESS_LENGTHS = (4096, 8192, 16384, 32768)
 
 
-def _scores_from_original(case: SignalCase) -> dict[str, float | int]:
-    iso = rating_original.ISO18571(case.reference, case.comparison)
+def _scores_from_original(case: AnnexCase) -> dict[str, float | int]:
+    import rating_original
+
+    iso = rating_original.ISO18571(case.reference_curve, case.comparison_curve)
     return {
         "n_eps": iso._n_eps,
         "rho_e": iso._rho_e,
@@ -32,8 +31,8 @@ def _scores_from_original(case: SignalCase) -> dict[str, float | int]:
     }
 
 
-def _scores_from_native(case: SignalCase) -> dict[str, float | int]:
-    iso = rating.ISO18571(case.reference, case.comparison, dtw_backend="local_iso_native")
+def _scores_from_native(case: AnnexCase) -> dict[str, float | int]:
+    iso = rating.ISO18571(case.reference_curve, case.comparison_curve, dtw_backend="local_iso_native")
     return {
         "n_eps": iso._n_eps,
         "rho_e": iso._rho_e,
@@ -64,19 +63,29 @@ def _assert_scores_close(observed: dict[str, float | int], expected: dict[str, f
         )
 
 
-@pytest.mark.parametrize("family", SIGNAL_FAMILIES)
-@pytest.mark.parametrize("n", NORMAL_LENGTHS)
-def test_native_scorer_matches_original_for_signal_families(family: str, n: int) -> None:
-    case = signal_case(family, n)
+@pytest.mark.oracle
+def test_native_scorer_matches_original_for_fixed_signal_annexes(fixed_signal_annex_cases) -> None:
+    for case in fixed_signal_annex_cases:
+        _assert_native_matches_original(case)
+
+
+def _assert_native_matches_original(case: AnnexCase) -> None:
     try:
         expected = _scores_from_original(case)
     except Exception as exc:
-        with pytest.raises(type(exc)):
+        try:
             _scores_from_native(case)
-        return
-
-    observed = _scores_from_native(case)
-    _assert_scores_close(observed, expected)
+        except Exception as native_exc:
+            assert isinstance(native_exc, type(exc)), (
+                f"{case.name}: "
+                f"native raised {type(native_exc).__name__}, "
+                f"expected {type(exc).__name__}"
+            )
+        else:
+            raise AssertionError(f"{case.name}: native scorer did not raise {type(exc).__name__}")
+    else:
+        observed = _scores_from_native(case)
+        _assert_scores_close(observed, expected)
 
 
 def test_native_score_components_accepts_strided_and_float32_curves() -> None:
@@ -94,9 +103,7 @@ def test_native_score_components_accepts_strided_and_float32_curves() -> None:
 
 
 @pytest.mark.stress
-@pytest.mark.parametrize("family", SIGNAL_FAMILIES)
-@pytest.mark.parametrize("n", STRESS_LENGTHS)
-def test_native_scorer_handles_long_signal_families(family: str, n: int) -> None:
-    case = signal_case(family, n)
-    scores = _scores_from_native(case)
-    assert set(SCORE_KEYS).issubset(scores)
+def test_native_scorer_handles_long_fixed_signal_annexes(fixed_signal_stress_annex_cases) -> None:
+    for case in fixed_signal_stress_annex_cases:
+        scores = _scores_from_native(case)
+        assert set(SCORE_KEYS).issubset(scores), case.name

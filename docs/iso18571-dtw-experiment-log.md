@@ -328,3 +328,76 @@
   change, likely band-row memory/layout specialization, SIMD-friendly min
   selection with signal-aware dispatch, or parallelization, each gated by the
   same parity, Annex, and signal-family benchmarks.
+
+## 2026-06-16 13:47 KST - Test Hygiene, Generated Fixed-Signal Annexes, And Parallel Threshold BFS
+
+- Git status: checkpoint commits `5e29069` and `c99081f` exist; the test
+  hygiene, generated fixed-signal Annex, and experimental DTW variant changes
+  are uncommitted at the start of this batch.
+- Hypothesis: stress and benchmark coverage should move from a standalone
+  signal-family benchmark file into generated Annex-shaped cases, so official
+  Annex validation and synthetic fixed-signal coverage share the same test and
+  benchmark harness. Pytest outcomes should use only `assert`/explicit raise;
+  category selection should be marker deselection, not runtime skips.
+- Files changed:
+  - `pytest.ini`;
+  - `tests/conftest.py`;
+  - `tests/iso18571_annex.py`;
+  - `tests/test_rating_original_parity.py`;
+  - `tests/test_iso18571_backends.py`;
+  - `tests/test_iso18571_benchmarks.py`;
+  - removed `tests/test_iso18571_signal_benchmarks.py`;
+  - added `tests/test_pytest_policy.py`;
+  - added `tests/test_iso18571_threshold_benchmarks.py`;
+  - `src/iso18571_native/_core.cpp`;
+  - `setup.py`;
+  - `tools/iso18571/run_backend_benchmarks.py`;
+  - `tools/iso18571/summarize_benchmarks.py`;
+  - added `tools/iso18571/analyze_parallel_threshold.py`;
+  - `AGENTS.md`;
+  - `docs/iso18571-dtw-backends.md`.
+- Commands:
+  - `uv pip install -e .`
+  - `rg -n "pytest\\.(skip|fail|importorskip|raises|xfail)|@pytest\\.mark\\.(skip|xfail)" tests pytest.ini`
+  - `rg -n "^\\s*return\\s*$" tests`
+  - `uv run --with pytest --with pytest-benchmark python -m pytest -q`
+  - `uv run --with pytest --with pytest-benchmark --with dtwalign --with scipy python -m pytest -q tests/test_rating_original_parity.py -o addopts= -m oracle`
+  - `uv run --with pytest --with pytest-benchmark python -m pytest -q tests/test_rating_original_parity.py -o addopts= -m stress`
+  - `uv run --with pytest --with pytest-benchmark --with dtwalign --with dtaidistance --with dtw-python --with librosa --with scipy python -m pytest -q tests/test_iso18571_backends.py --iso18571-backends local_iso_numpy,local_iso_native,dtwalign,dtaidistance,dtw_python,librosa`
+  - `uv run --with pytest --with pytest-benchmark python tools/iso18571/run_backend_benchmarks.py --output-dir .benchmarks/iso18571-annex-fixed-smoke --backends local_iso_native --max-time 1 --min-rounds 3`
+  - `uv run python tools/iso18571/summarize_benchmarks.py .benchmarks/iso18571-annex-fixed-smoke/*.json`
+  - `uv run --with pytest --with pytest-benchmark python -m pytest -q tests/test_iso18571_threshold_benchmarks.py -o addopts= -m "benchmark and not threshold" --benchmark-warmup off --benchmark-min-rounds 3 --benchmark-max-time 3 --benchmark-json .benchmarks/iso18571-layout-bfs/layout.json`
+  - `uv run --with pytest --with pytest-benchmark python -m pytest -q tests/test_iso18571_threshold_benchmarks.py -o addopts= -m threshold --benchmark-warmup off --benchmark-min-rounds 1 --benchmark-max-time 0.1 --benchmark-json .benchmarks/iso18571-threshold-full/threshold.json`
+  - `uv run python tools/iso18571/analyze_parallel_threshold.py .benchmarks/iso18571-threshold-full/threshold.json`
+- Validation result:
+  - forbidden pytest outcome API scan found no matches;
+  - silent bare-return scan in `tests/` found no matches;
+  - default suite: `12 passed, 157 deselected`, no skips;
+  - oracle fixed-signal Annex parity: `1 passed, 2 deselected`, no skips;
+  - long fixed-signal Annex stress: `1 passed, 2 deselected`, no skips;
+  - eligible backend matrix: `20 passed`, no skips;
+  - private native variant invariant test passed for `serial_current`,
+    `contiguous_serial`, `band_row`, `bitpacked_direction`, and
+    `diagonal_parallel`.
+- Benchmark result:
+  - local native official Annex smoke: first-use `0.0111s`, steady
+    `0.0104s`;
+  - generated fixed-signal Annex pass: `0.1495s`;
+  - layout BFS medians at 8192 samples rejected `band_row` and
+    `bitpacked_direction`: they were slower than `serial_current` across
+    chirp, sparse-spike, and Gaussian-noise families;
+  - full diagonal-parallel threshold matrix rejected every tested combination
+    of `n` in `1430, 4096, 8192, 12288, 16384, 24576, 32768` and thread counts
+    `2, 4, 8`; the reusable-barrier anti-diagonal implementation never met
+    the 10% faster/no-family-regression threshold.
+- Conclusion:
+  - fixed signal coverage now lives as generated Annex-shaped cases, with
+    normal oracle parity, long stress, and benchmark fixtures sharing the Annex
+    loader conventions;
+  - production remains on the current serial native DTW kernel;
+  - the private experimental hook is useful for BFS benchmarking but is not
+    exported from `iso18571_native/__init__.py`.
+- Next hypothesis: the next speed search should avoid per-diagonal global
+  barriers and focus on larger-grain parallelism, cache-aware tiling inside the
+  band, or a compiled scorer-level split that preserves exact ISO predecessor
+  order while reducing synchronization frequency.

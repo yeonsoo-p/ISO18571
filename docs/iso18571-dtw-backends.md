@@ -30,16 +30,19 @@ both performance targets beaten on Linux. The `local_iso_native` path now ports
 the full scorer into native code for NumPy-fed curves; other backends still
 share the Python scorer and only replace the magnitude-DTW step.
 
-Signal-family benchmark medians for `local_iso_native`, using
-`tests/test_iso18571_signal_benchmarks.py` with `--run-stress`:
+Generated fixed-signal Annex benchmark for `local_iso_native`, using the same
+Annex pass harness over five representative generated cases in
+`tests/test_iso18571_benchmarks.py`:
 
-| Signal benchmark | Median |
+| Annex pass | Median |
 |---|---:|
-| `short_sine_noise_129` | 16.465 us |
-| `annex_like_sine_amp_offset_1430` | 1.020 ms |
-| `long_smooth_chirp_8192` | 32.487 ms |
-| `long_noisy_gaussian_8192` | 83.732 ms |
-| `long_sparse_spikes_8192` | 31.715 ms |
+| Official 42 CSV cases | 10.3895 ms |
+| Generated fixed-signal cases | 149.4609 ms |
+
+The generated fixed-signal cases are Annex-shaped fixtures, not official ISO CSV
+files. They cover short sine/noise, Annex-like amplitude/offset sine, long
+chirp, long Gaussian noise, and long sparse-spike families through the same
+scorer path used for the official Annex benchmarks.
 
 ## Command Reference
 
@@ -55,6 +58,22 @@ Validate the reference and native backends:
 uv run --with pytest --with pytest-benchmark \
   python -m pytest -q tests/test_iso18571_backends.py \
   --iso18571-backends local_iso_numpy,local_iso_native
+```
+
+Validate generated fixed-signal Annex parity against `rating_original.py`:
+
+```bash
+uv run --with pytest --with pytest-benchmark --with dtwalign --with scipy \
+  python -m pytest -q tests/test_rating_original_parity.py \
+  -o addopts= -m oracle
+```
+
+Run long generated fixed-signal Annex stress cases:
+
+```bash
+uv run --with pytest --with pytest-benchmark \
+  python -m pytest -q tests/test_rating_original_parity.py \
+  -o addopts= -m stress
 ```
 
 Validate all production-eligible backends:
@@ -78,15 +97,37 @@ uv run --with pytest --with pytest-benchmark --with dtw-python --with librosa --
 uv run python tools/iso18571/summarize_benchmarks.py .benchmarks/iso18571/*.json
 ```
 
-Benchmark native scoring by signal family:
+Benchmark official and generated fixed-signal Annex cases:
 
 ```bash
 uv run --with pytest --with pytest-benchmark \
-  python -m pytest -q tests/test_iso18571_signal_benchmarks.py \
-  --run-stress \
+  python -m pytest -q tests/test_iso18571_benchmarks.py \
+  -o addopts= -m benchmark \
   --benchmark-warmup off \
   --benchmark-min-rounds 3 \
   --benchmark-max-time 3
+```
+
+Run the native DTW layout and parallelization threshold benchmark categories:
+
+```bash
+uv run --with pytest --with pytest-benchmark \
+  python -m pytest -q tests/test_iso18571_threshold_benchmarks.py \
+  -o addopts= -m "benchmark and not threshold" \
+  --benchmark-warmup off \
+  --benchmark-min-rounds 3 \
+  --benchmark-max-time 3
+
+uv run --with pytest --with pytest-benchmark \
+  python -m pytest -q tests/test_iso18571_threshold_benchmarks.py \
+  -o addopts= -m threshold \
+  --benchmark-warmup off \
+  --benchmark-min-rounds 1 \
+  --benchmark-max-time 0.1 \
+  --benchmark-json .benchmarks/iso18571-threshold/threshold.json
+
+uv run python tools/iso18571/analyze_parallel_threshold.py \
+  .benchmarks/iso18571-threshold/threshold.json
 ```
 
 Build a Linux wheel:

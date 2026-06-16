@@ -12,6 +12,8 @@ def parse_args() -> argparse.Namespace:
 
 
 def backend_from_name(name: str) -> str:
+    if "fixed_signal" in name:
+        return "local_iso_native"
     if "[" not in name or not name.endswith("]"):
         return name
     return name.rsplit("[", 1)[1][:-1]
@@ -34,19 +36,21 @@ def main() -> int:
             elif "steady_state" in benchmark["name"]:
                 row["steady_s"] = stats["median"]
                 row["steady_rounds"] = stats["rounds"]
+            elif "fixed_signal" in benchmark["name"]:
+                row["fixed_signal_s"] = stats["median"]
+                row["fixed_signal_rounds"] = stats["rounds"]
 
-    print("| Backend | First-use pass | Inferred prep | Steady median pass | Steady rounds |")
+    print("| Backend | First-use pass | Inferred prep | Official Annex steady | Fixed-signal Annex steady |")
     print("|---|---:|---:|---:|---:|")
     for backend, row in sorted(rows.items()):
         first = float(row.get("first_use_s", float("nan")))
         steady = float(row.get("steady_s", float("nan")))
+        fixed_signal = float(row.get("fixed_signal_s", float("nan")))
         prep = first - steady
-        rounds = int(row.get("steady_rounds", 0))
-        print(f"| `{backend}` | {first:.4f}s | {prep:.4f}s | {steady:.4f}s | {rounds} |")
+        print(f"| `{backend}` | {first:.4f}s | {prep:.4f}s | {steady:.4f}s | {fixed_signal:.4f}s |")
 
     return 0
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
