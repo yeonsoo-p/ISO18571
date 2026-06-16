@@ -144,28 +144,50 @@ def test_native_preserves_iso_tie_order_for_zero_curves() -> None:
 
 def test_native_experimental_variants_match_public_magnitude_ratio() -> None:
     from iso18571_native import magnitude_ratio
-    from iso18571_native._core import _magnitude_ratio_variant
+    from iso18571_native._core import DtwLayout, ParallelMode, SimdLevel, _magnitude_ratio_variant_spec
 
     rng = np.random.default_rng(18572)
     variants = (
-        ("serial_current", 1),
-        ("contiguous_serial", 1),
-        ("band_row", 1),
-        ("bitpacked_direction", 1),
-        ("diagonal_parallel", 2),
+        (DtwLayout.Current, ParallelMode.NoParallel, 0, SimdLevel.Scalar, 1),
+        (DtwLayout.RangePrecompute, ParallelMode.NoParallel, 0, SimdLevel.Scalar, 1),
+        (DtwLayout.IndexIncremental, ParallelMode.NoParallel, 0, SimdLevel.Scalar, 1),
+        (DtwLayout.CompactDirection, ParallelMode.NoParallel, 0, SimdLevel.Scalar, 1),
+        (DtwLayout.Current, ParallelMode.Diagonal, 0, SimdLevel.Scalar, 2),
+        (DtwLayout.Current, ParallelMode.NoParallel, 0, SimdLevel.Auto, 1),
     )
     for n in (17, 64, 129):
         x = rng.normal(size=n)
         y = 0.9 * x + rng.normal(scale=0.2, size=n)
         expected = magnitude_ratio(x, y, 0.1)
-        for variant, max_threads in variants:
-            observed = _magnitude_ratio_variant(x, y, 0.1, variant, max_threads)
-            np.testing.assert_allclose(observed, expected, rtol=1e-12, atol=1e-12, err_msg=f"{variant} n={n}")
+        for dtw_layout, parallel_mode, block_size, simd_level, max_threads in variants:
+            observed = _magnitude_ratio_variant_spec(
+                x,
+                y,
+                0.1,
+                dtw_layout,
+                parallel_mode,
+                block_size,
+                simd_level,
+                max_threads,
+            )
+            np.testing.assert_allclose(
+                observed,
+                expected,
+                rtol=1e-12,
+                atol=1e-12,
+                err_msg=f"{dtw_layout} {parallel_mode} {simd_level} n={n}",
+            )
 
 
 def test_native_score_component_variants_match_public_scorer() -> None:
     from iso18571_native import score_components
-    from iso18571_native._core import _score_components_variant
+    from iso18571_native._core import (
+        DtwLayout,
+        ParallelMode,
+        ReductionMode,
+        SimdLevel,
+        _score_components_variant_spec,
+    )
     from tests.iso18571_annex import fixed_signal_annex_case, phase_shift_annex_case
 
     cases = (
@@ -174,23 +196,27 @@ def test_native_score_component_variants_match_public_scorer() -> None:
         phase_shift_annex_case("phase_multitone_shift_020", 129),
     )
     variants = (
-        ("dtw_current+reduce_none+parallel_none", 1),
-        ("dtw_range_precompute+reduce_none+parallel_none", 1),
-        ("dtw_index_incremental+phase_dual_product+parallel_none", 1),
-        ("dtw_compact_direction+shared_shift_workspace+parallel_none", 1),
-        ("dtw_index_incremental+all_reductions+parallel_none", 1),
-        ("dtw_current+all_reductions+blocked64", 2),
+        (DtwLayout.Current, ReductionMode.NoReduction, ParallelMode.NoParallel, 0, SimdLevel.Scalar, 1),
+        (DtwLayout.RangePrecompute, ReductionMode.NoReduction, ParallelMode.NoParallel, 0, SimdLevel.Scalar, 1),
+        (DtwLayout.IndexIncremental, ReductionMode.PhaseDualProduct, ParallelMode.NoParallel, 0, SimdLevel.Scalar, 1),
+        (DtwLayout.CompactDirection, ReductionMode.SharedShiftWorkspace, ParallelMode.NoParallel, 0, SimdLevel.Scalar, 1),
+        (DtwLayout.IndexIncremental, ReductionMode.All, ParallelMode.NoParallel, 0, SimdLevel.Auto, 1),
+        (DtwLayout.Current, ReductionMode.All, ParallelMode.Blocked, 64, SimdLevel.Auto, 2),
     )
     keys = ("Z", "EP", "EM", "ES", "R", "n_eps", "rho_e", "reference_start", "comparison_start", "shift_length")
 
     for case in cases:
         expected = score_components(case.reference_curve, case.comparison_curve, {"dt": case.dt})
-        for variant, max_threads in variants:
-            observed = _score_components_variant(
+        for dtw_layout, reduction_mode, parallel_mode, block_size, simd_level, max_threads in variants:
+            observed = _score_components_variant_spec(
                 case.reference_curve,
                 case.comparison_curve,
                 {"dt": case.dt},
-                variant,
+                dtw_layout,
+                reduction_mode,
+                parallel_mode,
+                block_size,
+                simd_level,
                 max_threads,
             )
             for key in keys:
@@ -200,5 +226,67 @@ def test_native_score_component_variants_match_public_scorer() -> None:
                     rtol=1e-12,
                     atol=1e-12,
                     equal_nan=True,
-                    err_msg=f"{case.name} {variant} {key}",
+                    err_msg=f"{case.name} {dtw_layout} {reduction_mode} {parallel_mode} {simd_level} {key}",
                 )
+
+
+def test_native_enum_variant_api_reports_simd_metadata() -> None:
+    from iso18571_native._core import (
+        DtwLayout,
+        ParallelMode,
+        ReductionMode,
+        SimdLevel,
+        _score_components_variant_spec,
+        _simd_info,
+    )
+    from tests.iso18571_annex import fixed_signal_annex_case
+
+    info = _simd_info()
+    assert "compiled_avx2_fma" in info
+    assert "auto_level" in info
+    assert "compiled_avx512" not in info
+
+    case = fixed_signal_annex_case("chirp", 64)
+    observed = _score_components_variant_spec(
+        case.reference_curve,
+        case.comparison_curve,
+        {"dt": case.dt},
+        DtwLayout.Current,
+        ReductionMode.All,
+        ParallelMode.NoParallel,
+        0,
+        SimdLevel.Auto,
+        1,
+    )
+    assert observed["requested_simd_level"] == "auto"
+    assert observed["selected_simd_level"] in {"scalar", "sse2", "avx2", "avx2_fma"}
+    assert isinstance(observed["simd_fallback"], bool)
+
+
+def test_native_enum_variant_api_rejects_invalid_blocked_specs() -> None:
+    from iso18571_native._core import (
+        DtwLayout,
+        ParallelMode,
+        ReductionMode,
+        SimdLevel,
+        _score_components_variant_spec,
+    )
+    from tests.iso18571_annex import fixed_signal_annex_case
+
+    case = fixed_signal_annex_case("chirp", 64)
+    try:
+        _score_components_variant_spec(
+            case.reference_curve,
+            case.comparison_curve,
+            {"dt": case.dt},
+            DtwLayout.Current,
+            ReductionMode.NoReduction,
+            ParallelMode.Blocked,
+            0,
+            SimdLevel.Scalar,
+            1,
+        )
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("blocked variant with block_size=0 should fail")

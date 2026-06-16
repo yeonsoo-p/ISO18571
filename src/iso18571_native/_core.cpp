@@ -1,6 +1,8 @@
 #include <pybind11/numpy.h>
 #include <pybind11/pybind11.h>
 
+#include "simd.hpp"
+
 #include <algorithm>
 #include <atomic>
 #include <condition_variable>
@@ -19,6 +21,10 @@
 namespace py = pybind11;
 
 namespace {
+
+using iso18571_native::SimdCapabilities;
+using iso18571_native::SimdLevel;
+using iso18571_native::SimdSelection;
 
 constexpr std::uint8_t DIR_NONE = 0;
 constexpr std::uint8_t DIR_VERTICAL = 1;
@@ -129,21 +135,37 @@ struct PhaseCache {
     std::vector<double> comparison_square_sum;
 };
 
-enum class DtwKernel {
+enum class DtwLayout {
     Current,
     RangePrecompute,
     IndexIncremental,
     CompactDirection,
-    DiagonalParallel,
-    BlockedWavefront,
+};
+
+enum class ReductionMode {
+    None,
+    PhaseDualProduct,
+    FusedSlope,
+    SharedShiftWorkspace,
+    All,
+};
+
+enum class ParallelMode {
+    None,
+    Diagonal,
+    Blocked,
 };
 
 struct VariantConfig {
-    DtwKernel dtw_kernel = DtwKernel::Current;
+    DtwLayout dtw_layout = DtwLayout::Current;
+    ReductionMode reduction_mode = ReductionMode::None;
+    ParallelMode parallel_mode = ParallelMode::None;
     bool phase_dual_product = false;
     bool fused_slope = false;
     bool shared_shift_workspace = false;
     py::ssize_t block_size = 0;
+    SimdLevel requested_simd = SimdLevel::Scalar;
+    SimdSelection simd_selection;
 };
 
 struct RowRanges {
@@ -1047,26 +1069,11 @@ double magnitude_ratio_with_kernel(
     const VariantConfig& config,
     py::ssize_t max_threads
 ) {
-    if (config.dtw_kernel == DtwKernel::Current) {
-        return magnitude_ratio_from_views(x, y, window_size);
-    }
-    if (config.dtw_kernel == DtwKernel::RangePrecompute) {
-        const auto state = compute_directions_range_precompute(x, y, x.n, window_size);
-        return magnitude_ratio_from_state(x, y, state);
-    }
-    if (config.dtw_kernel == DtwKernel::IndexIncremental) {
-        const auto state = compute_directions_index_incremental(x, y, x.n, window_size);
-        return magnitude_ratio_from_state(x, y, state);
-    }
-    if (config.dtw_kernel == DtwKernel::CompactDirection) {
-        const auto state = compute_directions_bitpacked(x, y, x.n, window_size);
-        return magnitude_ratio_from_bit_state(x, y, state);
-    }
-    if (config.dtw_kernel == DtwKernel::DiagonalParallel) {
+    if (config.parallel_mode == ParallelMode::Diagonal) {
         const auto state = compute_directions_diagonal_parallel(x, y, x.n, window_size, max_threads);
         return magnitude_ratio_from_state(x, y, state);
     }
-    if (config.dtw_kernel == DtwKernel::BlockedWavefront) {
+    if (config.parallel_mode == ParallelMode::Blocked) {
         const auto state = compute_directions_blocked_wavefront(
             x,
             y,
@@ -1076,6 +1083,22 @@ double magnitude_ratio_with_kernel(
             max_threads
         );
         return magnitude_ratio_from_state(x, y, state);
+    }
+
+    if (config.dtw_layout == DtwLayout::Current) {
+        return magnitude_ratio_from_views(x, y, window_size);
+    }
+    if (config.dtw_layout == DtwLayout::RangePrecompute) {
+        const auto state = compute_directions_range_precompute(x, y, x.n, window_size);
+        return magnitude_ratio_from_state(x, y, state);
+    }
+    if (config.dtw_layout == DtwLayout::IndexIncremental) {
+        const auto state = compute_directions_index_incremental(x, y, x.n, window_size);
+        return magnitude_ratio_from_state(x, y, state);
+    }
+    if (config.dtw_layout == DtwLayout::CompactDirection) {
+        const auto state = compute_directions_bitpacked(x, y, x.n, window_size);
+        return magnitude_ratio_from_bit_state(x, y, state);
     }
     throw std::invalid_argument("Unsupported ISO DTW kernel variant");
 }
@@ -1163,8 +1186,41 @@ T get_param(const py::dict& params, const char* name, T default_value) {
     return default_value;
 }
 
+VariantConfig variant_config_from_spec(
+    DtwLayout dtw_layout,
+    ReductionMode reduction_mode,
+    ParallelMode parallel_mode,
+    py::ssize_t block_size,
+    SimdLevel simd_level
+) {
+    VariantConfig config;
+    config.dtw_layout = dtw_layout;
+    config.reduction_mode = reduction_mode;
+    config.parallel_mode = parallel_mode;
+    config.block_size = block_size;
+    config.requested_simd = simd_level;
+    config.simd_selection = iso18571_native::select_simd_level(simd_level);
+
+    if (parallel_mode == ParallelMode::Blocked && block_size <= 0) {
+        throw std::invalid_argument("Blocked ISO DTW requires a positive block size");
+    }
+    if (parallel_mode != ParallelMode::Blocked && block_size != 0) {
+        throw std::invalid_argument("block_size must be 0 unless ParallelMode.Blocked is selected");
+    }
+
+    config.phase_dual_product =
+        reduction_mode == ReductionMode::PhaseDualProduct || reduction_mode == ReductionMode::All;
+    config.fused_slope =
+        reduction_mode == ReductionMode::FusedSlope || reduction_mode == ReductionMode::All;
+    config.shared_shift_workspace =
+        reduction_mode == ReductionMode::SharedShiftWorkspace || reduction_mode == ReductionMode::All;
+
+    return config;
+}
+
 VariantConfig parse_variant(const std::string& variant) {
     VariantConfig config;
+    config.simd_selection = iso18571_native::select_simd_level(config.requested_simd);
     if (variant.empty() || variant == "serial_current" || variant == "dtw_current" || variant == "current") {
         return config;
     }
@@ -1177,24 +1233,46 @@ VariantConfig parse_variant(const std::string& variant) {
         if (token.empty() || token == "serial_current" || token == "dtw_current" || token == "reduce_none" ||
             token == "parallel_none") {
         } else if (token == "dtw_range_precompute") {
-            config.dtw_kernel = DtwKernel::RangePrecompute;
+            config.dtw_layout = DtwLayout::RangePrecompute;
         } else if (token == "dtw_index_incremental") {
-            config.dtw_kernel = DtwKernel::IndexIncremental;
+            config.dtw_layout = DtwLayout::IndexIncremental;
         } else if (token == "dtw_compact_direction") {
-            config.dtw_kernel = DtwKernel::CompactDirection;
+            config.dtw_layout = DtwLayout::CompactDirection;
         } else if (token == "phase_dual_product") {
+            config.reduction_mode = ReductionMode::PhaseDualProduct;
             config.phase_dual_product = true;
         } else if (token == "fused_slope") {
+            config.reduction_mode = ReductionMode::FusedSlope;
             config.fused_slope = true;
         } else if (token == "shared_shift_workspace") {
+            config.reduction_mode = ReductionMode::SharedShiftWorkspace;
             config.shared_shift_workspace = true;
         } else if (token == "all_reductions") {
+            config.reduction_mode = ReductionMode::All;
             config.phase_dual_product = true;
             config.fused_slope = true;
             config.shared_shift_workspace = true;
+        } else if (token == "diagonal_parallel") {
+            config.parallel_mode = ParallelMode::Diagonal;
+            config.block_size = 0;
         } else if (token == "blocked64" || token == "blocked128" || token == "blocked256" || token == "blocked512") {
-            config.dtw_kernel = DtwKernel::BlockedWavefront;
+            config.parallel_mode = ParallelMode::Blocked;
             config.block_size = static_cast<py::ssize_t>(std::stoll(token.substr(7)));
+        } else if (token == "simd_scalar") {
+            config.requested_simd = SimdLevel::Scalar;
+            config.simd_selection = iso18571_native::select_simd_level(config.requested_simd);
+        } else if (token == "simd_sse2") {
+            config.requested_simd = SimdLevel::Sse2;
+            config.simd_selection = iso18571_native::select_simd_level(config.requested_simd);
+        } else if (token == "simd_avx2") {
+            config.requested_simd = SimdLevel::Avx2;
+            config.simd_selection = iso18571_native::select_simd_level(config.requested_simd);
+        } else if (token == "simd_avx2_fma") {
+            config.requested_simd = SimdLevel::Avx2Fma;
+            config.simd_selection = iso18571_native::select_simd_level(config.requested_simd);
+        } else if (token == "simd_auto") {
+            config.requested_simd = SimdLevel::Auto;
+            config.simd_selection = iso18571_native::select_simd_level(config.requested_simd);
         } else {
             throw std::invalid_argument("Unknown ISO scorer variant token: " + token);
         }
@@ -1310,6 +1388,10 @@ ArrayView view_from_vector(const std::vector<double>& values) {
     view.stride = static_cast<py::ssize_t>(sizeof(double));
     view.n = static_cast<py::ssize_t>(values.size());
     return view;
+}
+
+const double* contiguous_data(const ArrayView& values) {
+    return reinterpret_cast<const double*>(values.data);
 }
 
 double correlation_for_shift(
@@ -1669,9 +1751,20 @@ double magnitude_score_from_values(
     return std::pow((params.eps_m - e_mag) / params.eps_m, static_cast<double>(params.k_m));
 }
 
-void gradient_values(const ArrayView& values, double dt, std::vector<double>& gradient) {
+void gradient_values(const ArrayView& values, double dt, std::vector<double>& gradient, SimdLevel simd_level) {
     const py::ssize_t n = values.n;
     gradient.assign(static_cast<std::size_t>(n), 0.0);
+    if (values.stride == static_cast<py::ssize_t>(sizeof(double))) {
+        iso18571_native::gradient_contiguous(
+            contiguous_data(values),
+            static_cast<std::size_t>(n),
+            dt,
+            gradient.data(),
+            simd_level
+        );
+        return;
+    }
+
     gradient[0] = (values[1] - values[0]) / dt;
     for (py::ssize_t idx = 1; idx < n - 1; ++idx) {
         gradient[static_cast<std::size_t>(idx)] = (values[idx + 1] - values[idx - 1]) / (2.0 * dt);
@@ -1705,7 +1798,12 @@ void smooth_slopes(const std::vector<double>& gradient, std::vector<double>& smo
     }
 }
 
-double slope_score_from_values(const ArrayView& reference_values, const ArrayView& comparison_values, const ScoreParams& params) {
+double slope_score_from_values(
+    const ArrayView& reference_values,
+    const ArrayView& comparison_values,
+    const ScoreParams& params,
+    SimdLevel simd_level
+) {
     if (reference_values.n < 9) {
         throw std::invalid_argument("Shifted curves must have at least 9 samples for slope rating");
     }
@@ -1714,8 +1812,8 @@ double slope_score_from_values(const ArrayView& reference_values, const ArrayVie
     std::vector<double> reference_gradient;
     std::vector<double> comparison_smoothed;
     std::vector<double> reference_smoothed;
-    gradient_values(comparison_values, params.dt, comparison_gradient);
-    gradient_values(reference_values, params.dt, reference_gradient);
+    gradient_values(comparison_values, params.dt, comparison_gradient, simd_level);
+    gradient_values(reference_values, params.dt, reference_gradient, simd_level);
     smooth_slopes(comparison_gradient, comparison_smoothed);
     smooth_slopes(reference_gradient, reference_smoothed);
 
@@ -1737,6 +1835,10 @@ double slope_score_from_values(const ArrayView& reference_values, const ArrayVie
         return 0.0;
     }
     return (params.e_s - e_slope) / params.e_s;
+}
+
+double slope_score_from_values(const ArrayView& reference_values, const ArrayView& comparison_values, const ScoreParams& params) {
+    return slope_score_from_values(reference_values, comparison_values, params, SimdLevel::Scalar);
 }
 
 double smoothed_slope_at(const std::vector<double>& gradient, py::ssize_t idx) {
@@ -1768,15 +1870,20 @@ double smoothed_slope_at(const std::vector<double>& gradient, py::ssize_t idx) {
     return sum / 9.0;
 }
 
-double fused_slope_score_from_values(const ArrayView& reference_values, const ArrayView& comparison_values, const ScoreParams& params) {
+double fused_slope_score_from_values(
+    const ArrayView& reference_values,
+    const ArrayView& comparison_values,
+    const ScoreParams& params,
+    SimdLevel simd_level
+) {
     if (reference_values.n < 9) {
         throw std::invalid_argument("Shifted curves must have at least 9 samples for slope rating");
     }
 
     std::vector<double> comparison_gradient;
     std::vector<double> reference_gradient;
-    gradient_values(comparison_values, params.dt, comparison_gradient);
-    gradient_values(reference_values, params.dt, reference_gradient);
+    gradient_values(comparison_values, params.dt, comparison_gradient, simd_level);
+    gradient_values(reference_values, params.dt, reference_gradient, simd_level);
 
     double numerator = 0.0;
     double denominator = 0.0;
@@ -1844,13 +1951,23 @@ ScoreResult score_components_native_variant(
             max_threads
         );
         score.es = config.fused_slope
-            ? fused_slope_score_from_values(contiguous_reference_view, contiguous_comparison_view, params)
-            : slope_score_from_values(contiguous_reference_view, contiguous_comparison_view, params);
+            ? fused_slope_score_from_values(
+                contiguous_reference_view,
+                contiguous_comparison_view,
+                params,
+                config.simd_selection.selected
+            )
+            : slope_score_from_values(
+                contiguous_reference_view,
+                contiguous_comparison_view,
+                params,
+                config.simd_selection.selected
+            );
     } else {
         score.em = magnitude_score_from_values(reference_values, comparison_values, params, config, max_threads);
         score.es = config.fused_slope
-            ? fused_slope_score_from_values(reference_values, comparison_values, params)
-            : slope_score_from_values(reference_values, comparison_values, params);
+            ? fused_slope_score_from_values(reference_values, comparison_values, params, config.simd_selection.selected)
+            : slope_score_from_values(reference_values, comparison_values, params, config.simd_selection.selected);
     }
 
     score.r = params.w_z * score.z + params.w_p * score.ep + params.w_m * score.em + params.w_s * score.es;
@@ -1931,6 +2048,34 @@ double magnitude_ratio_variant(
     return ratio;
 }
 
+double magnitude_ratio_variant_spec(
+    py::array_t<double, py::array::forcecast> x,
+    py::array_t<double, py::array::forcecast> y,
+    double window_size,
+    DtwLayout dtw_layout,
+    ParallelMode parallel_mode,
+    py::ssize_t block_size,
+    SimdLevel simd_level,
+    py::ssize_t max_threads
+) {
+    const auto views = validate_inputs(x, y);
+    const VariantConfig config = variant_config_from_spec(
+        dtw_layout,
+        ReductionMode::None,
+        parallel_mode,
+        block_size,
+        simd_level
+    );
+
+    double ratio = 0.0;
+    {
+        py::gil_scoped_release release;
+        ratio = magnitude_ratio_with_kernel(views.first, views.second, window_size, config, max_threads);
+    }
+
+    return ratio;
+}
+
 void parallel_barrier_overhead(py::ssize_t iterations, py::ssize_t max_threads) {
     const std::size_t hardware_threads = std::max(1u, std::thread::hardware_concurrency());
     const std::size_t thread_count = static_cast<std::size_t>(
@@ -1987,6 +2132,19 @@ py::dict score_components(
     return out;
 }
 
+void add_score_fields(py::dict& out, const ScoreResult& score) {
+    out["Z"] = score.z;
+    out["EP"] = score.ep;
+    out["EM"] = score.em;
+    out["ES"] = score.es;
+    out["R"] = score.r;
+    out["n_eps"] = score.shift.n_eps;
+    out["rho_e"] = score.shift.rho_e;
+    out["reference_start"] = score.shift.reference_start;
+    out["comparison_start"] = score.shift.comparison_start;
+    out["shift_length"] = score.shift.length;
+}
+
 py::dict score_components_variant(
     py::array_t<double, py::array::forcecast> reference_curve,
     py::array_t<double, py::array::forcecast> comparison_curve,
@@ -2005,16 +2163,59 @@ py::dict score_components_variant(
     }
 
     py::dict out;
-    out["Z"] = score.z;
-    out["EP"] = score.ep;
-    out["EM"] = score.em;
-    out["ES"] = score.es;
-    out["R"] = score.r;
-    out["n_eps"] = score.shift.n_eps;
-    out["rho_e"] = score.shift.rho_e;
-    out["reference_start"] = score.shift.reference_start;
-    out["comparison_start"] = score.shift.comparison_start;
-    out["shift_length"] = score.shift.length;
+    add_score_fields(out, score);
+    out["requested_simd_level"] = iso18571_native::simd_level_name(config.simd_selection.requested);
+    out["selected_simd_level"] = iso18571_native::simd_level_name(config.simd_selection.selected);
+    out["simd_fallback"] = config.simd_selection.fallback;
+    return out;
+}
+
+py::dict score_components_variant_spec(
+    py::array_t<double, py::array::forcecast> reference_curve,
+    py::array_t<double, py::array::forcecast> comparison_curve,
+    py::dict params,
+    DtwLayout dtw_layout,
+    ReductionMode reduction_mode,
+    ParallelMode parallel_mode,
+    py::ssize_t block_size,
+    SimdLevel simd_level,
+    py::ssize_t max_threads
+) {
+    const auto views = validate_curves(reference_curve, comparison_curve);
+    const ScoreParams score_params = score_params_from_dict(params);
+    const VariantConfig config = variant_config_from_spec(
+        dtw_layout,
+        reduction_mode,
+        parallel_mode,
+        block_size,
+        simd_level
+    );
+
+    ScoreResult score;
+    {
+        py::gil_scoped_release release;
+        score = score_components_native_variant(views.first, views.second, score_params, config, max_threads);
+    }
+
+    py::dict out;
+    add_score_fields(out, score);
+    out["requested_simd_level"] = iso18571_native::simd_level_name(config.simd_selection.requested);
+    out["selected_simd_level"] = iso18571_native::simd_level_name(config.simd_selection.selected);
+    out["simd_fallback"] = config.simd_selection.fallback;
+    return out;
+}
+
+py::dict simd_info() {
+    const SimdCapabilities capabilities = iso18571_native::simd_capabilities();
+    py::dict out;
+    out["compiled_scalar"] = capabilities.compiled_scalar;
+    out["compiled_sse2"] = capabilities.compiled_sse2;
+    out["compiled_avx2"] = capabilities.compiled_avx2;
+    out["compiled_avx2_fma"] = capabilities.compiled_avx2_fma;
+    out["detected_sse2"] = capabilities.detected_sse2;
+    out["detected_avx2"] = capabilities.detected_avx2;
+    out["detected_fma"] = capabilities.detected_fma;
+    out["auto_level"] = iso18571_native::simd_level_name(capabilities.auto_level);
     return out;
 }
 
@@ -2032,11 +2233,60 @@ py::dict backend_info() {
 
 PYBIND11_MODULE(_core, m) {
     m.doc() = "Clean-room native ISO/TS 18571 DTW backend";
+    py::enum_<DtwLayout>(m, "DtwLayout")
+        .value("Current", DtwLayout::Current)
+        .value("RangePrecompute", DtwLayout::RangePrecompute)
+        .value("IndexIncremental", DtwLayout::IndexIncremental)
+        .value("CompactDirection", DtwLayout::CompactDirection);
+    py::enum_<ReductionMode>(m, "ReductionMode")
+        .value("None", ReductionMode::None)
+        .value("NoReduction", ReductionMode::None)
+        .value("PhaseDualProduct", ReductionMode::PhaseDualProduct)
+        .value("FusedSlope", ReductionMode::FusedSlope)
+        .value("SharedShiftWorkspace", ReductionMode::SharedShiftWorkspace)
+        .value("All", ReductionMode::All);
+    py::enum_<ParallelMode>(m, "ParallelMode")
+        .value("None", ParallelMode::None)
+        .value("NoParallel", ParallelMode::None)
+        .value("Diagonal", ParallelMode::Diagonal)
+        .value("Blocked", ParallelMode::Blocked);
+    py::enum_<SimdLevel>(m, "SimdLevel")
+        .value("Scalar", SimdLevel::Scalar)
+        .value("Sse2", SimdLevel::Sse2)
+        .value("Avx2", SimdLevel::Avx2)
+        .value("Avx2Fma", SimdLevel::Avx2Fma)
+        .value("Auto", SimdLevel::Auto);
     m.def("backend_info", &backend_info);
+    m.def("_simd_info", &simd_info);
     m.def("warp_path", &warp_path, py::arg("x"), py::arg("y"), py::arg("window_size"));
     m.def("magnitude_ratio", &magnitude_ratio, py::arg("x"), py::arg("y"), py::arg("window_size"));
     m.def("_magnitude_ratio_variant", &magnitude_ratio_variant, py::arg("x"), py::arg("y"), py::arg("window_size"), py::arg("variant"), py::arg("max_threads") = 1);
+    m.def(
+        "_magnitude_ratio_variant_spec",
+        &magnitude_ratio_variant_spec,
+        py::arg("x"),
+        py::arg("y"),
+        py::arg("window_size"),
+        py::arg("dtw_layout"),
+        py::arg("parallel_mode"),
+        py::arg("block_size"),
+        py::arg("simd_level"),
+        py::arg("max_threads") = 1
+    );
     m.def("_parallel_barrier_overhead", &parallel_barrier_overhead, py::arg("iterations"), py::arg("max_threads"));
     m.def("score_components", &score_components, py::arg("reference_curve"), py::arg("comparison_curve"), py::arg("params") = py::dict());
     m.def("_score_components_variant", &score_components_variant, py::arg("reference_curve"), py::arg("comparison_curve"), py::arg("params"), py::arg("variant"), py::arg("max_threads") = 1);
+    m.def(
+        "_score_components_variant_spec",
+        &score_components_variant_spec,
+        py::arg("reference_curve"),
+        py::arg("comparison_curve"),
+        py::arg("params"),
+        py::arg("dtw_layout"),
+        py::arg("reduction_mode"),
+        py::arg("parallel_mode"),
+        py::arg("block_size"),
+        py::arg("simd_level"),
+        py::arg("max_threads") = 1
+    );
 }

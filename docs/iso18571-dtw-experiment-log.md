@@ -523,3 +523,113 @@
     and generated fixed/phase parity, then run a broader benchmark to make sure
     the `effective_n >= 6717` threshold does not regress smaller or
     non-phase/chirp/noise cases.
+
+## 2026-06-16 15:02 KST - SIMD Enum Atlas Scaffold And Assembly Report
+
+- Git status: clean at start of batch on `master` after commit `fd2d023`.
+- Hypothesis: SIMD should be added as an explicit experiment axis, but native
+  execution should use typed enum specs rather than parsing variant strings in
+  C++. Scalar fallback must remain safe for prebuilt wheels.
+- Files changed:
+  - native extension source and build setup;
+  - backend, threshold, and regime benchmark tests;
+  - regime analyzer and assembly-report tools;
+  - ISO18571 backend docs, agent notes, and this experiment log.
+- Commands:
+  - `uv pip install -e .`
+  - `uv run --with pytest --with pytest-benchmark python -m pytest -q tests/test_iso18571_backends.py`
+  - `uv run --with pytest --with pytest-benchmark python -m pytest -q tests/test_iso18571_threshold_benchmarks.py -o addopts= -m "benchmark and not threshold" --benchmark-disable`
+  - `ISO18571_REGIME_FAMILIES=chirp ISO18571_REGIME_LENGTHS=64 ISO18571_REGIME_THREADS=1 ISO18571_REGIME_VARIANTS=dtw_current+reduce_none+parallel_none,dtw_current+all_reductions+parallel_none ISO18571_REGIME_SIMD_LEVELS=scalar,auto uv run --with pytest --with pytest-benchmark python -m pytest -q tests/test_iso18571_regime_benchmarks.py -o addopts= -m regime --benchmark-disable`
+  - `mkdir -p .benchmarks/iso18571-regime-simd-smoke && ISO18571_REGIME_FAMILIES=chirp ISO18571_REGIME_LENGTHS=64 ISO18571_REGIME_THREADS=1 ISO18571_REGIME_VARIANTS=dtw_current+reduce_none+parallel_none,dtw_current+all_reductions+parallel_none ISO18571_REGIME_SIMD_LEVELS=scalar,auto uv run --with pytest --with pytest-benchmark python -m pytest -q tests/test_iso18571_regime_benchmarks.py -o addopts= -m regime --benchmark-warmup off --benchmark-min-rounds 1 --benchmark-max-time 0.01 --benchmark-quiet --benchmark-json .benchmarks/iso18571-regime-simd-smoke/regime.json`
+  - `uv run python tools/iso18571/analyze_variant_regimes.py .benchmarks/iso18571-regime-simd-smoke/regime.json`
+  - `uv run python tools/iso18571/emit_native_assembly.py --output-dir .benchmarks/iso18571-asm`
+  - `uv run python tools/iso18571/report_assembly_wrinkles.py .benchmarks/iso18571-asm`
+- Validation result:
+  - backend tests: `13 passed`;
+  - threshold benchmark plumbing smoke: `12 passed, 140 deselected`;
+  - regime enum/SIMD plumbing smoke: `4 passed`;
+  - benchmark JSON analyzer smoke completed and reported requested/selected SIMD
+    columns.
+- Benchmark/result:
+  - tiny smoke at `n=64` selected `avx2_fma` for `simd_auto` on this machine;
+  - ratios in the tiny smoke were within noise and are not production evidence.
+- Assembly observations:
+  - emitted `.s` files for scalar, SSE2, AVX2, and AVX2+FMA units under
+    `.benchmarks/iso18571-asm`;
+  - AVX2 and SSE2 units showed vector instructions and no calls in the simple
+    scan;
+  - AVX2+FMA showed AVX/YMM instructions but no FMA instructions for the
+    current gradient target;
+  - scalar unit had calls and stack traffic that should be inspected before any
+    future compiler-wrinkle optimization pass.
+- Conclusion:
+  - enum-based private hooks and SIMD metadata are in place;
+  - production `score_components`, `magnitude_ratio`, and `warp_path` remain
+    unchanged;
+  - AVX-512 is not implemented.
+- Next hypothesis:
+  - run the focused SIMD atlas over the agreed families and lengths, then decide
+    whether SIMD adds a stable size-regime dispatch rule or remains
+    experimental.
+
+## 2026-06-16 15:41 KST - Focused SIMD Atlas
+
+- Git status: dirty with the SIMD enum implementation in progress.
+- Hypothesis: adding scalar/SSE2/AVX2/AVX2+FMA/auto as an explicit atlas axis
+  should reveal whether SIMD changes the preferred size-regime policy beyond
+  the existing blocked-wavefront result.
+- Commands:
+  - `ISO18571_REGIME_FAMILIES=chirp,gaussian_noise,sparse_spikes,phase_multitone_shift_020,phase_chirp_shift_050,phase_smooth_step_shift_180 ISO18571_REGIME_LENGTHS=512,1430,4096,8192,16384,32768,65536 ISO18571_REGIME_THREADS=1,2,4,8 ISO18571_REGIME_VARIANTS=dtw_current+reduce_none+parallel_none,dtw_current+all_reductions+parallel_none,dtw_current+all_reductions+blocked128 ISO18571_REGIME_SIMD_LEVELS=scalar,sse2,avx2,avx2_fma,auto uv run --with pytest --with pytest-benchmark python -m pytest -q tests/test_iso18571_regime_benchmarks.py -o addopts= -m regime --benchmark-warmup off --benchmark-min-rounds 1 --benchmark-max-time 0.02 --benchmark-quiet --benchmark-json .benchmarks/iso18571-regime-simd-focused/regime.json`
+  - `uv run python tools/iso18571/analyze_variant_regimes.py .benchmarks/iso18571-regime-simd-focused/regime.json > .benchmarks/iso18571-regime-simd-focused/summary.md`
+- Validation result:
+  - focused SIMD atlas: `1260 passed in 2015.53s`;
+  - every timed row performed score parity checks against production native
+    scores before benchmarking.
+- Benchmark/result:
+  - `simd_auto` selected `avx2_fma` on this machine with no fallback;
+  - no tested SIMD level changed the main conclusion for short/medium cases;
+  - the large and very-large win remains `all_reductions + blocked128` with 8
+    threads;
+  - dispatch candidates from this focused matrix:
+    - earliest stable candidate: `effective_n >= 16286`,
+      `cells >= 53043502`, variant
+      `dtw_current+all_reductions+blocked128+simd_auto`, 8 threads, 15 rows,
+      mean ratio `0.432`;
+    - `avx2_fma` candidate: `effective_n >= 26870`, 12 rows, mean ratio
+      `0.439`;
+    - `sse2` candidate: `effective_n >= 32113`, 10 rows, mean ratio `0.425`.
+- Conclusion:
+  - SIMD is now represented in the atlas, but with the current conservative
+    slope-gradient target it is a secondary effect compared with blocked
+    wavefront parallelism;
+  - production dispatch should still wait for a deliberate policy change, but
+    the best current measured candidate is
+    `effective_n >= 16286` to `all_reductions + blocked128 + simd_auto` with 8
+    threads.
+- Next hypothesis:
+  - if more SIMD speed is desired, the next optimization batch should target
+    phase-product reductions or DTW-local-cost staging, with explicit attention
+    to reduction-order parity.
+
+## 2026-06-16 15:41 KST - Final SIMD Implementation Validation
+
+- Commands:
+  - `uv run --with pytest --with pytest-benchmark python -m pytest -q`
+  - `uv run --with pytest --with pytest-benchmark --with dtwalign --with dtaidistance --with dtw-python --with librosa --with scipy python -m pytest -q tests/test_iso18571_backends.py --iso18571-backends local_iso_numpy,local_iso_native,dtwalign,dtaidistance,dtw_python,librosa`
+  - `uv run --with pytest --with pytest-benchmark --with dtwalign --with dtw-python --with librosa --with scipy python -m pytest -q tests/test_rating_original_parity.py -o addopts= -m oracle`
+  - `uv run --with pytest --with pytest-benchmark --with dtw-python --with librosa --with scipy python -m pytest -q tests/test_rating_original_parity.py -o addopts= -m stress`
+  - `uv build --wheel`
+  - `uv run python tools/iso18571/wheel_smoke.py`
+  - `uv run python tools/iso18571/emit_native_assembly.py --output-dir .benchmarks/iso18571-asm && uv run python tools/iso18571/report_assembly_wrinkles.py .benchmarks/iso18571-asm`
+- Validation result:
+  - default suite: `15 passed, 122557 deselected`;
+  - eligible backend matrix: `23 passed`;
+  - oracle parity: `1 passed, 2 deselected` with expected degenerate-signal
+    runtime warnings;
+  - long stress parity: `1 passed, 2 deselected`;
+  - wheel build and wheel smoke succeeded.
+- Assembly observations:
+  - final report repeated the earlier observation: AVX2+FMA emits AVX/YMM for
+    the current SIMD gradient target but no FMA instructions;
+  - scalar assembly contains calls and stack traffic worth inspecting before a
+    future compiler-focused optimization pass.

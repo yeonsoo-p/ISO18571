@@ -151,6 +151,12 @@ The regime atlas reports each variant by `effective_n`, DTW cell count, signal
 family, thread count, median runtime, IQR, speed ratio to current serial native,
 and a per-regime class. It is intentionally not a universal ranking.
 
+SIMD experiments are an additional enum-based atlas axis. Benchmark environment
+variables remain readable strings, but tests map them to native `DtwLayout`,
+`ReductionMode`, `ParallelMode`, and `SimdLevel` values before calling C++.
+Supported SIMD levels are `scalar`, `sse2`, `avx2`, `avx2_fma`, and `auto`;
+AVX-512 is intentionally excluded.
+
 Focused atlas runs can be filtered with environment variables:
 
 ```bash
@@ -158,6 +164,7 @@ ISO18571_REGIME_FAMILIES=chirp,gaussian_noise,phase_chirp_shift_050 \
 ISO18571_REGIME_LENGTHS=8192,16384,32768,65536 \
 ISO18571_REGIME_THREADS=4,8 \
 ISO18571_REGIME_VARIANTS=dtw_current+reduce_none+parallel_none,dtw_current+all_reductions+blocked128 \
+ISO18571_REGIME_SIMD_LEVELS=scalar,auto \
 uv run --with pytest --with pytest-benchmark \
   python -m pytest -q tests/test_iso18571_regime_benchmarks.py \
   -o addopts= -m regime \
@@ -167,11 +174,28 @@ uv run --with pytest --with pytest-benchmark \
   --benchmark-json .benchmarks/iso18571-regime/focused.json
 ```
 
+Emit and inspect native SIMD assembly without changing source:
+
+```bash
+uv run python tools/iso18571/emit_native_assembly.py \
+  --output-dir .benchmarks/iso18571-asm
+uv run python tools/iso18571/report_assembly_wrinkles.py \
+  .benchmarks/iso18571-asm
+```
+
 Latest large-regime focused result: for nominal lengths `8192, 16384, 32768,
 65536` across chirp, Gaussian noise, and analytic phase families,
 `dtw_current+all_reductions+blocked128` with 8 threads was the best measured
 variant for every case. The analyzer proposed `effective_n >= 6717` as the
 stable dispatch threshold for that measured slice.
+
+Latest SIMD-focused atlas result: for lengths `512, 1430, 4096, 8192, 16384,
+32768, 65536` across chirp, Gaussian noise, sparse spikes, and analytic phase
+families, all 1260 enum/SIMD rows passed parity checks. The earliest stable
+dispatch candidate in that measured matrix was `effective_n >= 16286` to
+`dtw_current+all_reductions+blocked128+simd_auto` with 8 threads, mean ratio
+`0.432` versus scalar current. SIMD itself was secondary to blocked wavefront
+parallelism in this batch.
 
 Build a Linux wheel:
 

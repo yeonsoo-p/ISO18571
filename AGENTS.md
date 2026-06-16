@@ -51,9 +51,28 @@
   - filter expensive regime runs with `ISO18571_REGIME_FAMILIES`,
     `ISO18571_REGIME_LENGTHS`, `ISO18571_REGIME_THREADS`, and
     `ISO18571_REGIME_VARIANTS`.
+  - SIMD experiments use enum-based private hooks, not C++ string-token
+    execution paths. Human-readable env vars are mapped to `DtwLayout`,
+    `ReductionMode`, `ParallelMode`, and `SimdLevel` in Python before calling
+    `_score_components_variant_spec` or `_magnitude_ratio_variant_spec`.
+  - supported SIMD levels are scalar, SSE2, AVX2, AVX2+FMA, and auto; AVX-512
+    is intentionally not implemented. Runtime dispatch must fall back safely
+    for prebuilt wheels.
+  - filter SIMD atlas runs with `ISO18571_REGIME_SIMD_LEVELS`, for example
+    `scalar,avx2,avx2_fma,auto`.
+  - inspect compiler output with
+    `tools/iso18571/emit_native_assembly.py` and
+    `tools/iso18571/report_assembly_wrinkles.py`; assembly artifacts belong
+    under `.benchmarks/` and findings are reporting-only unless the user asks
+    for a follow-up optimization batch.
   - current large-slice candidate: `effective_n >= 6717` dispatch to
     `dtw_current+all_reductions+blocked128` with 8 threads, pending broader
     production-dispatch validation.
+  - current SIMD-focused candidate: `effective_n >= 16286` dispatch to
+    `dtw_current+all_reductions+blocked128+simd_auto` with 8 threads. In the
+    first SIMD atlas, SIMD was secondary to blocked wavefront parallelism; next
+    SIMD work should target phase-product reductions or DTW-local-cost staging
+    only if reduction-order parity can be preserved.
 - Experiment tracking:
   - append every meaningful experiment to
     `docs/iso18571-dtw-experiment-log.md`;

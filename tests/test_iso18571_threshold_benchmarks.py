@@ -6,11 +6,16 @@ import numpy as np
 import pytest
 
 from iso18571_native import magnitude_ratio
-from iso18571_native._core import _magnitude_ratio_variant, _parallel_barrier_overhead
+from iso18571_native._core import DtwLayout, ParallelMode, SimdLevel, _magnitude_ratio_variant_spec, _parallel_barrier_overhead
 from tests.iso18571_signals import signal_case
 
 
-LAYOUT_VARIANTS = ("serial_current", "contiguous_serial", "band_row", "bitpacked_direction")
+LAYOUT_VARIANTS = (
+    ("dtw_current", DtwLayout.Current),
+    ("dtw_range_precompute", DtwLayout.RangePrecompute),
+    ("dtw_index_incremental", DtwLayout.IndexIncremental),
+    ("dtw_compact_direction", DtwLayout.CompactDirection),
+)
 LAYOUT_CASES = (
     pytest.param("chirp", 8192, id="chirp_8192"),
     pytest.param("sparse_spikes", 8192, id="sparse_spikes_8192"),
@@ -32,14 +37,14 @@ def _active_thread_counts() -> tuple[int, ...]:
 
 
 @pytest.mark.benchmark
-@pytest.mark.parametrize("variant", LAYOUT_VARIANTS)
+@pytest.mark.parametrize(("variant", "dtw_layout"), LAYOUT_VARIANTS)
 @pytest.mark.parametrize(("family", "n"), LAYOUT_CASES)
-def test_magnitude_layout_variant_calculation_speed(benchmark, variant: str, family: str, n: int) -> None:
+def test_magnitude_layout_variant_calculation_speed(benchmark, variant: str, dtw_layout: DtwLayout, family: str, n: int) -> None:
     x, y = _values(family, n)
     expected = magnitude_ratio(x, y, 0.1)
-    observed = _magnitude_ratio_variant(x, y, 0.1, variant, 1)
+    observed = _magnitude_ratio_variant_spec(x, y, 0.1, dtw_layout, ParallelMode.NoParallel, 0, SimdLevel.Scalar, 1)
     np.testing.assert_allclose(observed, expected, rtol=1e-12, atol=1e-12, equal_nan=True)
-    benchmark(lambda: _magnitude_ratio_variant(x, y, 0.1, variant, 1))
+    benchmark(lambda: _magnitude_ratio_variant_spec(x, y, 0.1, dtw_layout, ParallelMode.NoParallel, 0, SimdLevel.Scalar, 1))
 
 
 @pytest.mark.threshold
@@ -50,9 +55,29 @@ def test_magnitude_layout_variant_calculation_speed(benchmark, variant: str, fam
 def test_diagonal_parallel_threshold_speed(benchmark, family: str, n: int, max_threads: int) -> None:
     x, y = _values(family, n)
     expected = magnitude_ratio(x, y, 0.1)
-    observed = _magnitude_ratio_variant(x, y, 0.1, "diagonal_parallel", max_threads)
+    observed = _magnitude_ratio_variant_spec(
+        x,
+        y,
+        0.1,
+        DtwLayout.Current,
+        ParallelMode.Diagonal,
+        0,
+        SimdLevel.Scalar,
+        max_threads,
+    )
     np.testing.assert_allclose(observed, expected, rtol=1e-12, atol=1e-12, equal_nan=True)
-    benchmark(lambda: _magnitude_ratio_variant(x, y, 0.1, "diagonal_parallel", max_threads))
+    benchmark(
+        lambda: _magnitude_ratio_variant_spec(
+            x,
+            y,
+            0.1,
+            DtwLayout.Current,
+            ParallelMode.Diagonal,
+            0,
+            SimdLevel.Scalar,
+            max_threads,
+        )
+    )
 
 
 @pytest.mark.threshold

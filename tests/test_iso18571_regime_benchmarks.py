@@ -8,7 +8,13 @@ import numpy as np
 import pytest
 
 from iso18571_native import score_components
-from iso18571_native._core import _score_components_variant
+from iso18571_native._core import (
+    DtwLayout,
+    ParallelMode,
+    ReductionMode,
+    SimdLevel,
+    _score_components_variant_spec,
+)
 from tests.iso18571_annex import fixed_signal_annex_case, phase_shift_annex_case
 
 
@@ -26,7 +32,29 @@ REGIME_FAMILIES = (
 DTW_LAYOUTS = ("dtw_current", "dtw_range_precompute", "dtw_index_incremental", "dtw_compact_direction")
 REDUCTIONS = ("reduce_none", "phase_dual_product", "fused_slope", "shared_shift_workspace", "all_reductions")
 PARALLEL_FORMS = ("parallel_none", "blocked64", "blocked128", "blocked256", "blocked512")
+SIMD_LEVELS = ("scalar", "sse2", "avx2", "avx2_fma", "auto")
 THREAD_COUNTS = (1, 2, 4, 8)
+
+DTW_LAYOUT_MAP = {
+    "dtw_current": DtwLayout.Current,
+    "dtw_range_precompute": DtwLayout.RangePrecompute,
+    "dtw_index_incremental": DtwLayout.IndexIncremental,
+    "dtw_compact_direction": DtwLayout.CompactDirection,
+}
+REDUCTION_MAP = {
+    "reduce_none": ReductionMode.NoReduction,
+    "phase_dual_product": ReductionMode.PhaseDualProduct,
+    "fused_slope": ReductionMode.FusedSlope,
+    "shared_shift_workspace": ReductionMode.SharedShiftWorkspace,
+    "all_reductions": ReductionMode.All,
+}
+SIMD_LEVEL_MAP = {
+    "scalar": SimdLevel.Scalar,
+    "sse2": SimdLevel.Sse2,
+    "avx2": SimdLevel.Avx2,
+    "avx2_fma": SimdLevel.Avx2Fma,
+    "auto": SimdLevel.Auto,
+}
 
 
 def _env_tuple(name: str, default: tuple[str, ...]) -> tuple[str, ...]:
@@ -47,6 +75,35 @@ def _active_thread_counts() -> tuple[int, ...]:
     cpu_count = os.cpu_count() or 1
     requested = _env_int_tuple("ISO18571_REGIME_THREADS", THREAD_COUNTS)
     return tuple(thread_count for thread_count in requested if thread_count <= cpu_count)
+
+
+def _parallel_spec(parallel_form: str) -> tuple[ParallelMode, int]:
+    if parallel_form == "parallel_none":
+        return ParallelMode.NoParallel, 0
+    if parallel_form == "diagonal_parallel":
+        return ParallelMode.Diagonal, 0
+    if parallel_form.startswith("blocked"):
+        return ParallelMode.Blocked, int(parallel_form.removeprefix("blocked"))
+    raise AssertionError(f"unknown parallel form {parallel_form}")
+
+
+def _split_variant(variant: str) -> tuple[str, str, str, str | None]:
+    dtw_layout = "dtw_current"
+    reduction = "reduce_none"
+    parallel_form = "parallel_none"
+    simd_level = None
+    for token in variant.split("+"):
+        if token in DTW_LAYOUT_MAP:
+            dtw_layout = token
+        elif token in REDUCTION_MAP:
+            reduction = token
+        elif token == "diagonal_parallel" or token == "parallel_none" or token.startswith("blocked"):
+            parallel_form = token
+        elif token.startswith("simd_"):
+            simd_level = token.removeprefix("simd_")
+        elif token:
+            raise AssertionError(f"unknown variant token {token}")
+    return dtw_layout, reduction, parallel_form, simd_level
 
 
 @lru_cache(maxsize=None)
@@ -70,36 +127,55 @@ def _variant_params():
     reductions = _env_tuple("ISO18571_REGIME_REDUCTIONS", REDUCTIONS)
     parallel_forms = _env_tuple("ISO18571_REGIME_PARALLEL_FORMS", PARALLEL_FORMS)
     explicit_variants = _env_tuple("ISO18571_REGIME_VARIANTS", ())
+    simd_levels = _env_tuple("ISO18571_REGIME_SIMD_LEVELS", ("scalar",) if explicit_variants else SIMD_LEVELS)
     if explicit_variants:
         for family in families:
             for n in lengths:
                 for variant in explicit_variants:
-                    parallel_form = variant.rsplit("+", 1)[-1]
+                    dtw_layout, reduction, parallel_form, variant_simd_level = _split_variant(variant)
+                    parallel_mode, block_size = _parallel_spec(parallel_form)
+                    selected_simd_levels = (variant_simd_level,) if variant_simd_level is not None else simd_levels
                     thread_counts = (1,) if parallel_form == "parallel_none" else active_threads
-                    for max_threads in thread_counts:
-                        yield pytest.param(
-                            family,
-                            n,
-                            variant,
-                            max_threads,
-                            id=f"{family}__n{n}__{variant}__t{max_threads}",
-                        )
+                    for simd_level in selected_simd_levels:
+                        variant_label = f"{dtw_layout}+{reduction}+{parallel_form}+simd_{simd_level}"
+                        for max_threads in thread_counts:
+                            yield pytest.param(
+                                family,
+                                n,
+                                variant_label,
+                                DTW_LAYOUT_MAP[dtw_layout],
+                                REDUCTION_MAP[reduction],
+                                parallel_mode,
+                                block_size,
+                                simd_level,
+                                SIMD_LEVEL_MAP[simd_level],
+                                max_threads,
+                                id=f"{family}__n{n}__{variant_label}__t{max_threads}",
+                            )
     else:
         for family in families:
             for n in lengths:
                 for dtw_layout in dtw_layouts:
                     for reduction in reductions:
                         for parallel_form in parallel_forms:
+                            parallel_mode, block_size = _parallel_spec(parallel_form)
                             thread_counts = (1,) if parallel_form == "parallel_none" else active_threads
-                            for max_threads in thread_counts:
-                                variant = f"{dtw_layout}+{reduction}+{parallel_form}"
-                                yield pytest.param(
-                                    family,
-                                    n,
-                                    variant,
-                                    max_threads,
-                                    id=f"{family}__n{n}__{variant}__t{max_threads}",
-                                )
+                            for simd_level in simd_levels:
+                                variant = f"{dtw_layout}+{reduction}+{parallel_form}+simd_{simd_level}"
+                                for max_threads in thread_counts:
+                                    yield pytest.param(
+                                        family,
+                                        n,
+                                        variant,
+                                        DTW_LAYOUT_MAP[dtw_layout],
+                                        REDUCTION_MAP[reduction],
+                                        parallel_mode,
+                                        block_size,
+                                        simd_level,
+                                        SIMD_LEVEL_MAP[simd_level],
+                                        max_threads,
+                                        id=f"{family}__n{n}__{variant}__t{max_threads}",
+                                    )
 
 
 def _cells(effective_n: int) -> int:
@@ -109,12 +185,48 @@ def _cells(effective_n: int) -> int:
 
 @pytest.mark.regime
 @pytest.mark.benchmark
-@pytest.mark.parametrize(("family", "n", "variant", "max_threads"), tuple(_variant_params()))
-def test_native_score_component_variant_regime_speed(benchmark, family: str, n: int, variant: str, max_threads: int) -> None:
+@pytest.mark.parametrize(
+    (
+        "family",
+        "n",
+        "variant",
+        "dtw_layout",
+        "reduction_mode",
+        "parallel_mode",
+        "block_size",
+        "simd_label",
+        "simd_level",
+        "max_threads",
+    ),
+    tuple(_variant_params()),
+)
+def test_native_score_component_variant_regime_speed(
+    benchmark,
+    family: str,
+    n: int,
+    variant: str,
+    dtw_layout: DtwLayout,
+    reduction_mode: ReductionMode,
+    parallel_mode: ParallelMode,
+    block_size: int,
+    simd_label: str,
+    simd_level: SimdLevel,
+    max_threads: int,
+) -> None:
     case = _case(family, n)
     params = {"dt": case.dt}
     expected = _expected_scores(family, n)
-    observed = _score_components_variant(case.reference_curve, case.comparison_curve, params, variant, max_threads)
+    observed = _score_components_variant_spec(
+        case.reference_curve,
+        case.comparison_curve,
+        params,
+        dtw_layout,
+        reduction_mode,
+        parallel_mode,
+        block_size,
+        simd_level,
+        max_threads,
+    )
     for key in ("Z", "EP", "EM", "ES", "R", "n_eps", "rho_e", "shift_length"):
         np.testing.assert_allclose(
             observed[key],
@@ -131,5 +243,20 @@ def test_native_score_component_variant_regime_speed(benchmark, family: str, n: 
     benchmark.extra_info["effective_n"] = effective_n
     benchmark.extra_info["cells"] = _cells(effective_n)
     benchmark.extra_info["variant"] = variant
+    benchmark.extra_info["requested_simd_level"] = simd_label
+    benchmark.extra_info["selected_simd_level"] = str(observed["selected_simd_level"])
+    benchmark.extra_info["simd_fallback"] = bool(observed["simd_fallback"])
     benchmark.extra_info["max_threads"] = max_threads
-    benchmark(lambda: _score_components_variant(case.reference_curve, case.comparison_curve, params, variant, max_threads))
+    benchmark(
+        lambda: _score_components_variant_spec(
+            case.reference_curve,
+            case.comparison_curve,
+            params,
+            dtw_layout,
+            reduction_mode,
+            parallel_mode,
+            block_size,
+            simd_level,
+            max_threads,
+        )
+    )
