@@ -7,7 +7,6 @@ from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
-
 BASELINE_VARIANT = "dtw_current+reduce_none+parallel_none+simd_scalar"
 
 
@@ -112,10 +111,7 @@ def classify_rows(rows: list[Row]) -> dict[Row, tuple[str, float]]:
 
     out: dict[Row, tuple[str, float]] = {}
     for case_rows in by_case.values():
-        baseline_candidates = [
-            row for row in case_rows
-            if row.variant == BASELINE_VARIANT and row.max_threads == 1
-        ]
+        baseline_candidates = [row for row in case_rows if row.variant == BASELINE_VARIANT and row.max_threads == 1]
         baseline = baseline_candidates[0].median if baseline_candidates else min(row.median for row in case_rows)
         best = min(row.median for row in case_rows)
         best_iqr = max(row.iqr for row in case_rows if row.median == best)
@@ -133,7 +129,9 @@ def classify_rows(rows: list[Row]) -> dict[Row, tuple[str, float]]:
     return out
 
 
-def summarize_regimes(rows: list[Row], classifications: dict[Row, tuple[str, float]]) -> list[tuple[str, str, int, str, int, float]]:
+def summarize_regimes(
+    rows: list[Row], classifications: dict[Row, tuple[str, float]]
+) -> list[tuple[str, str, int, str, int, float]]:
     grouped: dict[tuple[str, str, int], list[Row]] = defaultdict(list)
     for row in rows:
         grouped[(regime(row.effective_n), row.variant, row.max_threads)].append(row)
@@ -152,37 +150,37 @@ def summarize_regimes(rows: list[Row], classifications: dict[Row, tuple[str, flo
     return sorted(summary)
 
 
-def dispatch_threshold_candidates(rows: list[Row], classifications: dict[Row, tuple[str, float]]) -> list[tuple[int, int, str, int, int, float]]:
-    blocked_keys = sorted({
-        (row.variant, row.max_threads)
-        for row in rows
-        if "blocked" in row.variant and row.max_threads > 1
-    })
+def dispatch_threshold_candidates(
+    rows: list[Row], classifications: dict[Row, tuple[str, float]]
+) -> list[tuple[int, int, str, int, int, float]]:
+    blocked_keys = sorted(
+        {(row.variant, row.max_threads) for row in rows if "blocked" in row.variant and row.max_threads > 1}
+    )
     thresholds = sorted({row.effective_n for row in rows})
     candidates = []
     for variant, threads in blocked_keys:
         variant_rows = [row for row in rows if row.variant == variant and row.max_threads == threads]
         for threshold in thresholds:
             covered_rows = [row for row in variant_rows if row.effective_n >= threshold]
-            expected_cases = {
-                (row.family, row.n)
-                for row in rows
-                if row.effective_n >= threshold
-            }
+            expected_cases = {(row.family, row.n) for row in rows if row.effective_n >= threshold}
             covered_cases = {(row.family, row.n) for row in covered_rows}
             if not expected_cases or covered_cases != expected_cases:
                 continue
             statuses = [classifications[row][0] for row in covered_rows]
             ratios = [classifications[row][1] for row in covered_rows]
-            if all(status in {"preferred", "competitive"} for status in statuses) and all(ratio < 1.0 for ratio in ratios):
-                candidates.append((
-                    threshold,
-                    cells(threshold),
-                    variant,
-                    threads,
-                    len(covered_rows),
-                    sum(ratios) / len(ratios),
-                ))
+            if all(status in {"preferred", "competitive"} for status in statuses) and all(
+                ratio < 1.0 for ratio in ratios
+            ):
+                candidates.append(
+                    (
+                        threshold,
+                        cells(threshold),
+                        variant,
+                        threads,
+                        len(covered_rows),
+                        sum(ratios) / len(ratios),
+                    )
+                )
                 break
     return sorted(candidates)
 
@@ -194,7 +192,9 @@ def main() -> int:
         raise SystemExit("No regime benchmark rows found.")
     classifications = classify_rows(rows)
 
-    print("| effective_n | cells | family | variant | requested_simd | selected_simd | fallback | threads | median_ms | iqr_ms | ratio_to_current | class |")
+    print(
+        "| effective_n | cells | family | variant | requested_simd | selected_simd | fallback | threads | median_ms | iqr_ms | ratio_to_current | class |"
+    )
     print("|---:|---:|---|---|---|---|---|---:|---:|---:|---:|---|")
     for row in sorted(rows, key=lambda item: (item.effective_n, item.family, item.variant, item.max_threads)):
         status, ratio = classifications[row]

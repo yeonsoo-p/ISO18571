@@ -5,13 +5,14 @@ import subprocess
 import sys
 from pathlib import Path
 
-
 DEFAULT_BACKENDS = ("local_iso_native", "dtw_python", "librosa")
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run ISO/TS 18571 backend benchmarks in fresh pytest processes.")
-    parser.add_argument("--output-dir", default=".benchmarks/iso18571", help="Directory for pytest-benchmark JSON files.")
+    parser.add_argument(
+        "--output-dir", default=".benchmarks/iso18571", help="Directory for pytest-benchmark JSON files."
+    )
     parser.add_argument("--backends", nargs="+", default=DEFAULT_BACKENDS, help="Backends to benchmark.")
     parser.add_argument("--max-time", default="5", help="pytest-benchmark --benchmark-max-time value.")
     parser.add_argument("--min-rounds", default="5", help="pytest-benchmark --benchmark-min-rounds value.")

@@ -1103,44 +1103,6 @@ double magnitude_ratio_with_kernel(
     throw std::invalid_argument("Unsupported ISO DTW kernel variant");
 }
 
-double magnitude_ratio_variant_from_views(
-    const ArrayView& x,
-    const ArrayView& y,
-    double window_size,
-    const std::string& variant,
-    py::ssize_t max_threads
-) {
-    if (variant == "serial_current") {
-        return magnitude_ratio_from_views(x, y, window_size);
-    }
-    if (variant == "contiguous_serial") {
-        const std::vector<double> contiguous_x = copy_values(x);
-        const std::vector<double> contiguous_y = copy_values(y);
-        return magnitude_ratio_from_views(view_from_vector(contiguous_x), view_from_vector(contiguous_y), window_size);
-    }
-    if (variant == "band_row") {
-        const auto state = compute_directions_band_row(x, y, x.n, window_size);
-        return magnitude_ratio_from_state(x, y, state);
-    }
-    if (variant == "range_precompute") {
-        const auto state = compute_directions_range_precompute(x, y, x.n, window_size);
-        return magnitude_ratio_from_state(x, y, state);
-    }
-    if (variant == "index_incremental") {
-        const auto state = compute_directions_index_incremental(x, y, x.n, window_size);
-        return magnitude_ratio_from_state(x, y, state);
-    }
-    if (variant == "bitpacked_direction") {
-        const auto state = compute_directions_bitpacked(x, y, x.n, window_size);
-        return magnitude_ratio_from_bit_state(x, y, state);
-    }
-    if (variant == "diagonal_parallel") {
-        const auto state = compute_directions_diagonal_parallel(x, y, x.n, window_size, max_threads);
-        return magnitude_ratio_from_state(x, y, state);
-    }
-    throw std::invalid_argument("Unknown ISO DTW variant: " + variant);
-}
-
 std::vector<std::pair<py::ssize_t, py::ssize_t>> backtrack_pairs(const DtwState& state) {
     std::vector<std::pair<py::ssize_t, py::ssize_t>> reversed;
     reversed.reserve(static_cast<std::size_t>(2 * state.n));
@@ -1214,74 +1176,6 @@ VariantConfig variant_config_from_spec(
         reduction_mode == ReductionMode::FusedSlope || reduction_mode == ReductionMode::All;
     config.shared_shift_workspace =
         reduction_mode == ReductionMode::SharedShiftWorkspace || reduction_mode == ReductionMode::All;
-
-    return config;
-}
-
-VariantConfig parse_variant(const std::string& variant) {
-    VariantConfig config;
-    config.simd_selection = iso18571_native::select_simd_level(config.requested_simd);
-    if (variant.empty() || variant == "serial_current" || variant == "dtw_current" || variant == "current") {
-        return config;
-    }
-
-    std::size_t start = 0;
-    while (start <= variant.size()) {
-        const std::size_t end = variant.find('+', start);
-        const std::string token = variant.substr(start, end == std::string::npos ? std::string::npos : end - start);
-
-        if (token.empty() || token == "serial_current" || token == "dtw_current" || token == "reduce_none" ||
-            token == "parallel_none") {
-        } else if (token == "dtw_range_precompute") {
-            config.dtw_layout = DtwLayout::RangePrecompute;
-        } else if (token == "dtw_index_incremental") {
-            config.dtw_layout = DtwLayout::IndexIncremental;
-        } else if (token == "dtw_compact_direction") {
-            config.dtw_layout = DtwLayout::CompactDirection;
-        } else if (token == "phase_dual_product") {
-            config.reduction_mode = ReductionMode::PhaseDualProduct;
-            config.phase_dual_product = true;
-        } else if (token == "fused_slope") {
-            config.reduction_mode = ReductionMode::FusedSlope;
-            config.fused_slope = true;
-        } else if (token == "shared_shift_workspace") {
-            config.reduction_mode = ReductionMode::SharedShiftWorkspace;
-            config.shared_shift_workspace = true;
-        } else if (token == "all_reductions") {
-            config.reduction_mode = ReductionMode::All;
-            config.phase_dual_product = true;
-            config.fused_slope = true;
-            config.shared_shift_workspace = true;
-        } else if (token == "diagonal_parallel") {
-            config.parallel_mode = ParallelMode::Diagonal;
-            config.block_size = 0;
-        } else if (token == "blocked64" || token == "blocked128" || token == "blocked256" || token == "blocked512") {
-            config.parallel_mode = ParallelMode::Blocked;
-            config.block_size = static_cast<py::ssize_t>(std::stoll(token.substr(7)));
-        } else if (token == "simd_scalar") {
-            config.requested_simd = SimdLevel::Scalar;
-            config.simd_selection = iso18571_native::select_simd_level(config.requested_simd);
-        } else if (token == "simd_sse2") {
-            config.requested_simd = SimdLevel::Sse2;
-            config.simd_selection = iso18571_native::select_simd_level(config.requested_simd);
-        } else if (token == "simd_avx2") {
-            config.requested_simd = SimdLevel::Avx2;
-            config.simd_selection = iso18571_native::select_simd_level(config.requested_simd);
-        } else if (token == "simd_avx2_fma") {
-            config.requested_simd = SimdLevel::Avx2Fma;
-            config.simd_selection = iso18571_native::select_simd_level(config.requested_simd);
-        } else if (token == "simd_auto") {
-            config.requested_simd = SimdLevel::Auto;
-            config.simd_selection = iso18571_native::select_simd_level(config.requested_simd);
-        } else {
-            throw std::invalid_argument("Unknown ISO scorer variant token: " + token);
-        }
-
-        if (end == std::string::npos) {
-            break;
-        }
-        start = end + 1;
-    }
 
     return config;
 }
@@ -2030,24 +1924,6 @@ double magnitude_ratio(
     return ratio;
 }
 
-double magnitude_ratio_variant(
-    py::array_t<double, py::array::forcecast> x,
-    py::array_t<double, py::array::forcecast> y,
-    double window_size,
-    const std::string& variant,
-    py::ssize_t max_threads
-) {
-    const auto views = validate_inputs(x, y);
-
-    double ratio = 0.0;
-    {
-        py::gil_scoped_release release;
-        ratio = magnitude_ratio_variant_from_views(views.first, views.second, window_size, variant, max_threads);
-    }
-
-    return ratio;
-}
-
 double magnitude_ratio_variant_spec(
     py::array_t<double, py::array::forcecast> x,
     py::array_t<double, py::array::forcecast> y,
@@ -2145,31 +2021,6 @@ void add_score_fields(py::dict& out, const ScoreResult& score) {
     out["shift_length"] = score.shift.length;
 }
 
-py::dict score_components_variant(
-    py::array_t<double, py::array::forcecast> reference_curve,
-    py::array_t<double, py::array::forcecast> comparison_curve,
-    py::dict params,
-    const std::string& variant,
-    py::ssize_t max_threads
-) {
-    const auto views = validate_curves(reference_curve, comparison_curve);
-    const ScoreParams score_params = score_params_from_dict(params);
-    const VariantConfig config = parse_variant(variant);
-
-    ScoreResult score;
-    {
-        py::gil_scoped_release release;
-        score = score_components_native_variant(views.first, views.second, score_params, config, max_threads);
-    }
-
-    py::dict out;
-    add_score_fields(out, score);
-    out["requested_simd_level"] = iso18571_native::simd_level_name(config.simd_selection.requested);
-    out["selected_simd_level"] = iso18571_native::simd_level_name(config.simd_selection.selected);
-    out["simd_fallback"] = config.simd_selection.fallback;
-    return out;
-}
-
 py::dict score_components_variant_spec(
     py::array_t<double, py::array::forcecast> reference_curve,
     py::array_t<double, py::array::forcecast> comparison_curve,
@@ -2260,7 +2111,6 @@ PYBIND11_MODULE(_core, m) {
     m.def("_simd_info", &simd_info);
     m.def("warp_path", &warp_path, py::arg("x"), py::arg("y"), py::arg("window_size"));
     m.def("magnitude_ratio", &magnitude_ratio, py::arg("x"), py::arg("y"), py::arg("window_size"));
-    m.def("_magnitude_ratio_variant", &magnitude_ratio_variant, py::arg("x"), py::arg("y"), py::arg("window_size"), py::arg("variant"), py::arg("max_threads") = 1);
     m.def(
         "_magnitude_ratio_variant_spec",
         &magnitude_ratio_variant_spec,
@@ -2275,7 +2125,6 @@ PYBIND11_MODULE(_core, m) {
     );
     m.def("_parallel_barrier_overhead", &parallel_barrier_overhead, py::arg("iterations"), py::arg("max_threads"));
     m.def("score_components", &score_components, py::arg("reference_curve"), py::arg("comparison_curve"), py::arg("params") = py::dict());
-    m.def("_score_components_variant", &score_components_variant, py::arg("reference_curve"), py::arg("comparison_curve"), py::arg("params"), py::arg("variant"), py::arg("max_threads") = 1);
     m.def(
         "_score_components_variant_spec",
         &score_components_variant_spec,

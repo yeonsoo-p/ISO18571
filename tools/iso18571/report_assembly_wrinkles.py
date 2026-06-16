@@ -5,7 +5,6 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-
 VECTOR_PATTERN = re.compile(r"\b[vyx]?mm\d+\b|\b[xyz]mmword\b", re.IGNORECASE)
 YMM_PATTERN = re.compile(r"\bymm\d+\b|\bymmword\b", re.IGNORECASE)
 FMA_PATTERN = re.compile(r"\bvfmadd|\bvfnmadd|\bvfm?sub", re.IGNORECASE)

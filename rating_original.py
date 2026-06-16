@@ -1,10 +1,8 @@
 import numpy as np
-
-from scipy.spatial.distance import cdist
-
 from dtwalign import dtw_low
 from dtwalign.step_pattern import UserStepPattern
 from dtwalign.window import SakoechibaWindow
+from scipy.spatial.distance import cdist
 
 
 class CurveLengthError(Exception):
@@ -38,10 +36,24 @@ class ISO18571:
 
     """
 
-    def __init__(self, reference_curve: np.ndarray, comparison_curve: np.ndarray, k_z: float = 2.0, k_p: int = 1,
-                 k_m: int = 1, eps_m: float = 0.50, e_s: float = 2.0, init_min: float = 0.8, a_0: float = 0.05,
-                 b_0: float = 0.5, w_z: float = 0.4, w_p: float = 0.2, w_m: float = 0.2, w_s: float = 0.2,
-                 dt: float = 0.0001):
+    def __init__(
+        self,
+        reference_curve: np.ndarray,
+        comparison_curve: np.ndarray,
+        k_z: float = 2.0,
+        k_p: int = 1,
+        k_m: int = 1,
+        eps_m: float = 0.50,
+        e_s: float = 2.0,
+        init_min: float = 0.8,
+        a_0: float = 0.05,
+        b_0: float = 0.5,
+        w_z: float = 0.4,
+        w_p: float = 0.2,
+        w_m: float = 0.2,
+        w_s: float = 0.2,
+        dt: float = 0.0001,
+    ):
         """Constructor of ISO18571
 
         Args:
@@ -168,7 +180,7 @@ class ISO18571:
         pattern_info = [
             dict(indices=[(-1, 0), (0, 0)], weights=[1]),
             dict(indices=[(0, -1), (0, 0)], weights=[1]),
-            dict(indices=[(-1, -1), (0, 0)], weights=[1])
+            dict(indices=[(-1, -1), (0, 0)], weights=[1]),
         ]
         normalize_guide = "none"
         user_step_pattern = UserStepPattern(pattern_info, normalize_guide=normalize_guide)
@@ -242,8 +254,9 @@ class ISO18571:
         elif abs(self._n_eps) >= max_allowable_time_shift_threshold:
             e_p = 0
         else:
-            e_p = ((max_allowable_time_shift_threshold - abs(self._n_eps)) /
-                   max_allowable_time_shift_threshold) ** self._k_p
+            e_p = (
+                (max_allowable_time_shift_threshold - abs(self._n_eps)) / max_allowable_time_shift_threshold
+            ) ** self._k_p
 
         if ndigits < 0:
             return e_p
@@ -253,10 +266,10 @@ class ISO18571:
     def magnitude_rating(self, ndigits: int = 3):
         """Returns the magnitude rating for the comparison_curve and the reference_curve
 
-       Args:
-            ndigits (int): precision of ndigits. If negative result is not rounded.
+        Args:
+             ndigits (int): precision of ndigits. If negative result is not rounded.
 
-        Returns: the magnitude rating, with a precision of ndigits
+         Returns: the magnitude rating, with a precision of ndigits
         """
 
         cae_ts_w, t_ts_w = ISO18571._compute_magnitude(self._cae_ts[:, 1], self._t_ts[:, 1], window_size=0.1)
@@ -278,10 +291,10 @@ class ISO18571:
     def slope_rating(self, ndigits: int = 3):
         """Returns the slope rating for the comparison_curve and the reference_curve
 
-       Args:
-            ndigits (int): precision of ndigits. If negative result is not rounded.
+        Args:
+             ndigits (int): precision of ndigits. If negative result is not rounded.
 
-        Returns: the slope rating, with a precision of ndigits
+         Returns: the slope rating, with a precision of ndigits
         """
 
         # central difference
@@ -302,8 +315,8 @@ class ISO18571:
 
         # case 1/9
         nr = 9
-        cae_ts_d[4:-4] = np.convolve(cae_ts_0_d, np.ones(nr) / nr, mode='valid')
-        t_ts_d[4:-4] = np.convolve(t_ts_0_d, np.ones(nr) / nr, mode='valid')
+        cae_ts_d[4:-4] = np.convolve(cae_ts_0_d, np.ones(nr) / nr, mode="valid")
+        t_ts_d[4:-4] = np.convolve(t_ts_0_d, np.ones(nr) / nr, mode="valid")
 
         e_slope = (np.linalg.norm((cae_ts_d - t_ts_d), ord=1)) / (np.linalg.norm(t_ts_d, ord=1))
 
@@ -322,14 +335,14 @@ class ISO18571:
     def overall_rating(self, ndigits: int = 3) -> float:
         """Returns the overall rating for the comparison_curve and the reference_curve
 
-        Combines the four metric ratings corridor, phase, magnitude and slope to a single number.
-        Each rating is weighted with an according weighting factor as indicated in the ISO document.
+         Combines the four metric ratings corridor, phase, magnitude and slope to a single number.
+         Each rating is weighted with an according weighting factor as indicated in the ISO document.
 
-       Args:
-            ndigits (int): precision of ndigits. If negative result is not rounded.
+        Args:
+             ndigits (int): precision of ndigits. If negative result is not rounded.
 
-        Returns: overall_rating, which indicates the objective correlation of the analyzed signals, with a
-                 precision of ndigits
+         Returns: overall_rating, which indicates the objective correlation of the analyzed signals, with a
+                  precision of ndigits
         """
 
         z = self.corridor_rating(ndigits=-1)

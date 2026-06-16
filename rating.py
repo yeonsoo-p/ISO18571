@@ -101,7 +101,9 @@ def _near_zero_variance_mask(
     return variance <= tolerance
 
 
-def _shifted_correlations(reference_values: np.ndarray, comparison_values: np.ndarray, window_size: int) -> tuple[np.ndarray, np.ndarray]:
+def _shifted_correlations(
+    reference_values: np.ndarray, comparison_values: np.ndarray, window_size: int
+) -> tuple[np.ndarray, np.ndarray]:
     n = reference_values.shape[0]
     if comparison_values.shape[0] != n:
         raise CurveLengthError("Curves are not equal in size/dimension.\nInterpolation not implemented. ")
@@ -242,14 +244,18 @@ def _iso_backtrack(accumulated: np.ndarray) -> np.ndarray:
     return np.asarray(path, dtype=np.int64)
 
 
-def _compute_magnitude_local_iso_numpy(x: np.ndarray, y: np.ndarray, window_size: float) -> tuple[np.ndarray, np.ndarray]:
+def _compute_magnitude_local_iso_numpy(
+    x: np.ndarray, y: np.ndarray, window_size: float
+) -> tuple[np.ndarray, np.ndarray]:
     cost = _local_cost_matrix(x, y, window_size)
     accumulated = _iso_accumulated_cost_matrix(cost)
     path = _iso_backtrack(accumulated)
     return x[path[:, 0]], y[path[:, 1]]
 
 
-def _compute_magnitude_local_iso_native(x: np.ndarray, y: np.ndarray, window_size: float) -> tuple[np.ndarray, np.ndarray]:
+def _compute_magnitude_local_iso_native(
+    x: np.ndarray, y: np.ndarray, window_size: float
+) -> tuple[np.ndarray, np.ndarray]:
     try:
         from iso18571_native import warp_path
     except ImportError as exc:
@@ -269,11 +275,13 @@ def _compute_magnitude_ratio_local_iso_native(x: np.ndarray, y: np.ndarray, wind
     except ImportError as exc:
         raise DTWBackendError("The native ISO/TS 18571 backend is not built") from exc
 
-    return float(magnitude_ratio(
-        np.asarray(x, dtype=np.float64),
-        np.asarray(y, dtype=np.float64),
-        window_size,
-    ))
+    return float(
+        magnitude_ratio(
+            np.asarray(x, dtype=np.float64),
+            np.asarray(y, dtype=np.float64),
+            window_size,
+        )
+    )
 
 
 def _score_components_local_iso_native(
@@ -333,7 +341,7 @@ def _compute_magnitude_dtwalign(x: np.ndarray, y: np.ndarray, window_size: float
     pattern_info = [
         dict(indices=[(-1, 0), (0, 0)], weights=[1]),
         dict(indices=[(0, -1), (0, 0)], weights=[1]),
-        dict(indices=[(-1, -1), (0, 0)], weights=[1])
+        dict(indices=[(-1, -1), (0, 0)], weights=[1]),
     ]
     user_step_pattern = UserStepPattern(pattern_info, normalize_guide="none")
     cost = np.square(x[:, np.newaxis] - y[np.newaxis, :])
@@ -457,10 +465,25 @@ class ISO18571:
 
     """
 
-    def __init__(self, reference_curve: np.ndarray, comparison_curve: np.ndarray, k_z: float = 2.0, k_p: int = 1,
-                 k_m: int = 1, eps_m: float = 0.50, e_s: float = 2.0, init_min: float = 0.8, a_0: float = 0.05,
-                 b_0: float = 0.5, w_z: float = 0.4, w_p: float = 0.2, w_m: float = 0.2, w_s: float = 0.2,
-                 dt: float = 0.0001, dtw_backend: str = DTW_BACKEND_LOCAL_ISO):
+    def __init__(
+        self,
+        reference_curve: np.ndarray,
+        comparison_curve: np.ndarray,
+        k_z: float = 2.0,
+        k_p: int = 1,
+        k_m: int = 1,
+        eps_m: float = 0.50,
+        e_s: float = 2.0,
+        init_min: float = 0.8,
+        a_0: float = 0.05,
+        b_0: float = 0.5,
+        w_z: float = 0.4,
+        w_p: float = 0.2,
+        w_m: float = 0.2,
+        w_s: float = 0.2,
+        dt: float = 0.0001,
+        dtw_backend: str = DTW_BACKEND_LOCAL_ISO,
+    ):
         """Constructor of ISO18571
 
         Args:
@@ -550,8 +573,8 @@ class ISO18571:
             reference_start = int(self._native_scores["reference_start"])
             comparison_start = int(self._native_scores["comparison_start"])
             shift_length = int(self._native_scores["shift_length"])
-            self._t_ts = self.reference_curve[reference_start:reference_start + shift_length, :].copy()
-            self._cae_ts = self.comparison_curve[comparison_start:comparison_start + shift_length, :].copy()
+            self._t_ts = self.reference_curve[reference_start : reference_start + shift_length, :].copy()
+            self._cae_ts = self.comparison_curve[comparison_start : comparison_start + shift_length, :].copy()
             self._n_eps = int(self._native_scores["n_eps"])
             self._rho_e = float(self._native_scores["rho_e"])
         else:
@@ -691,8 +714,9 @@ class ISO18571:
         elif abs(self._n_eps) >= max_allowable_time_shift_threshold:
             e_p = 0
         else:
-            e_p = ((max_allowable_time_shift_threshold - abs(self._n_eps)) /
-                   max_allowable_time_shift_threshold) ** self._k_p
+            e_p = (
+                (max_allowable_time_shift_threshold - abs(self._n_eps)) / max_allowable_time_shift_threshold
+            ) ** self._k_p
 
         if ndigits < 0:
             return e_p
@@ -702,10 +726,10 @@ class ISO18571:
     def magnitude_rating(self, ndigits: int = 3):
         """Returns the magnitude rating for the comparison_curve and the reference_curve
 
-       Args:
-            ndigits (int): precision of ndigits. If negative result is not rounded.
+        Args:
+             ndigits (int): precision of ndigits. If negative result is not rounded.
 
-        Returns: the magnitude rating, with a precision of ndigits
+         Returns: the magnitude rating, with a precision of ndigits
         """
 
         if self._native_scores is not None:
@@ -742,10 +766,10 @@ class ISO18571:
     def slope_rating(self, ndigits: int = 3):
         """Returns the slope rating for the comparison_curve and the reference_curve
 
-       Args:
-            ndigits (int): precision of ndigits. If negative result is not rounded.
+        Args:
+             ndigits (int): precision of ndigits. If negative result is not rounded.
 
-        Returns: the slope rating, with a precision of ndigits
+         Returns: the slope rating, with a precision of ndigits
         """
 
         if self._native_scores is not None:
@@ -769,8 +793,8 @@ class ISO18571:
 
         # case 1/9
         nr = 9
-        cae_ts_d[4:-4] = np.convolve(cae_ts_0_d, np.ones(nr) / nr, mode='valid')
-        t_ts_d[4:-4] = np.convolve(t_ts_0_d, np.ones(nr) / nr, mode='valid')
+        cae_ts_d[4:-4] = np.convolve(cae_ts_0_d, np.ones(nr) / nr, mode="valid")
+        t_ts_d[4:-4] = np.convolve(t_ts_0_d, np.ones(nr) / nr, mode="valid")
 
         e_slope = (np.linalg.norm((cae_ts_d - t_ts_d), ord=1)) / (np.linalg.norm(t_ts_d, ord=1))
 
@@ -789,14 +813,14 @@ class ISO18571:
     def overall_rating(self, ndigits: int = 3) -> float:
         """Returns the overall rating for the comparison_curve and the reference_curve
 
-        Combines the four metric ratings corridor, phase, magnitude and slope to a single number.
-        Each rating is weighted with an according weighting factor as indicated in the ISO document.
+         Combines the four metric ratings corridor, phase, magnitude and slope to a single number.
+         Each rating is weighted with an according weighting factor as indicated in the ISO document.
 
-       Args:
-            ndigits (int): precision of ndigits. If negative result is not rounded.
+        Args:
+             ndigits (int): precision of ndigits. If negative result is not rounded.
 
-        Returns: overall_rating, which indicates the objective correlation of the analyzed signals, with a
-                 precision of ndigits
+         Returns: overall_rating, which indicates the objective correlation of the analyzed signals, with a
+                  precision of ndigits
         """
 
         if self._native_scores is not None:

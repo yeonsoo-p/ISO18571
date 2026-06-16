@@ -633,3 +633,59 @@
     the current SIMD gradient target but no FMA instructions;
   - scalar assembly contains calls and stack traffic worth inspecting before a
     future compiler-focused optimization pass.
+
+## 2026-06-16 16:08 KST - CMake, Ruff, Warning Hygiene, And SIMD Dispatch Cleanup
+
+- Git status: dirty at start of batch with the SIMD enum implementation and the
+  root `default.py` move to ignored `ref/` in progress.
+- Hypothesis: scikit-build/CMake can replace `setup.py`, Ruff can become a
+  normal commit gate, and warning handling can be explicit without changing the
+  public scorer or production dispatch policy.
+- Files changed:
+  - CMake/scikit-build project configuration;
+  - native enum variant bindings and test helpers;
+  - pytest policy tests and oracle parity warning handling;
+  - AGENTS notes and this experiment log.
+- Commands:
+  - `uv run --with ruff ruff check --fix .`
+  - `uv run --with ruff ruff format .`
+  - `uv run --with ruff ruff check .`
+  - `uv run --with ruff ruff format --check .`
+  - `uv pip install -e .`
+  - `uv run --with pytest --with pytest-benchmark python -m pytest -q`
+  - `uv run --with pytest --with pytest-benchmark --with scipy --with dtwalign --with dtaidistance --with dtw-python --with librosa python -m pytest -q tests/test_iso18571_backends.py --iso18571-backends local_iso_numpy,local_iso_native,dtwalign,dtaidistance,dtw_python,librosa`
+  - `uv run --with pytest --with pytest-benchmark --with scipy --with dtwalign --with dtw-python --with librosa python -m pytest -q tests/test_rating_original_parity.py -o addopts= -m oracle`
+  - `uv run --with pytest --with pytest-benchmark python -m pytest -q tests/test_rating_original_parity.py -o addopts= -m stress`
+  - `uv build --wheel`
+  - `uv run --with dist/euroncap-0.1.0-cp313-cp313-linux_x86_64.whl python tools/iso18571/wheel_smoke.py`
+  - `uv run python tools/iso18571/emit_native_assembly.py --output-dir .benchmarks/iso18571-asm && uv run python tools/iso18571/report_assembly_wrinkles.py .benchmarks/iso18571-asm`
+- Validation result:
+  - Ruff fixed 11 mechanical issues, then `ruff check` and `ruff format
+    --check` passed;
+  - editable CMake build succeeded;
+  - default pytest: `17 passed, 122557 deselected`;
+  - eligible backend matrix: `23 passed`;
+  - oracle parity: `1 passed, 2 deselected`;
+  - long generated native stress: `1 passed, 2 deselected`;
+  - wheel build and smoke test succeeded.
+- Assembly observations:
+  - `simd_avx2.s`: vector/YMM instructions present, no obvious wrinkle from the
+    simple scan;
+  - `simd_avx2_fma.s`: vector/YMM instructions present, but no FMA instructions
+    emitted for the current gradient target;
+  - `simd_scalar.s`: calls and stack traffic remain worth inspecting in a future
+    compiler-focused optimization pass;
+  - `simd_sse2.s`: no obvious wrinkle from the simple scan.
+- Conclusion:
+  - `setup.py` is removed and CMake/scikit-build is the authoritative native
+    build path;
+  - root `default.py` is deleted from package scope and treated as ignored
+    reference material under `ref/`;
+  - C++ execution paths use enum specs only for native variants;
+  - `SimdLevel.Auto` is runtime auto-dispatch in the private enum variant path,
+    while public `score_components()` remains on the existing production path;
+  - known degenerate numeric oracle warnings are asserted explicitly.
+- Next hypothesis:
+  - continue optimization work by targeting SIMD work that can affect more than
+    contiguous slope-gradient generation, likely phase-product reductions or
+    DTW-local-cost staging, while preserving reduction-order parity.

@@ -6,8 +6,6 @@ from functools import lru_cache
 
 import numpy as np
 import pytest
-
-from iso18571_native import score_components
 from iso18571_native._core import (
     DtwLayout,
     ParallelMode,
@@ -15,8 +13,9 @@ from iso18571_native._core import (
     SimdLevel,
     _score_components_variant_spec,
 )
-from tests.iso18571_annex import fixed_signal_annex_case, phase_shift_annex_case
 
+from iso18571_native import score_components
+from tests.iso18571_annex import fixed_signal_annex_case, phase_shift_annex_case
 
 REGIME_LENGTHS = (64, 129, 512, 1430, 4096, 8192, 16384, 32768, 65536)
 REGIME_FAMILIES = (

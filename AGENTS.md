@@ -32,6 +32,24 @@
     outcomes should be normal `assert` or explicit `raise AssertionError`;
   - use marker categories and deselection instead of skips. Default pytest
     excludes `oracle`, `stress`, `benchmark`, `threshold`, and `regime`.
+  - prefer shared helpers in `tests/iso18571_test_helpers.py` before adding new
+    test-local plumbing;
+  - do not add inline imports inside `tests/test_*.py`; module-level imports or
+    helper functions keep the test surface auditable.
+  - expected degenerate numeric warnings must be caught and asserted explicitly;
+    unexpected warnings should fail tests.
+- Build and style gates:
+  - the native extension is built with CMake through scikit-build-core. Do not
+    reintroduce `setup.py`.
+  - `ref/` is ignored reference material. Do not lint, package, or build files
+    from `ref/`.
+  - before committing code changes, run Ruff format/check:
+    `uv run --with ruff ruff check --fix .`,
+    `uv run --with ruff ruff format .`,
+    `uv run --with ruff ruff check .`, and
+    `uv run --with ruff ruff format --check .`.
+  - CMake builds should keep GCC/Clang `-O3`, MSVC `/O2 /fp:precise`, and no
+    fast-math or native-CPU flags.
 - Benchmark rules:
   - run backend benchmarks in fresh interpreter processes;
   - compare prep/first-use against `dtw_python`;

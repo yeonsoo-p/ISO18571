@@ -6,7 +6,11 @@ import pytest
 import rating
 from tests.iso18571_annex import AnnexCase
 from tests.iso18571_signals import signal_case
-
+from tests.iso18571_test_helpers import (
+    rating_original_iso,
+    score_components,
+    score_with_expected_numeric_warnings,
+)
 
 SCORE_KEYS = ("Z", "EP", "EM", "ES", "R")
 ORACLE_BACKEND = "rating_original"
@@ -15,9 +19,7 @@ PARITY_BACKENDS = ("local_iso_native", "dtw_python", "librosa")
 
 def _scores_from_backend(case: AnnexCase, backend: str) -> dict[str, float | int]:
     if backend == ORACLE_BACKEND:
-        import rating_original
-
-        iso = rating_original.ISO18571(case.reference_curve, case.comparison_curve)
+        iso = rating_original_iso(case.reference_curve, case.comparison_curve)
     else:
         iso = rating.ISO18571(
             case.reference_curve,
@@ -83,28 +85,33 @@ def test_generated_annexes_match_across_original_native_dtw_python_and_librosa(g
 
 def _assert_backends_match_original(case: AnnexCase) -> None:
     try:
-        expected = _scores_from_backend(case, ORACLE_BACKEND)
+        expected = score_with_expected_numeric_warnings(
+            lambda: _scores_from_backend(case, ORACLE_BACKEND),
+            f"{case.name} {ORACLE_BACKEND}",
+        )
     except Exception as exc:
         for backend in PARITY_BACKENDS:
             try:
-                _scores_from_backend(case, backend)
+                score_with_expected_numeric_warnings(
+                    lambda backend=backend: _scores_from_backend(case, backend),
+                    f"{case.name} {backend}",
+                )
             except Exception as backend_exc:
                 assert isinstance(backend_exc, type(exc)), (
-                    f"{case.name} {backend}: "
-                    f"raised {type(backend_exc).__name__}, "
-                    f"expected {type(exc).__name__}"
+                    f"{case.name} {backend}: raised {type(backend_exc).__name__}, expected {type(exc).__name__}"
                 )
             else:
                 raise AssertionError(f"{case.name} {backend}: scorer did not raise {type(exc).__name__}")
     else:
         for backend in PARITY_BACKENDS:
-            observed = _scores_from_backend(case, backend)
+            observed = score_with_expected_numeric_warnings(
+                lambda backend=backend: _scores_from_backend(case, backend),
+                f"{case.name} {backend}",
+            )
             _assert_scores_close(observed, expected, case.name, backend)
 
 
 def test_native_score_components_accepts_strided_and_float32_curves() -> None:
-    from iso18571_native import score_components
-
     case = signal_case("sine_noise", 129)
     wide_reference = np.column_stack((case.reference, case.reference[:, 1] * 2.0)).astype(np.float32)
     wide_comparison = np.column_stack((case.comparison, case.comparison[:, 1] * 2.0)).astype(np.float32)

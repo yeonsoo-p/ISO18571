@@ -7,14 +7,15 @@ import subprocess
 import sys
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 SRC_DIR = ROOT / "src" / "iso18571_native"
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Emit ISO18571 native SIMD assembly artifacts.")
-    parser.add_argument("--output-dir", default=".benchmarks/iso18571-asm", help="Directory for generated .s/.asm files.")
+    parser.add_argument(
+        "--output-dir", default=".benchmarks/iso18571-asm", help="Directory for generated .s/.asm files."
+    )
     return parser.parse_args()
 
 
