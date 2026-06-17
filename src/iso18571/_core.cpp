@@ -110,17 +110,8 @@ py::dict score_components(
 
 py::dict backend_info() {
     py::dict info;
-    info["name"] = "iso18571";
-    info["language"] = "C++17";
-    info["window"] = "abs(i-j) < min(n, max(1, ceil(window_size*n)))";
-    info["tie_order"] = "vertical,horizontal,diagonal";
-    info["cost"] = "squared";
-    info["dtw_layout"] = "index_incremental";
-    info["reduction_mode"] = "all";
-    info["parallelism"] = "none";
-    info["x86_64_dispatch"] = "internal_best_effort";
-    info["compiled_x86_64_levels"] = iso18571::compiled_x86_64_levels();
-    info["selected_x86_64_level"] = iso18571::dispatch_table().level;
+    info["implementation"] = "C++17";
+    info["optimization"] = iso18571::dispatch_table().level;
     return info;
 }
 

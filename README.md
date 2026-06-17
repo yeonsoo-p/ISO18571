@@ -17,6 +17,13 @@ The package also exposes a native diagnostic helper:
 
 - `iso18571.backend_info()`
 
+```python
+from iso18571 import backend_info
+
+print(backend_info())
+# {'name': 'iso18571', 'implementation': 'C++17', 'version': '1.0.2', 'optimization': 'x86-64-v3'}
+```
+
 ## Prerequisites
 
 Install `uv` first; all project commands below assume it is available on `PATH`.
@@ -25,14 +32,44 @@ Native builds need one of these build environments:
 
 - local build tools for editable installs and single-interpreter wheels: a C++17
   compiler, CMake-compatible build tooling, and Python development headers;
-- Docker or Podman for Linux manylinux wheels;
+- Docker or Podman for Linux manylinux wheels, including Docker Desktop when
+  building Linux wheels from a Windows host;
 - on Linux hosts, `clang-cl`, `lld-link`, `llvm-rc`, `llvm-mt`, `objdump`, and
-  `xwin` for Windows cross-built wheels.
+  `xwin` for Windows cross-built wheels;
+- on Windows hosts, Visual Studio Build Tools with MSVC for native Windows
+  wheels.
 
 `uv` creates the Python build and test environments from `pyproject.toml`.
 
 Windows wheel users need the Microsoft Visual C++ Redistributable 2015-2022
-x64 installed at runtime. The wheels link to those runtime DLLs dynamically and do not bundle them.
+x64 installed at runtime. Install it from Microsoft's latest supported Visual
+C++ Redistributable downloads page. The wheels link to those runtime DLLs
+dynamically and do not bundle them.
+
+On Debian/Ubuntu, install Docker Engine from Docker's official Ubuntu
+instructions. Then install the remaining local release-build tools with:
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+sudo apt update
+sudo apt install -y build-essential cmake binutils clang lld llvm
+cargo install xwin --locked
+```
+
+If Docker requires group setup, follow Docker's Linux post-install instructions and log out and back in after changing group membership.
+
+On other Linux distributions, use Docker's distribution-specific Engine docs or Podman packages, install Rust/Cargo with rustup, and install equivalent packages for binutils and LLVM/clang-cl/lld.
+
+Official prerequisite pages:
+
+- Docker Engine: <https://docs.docker.com/engine/install/>
+- Docker Engine on Ubuntu: <https://docs.docker.com/engine/install/ubuntu/>
+- Docker Desktop on Windows: <https://docs.docker.com/desktop/setup/install/windows-install/>
+- Docker Linux post-install: <https://docs.docker.com/engine/install/linux-postinstall/>
+- Rust/Cargo: <https://doc.rust-lang.org/cargo/getting-started/installation.html>
+- Visual Studio Build Tools: <https://visualstudio.microsoft.com/downloads/?q=build+tools>
+- Microsoft Visual C++ Redistributable: <https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist>
 
 ## Building
 
@@ -48,45 +85,58 @@ For a wheel targeting the current interpreter and platform:
 uv build --wheel
 ```
 
+For release-wheel builds, sync the build tooling once:
+
+```bash
+uv sync --extra build
+```
+
 The release wheel matrix targets CPython 3.12, 3.13, and 3.14 on:
 
 - Linux x86_64;
 - Windows AMD64.
 
-Use the project wheel builder as the normal entrypoint from a Linux host. It
-builds Linux wheels with `cibuildwheel` manylinux containers and Windows wheels with `clang-cl` plus `xwin`. From a Windows machine, use WSL2, a Linux VM, or CI for release wheels.
+Use the project wheel builder as the normal entrypoint. On a Linux host it
+builds Linux wheels with `cibuildwheel` manylinux containers and Windows wheels with `clang-cl` plus `xwin`. On a Windows host it uses `cibuildwheel` for both native Windows MSVC wheels and Linux wheels through Docker.
 
-For a full Linux-hosted release build:
+For a full local release build:
 
 ```bash
-rm -rf dist
-uv build --sdist --out-dir dist
-uv run --extra build python tools/build_wheels.py --platform all --out-dir dist
+uv run python tools/build_wheels.py --platform all
 ```
 
-For Windows wheels from a Linux host:
+To also publish a source distribution, add:
 
 ```bash
-uv run --extra build python tools/build_wheels.py \
-  --platform windows \
-  --python 3.12 3.13 3.14 \
-  --out-dir dist
+uv build --sdist
 ```
 
-If the xwin SDK/CRT cache is missing, the first Windows cross-build must accept Microsoft's SDK redistribution terms explicitly:
+For Windows wheels:
 
 ```bash
-uv run --extra build python tools/build_wheels.py \
+uv run python tools/build_wheels.py \
   --platform windows \
-  --accept-ms-license \
-  --out-dir dist
+  --python 3.12 3.13 3.14
+```
+
+On Linux hosts, if the xwin SDK/CRT cache is missing, the Windows cross-build
+provisions it and accepts Microsoft's SDK redistribution terms by default. To
+require manual provisioning instead:
+
+```bash
+uv run python tools/build_wheels.py \
+  --platform windows \
+  --no-accept-ms-license
 ```
 
 For Linux wheels only, keep Docker or Podman running:
 
 ```bash
-uv run --extra build python tools/build_wheels.py --platform linux --out-dir dist
+uv run python tools/build_wheels.py --platform linux
 ```
+
+The same Linux-wheel command is supported from Windows when Docker Desktop is
+running.
 
 `uv build` and `tools/build_wheels.py` both write to `dist/` in the examples
 above. That is also the default input path for `uv publish`.

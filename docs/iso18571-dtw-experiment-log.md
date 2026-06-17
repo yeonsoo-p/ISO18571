@@ -1688,3 +1688,57 @@
   - use `tools/build_wheels.py --platform all --out-dir dist` as the local
     release-wheel entrypoint after the remaining style/type/whitespace gates
     pass.
+
+## 2026-06-17 17:47 KST - v1.0.2 Build Polish
+
+- Git status: clean `main` one commit ahead of `origin/main` before this
+  follow-up.
+- Hypothesis:
+  - release-build instructions can be made more direct by documenting simple
+    prerequisite install commands, defaulting xwin license acceptance, and
+    hiding low-level backend experiment details from `backend_info()`.
+- Files changed:
+  - `pyproject.toml`, `iso18571/__init__.py`, `iso18571/_core.pyi`,
+    `src/iso18571/_core.cpp`, `tests/test_iso18571_parity.py`,
+    `tools/build_wheels.py`, `README.md`, backend docs, and this experiment
+    log.
+- Commands:
+  - bump package version from `1.0.1` to `1.0.2`;
+  - reduce public `backend_info()` to `name`, `implementation`, `version`, and
+    `optimization`;
+  - default xwin license acceptance in `tools/build_wheels.py` and replace
+    `--accept-ms-license` with `--no-accept-ms-license`;
+  - allow Windows hosts to build Linux wheels through
+    `cibuildwheel --platform linux` and Docker, while keeping native Windows
+    MSVC wheels on `cibuildwheel --platform windows`;
+  - add Debian/Ubuntu prerequisite install commands to the README, while
+    pointing Docker, Cargo, and VC++ redistributable setup to official vendor
+    documentation.
+- Validation result:
+  - `uv run --extra test ruff check --fix .` passed;
+  - `uv run --extra test ruff format .` passed;
+  - `uv run --extra test ruff check .` passed;
+  - `uv run --extra test ruff format --check .` passed;
+  - `uv run --extra test mypy iso18571 iso18571_reference tests tools/build_wheels.py`
+    passed;
+  - `uv run --extra test python -m pytest -q` passed:
+    `4 passed, 32 deselected`;
+  - `git diff --check` passed;
+  - `uv build --wheel` produced
+    `dist/iso18571-1.0.2-cp314-cp314-linux_x86_64.whl`;
+  - `uv run python tools/build_wheels.py --help` showed `dist` as the output
+    default and documented `--no-accept-ms-license`;
+  - `uv run python tools/build_wheels.py --platform windows --python 3.12
+    --out-dir /tmp/iso18571-default-check` produced
+    `iso18571-1.0.2-cp312-cp312-win_amd64.whl` without an explicit license flag
+    and validated dynamic imports for `python312.dll`, `MSVCP140.dll`, and
+    `VCRUNTIME140.dll`.
+- Conclusion:
+  - v1.0.2 build polish is ready to commit; the public backend diagnostic is
+    intentionally user-facing, release-wheel commands now default to `dist/`,
+    Windows cross-builds accept xwin provisioning by default, and Windows hosts
+    can build Linux wheels through cibuildwheel's Docker lane while retaining
+    native MSVC/cibuildwheel Windows wheels.
+- Next hypothesis:
+  - push `main` with both the host-specific wheel builder and v1.0.2 polish
+    commits.

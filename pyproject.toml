@@ -4,7 +4,7 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "iso18571"
-version = "1.0.1"
+version = "1.0.2"
 description = "ISO/TS 18571 validation tooling"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -37,6 +37,9 @@ skip = "*-musllinux_*"
 
 [tool.cibuildwheel.linux]
 archs = ["x86_64"]
+
+[tool.cibuildwheel.windows]
+archs = ["AMD64"]
 
 [tool.mypy]
 python_version = "3.12"

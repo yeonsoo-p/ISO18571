@@ -41,8 +41,9 @@ At module initialization, C++ detects the running CPU and operating-system save
 support, then stores direct function pointers for the highest
 compiled-and-supported level. Python does not configure this choice.
 
-Use `iso18571.backend_info()` to inspect compiled levels and the selected level
-for the current process.
+Use `iso18571.backend_info()` to inspect the native implementation and selected
+optimization level for the current process. It intentionally omits lower-level
+dispatch and DTW implementation details from the public API.
 
 ## Reference Parity
 

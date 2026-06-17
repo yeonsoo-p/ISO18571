@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any
 
 import numpy.typing as npt
 
@@ -12,4 +11,4 @@ def _score_components(
     comparison_curve: npt.ArrayLike,
     params: Mapping[str, float | int] | None = ...,
 ) -> ScoreComponents: ...
-def backend_info() -> dict[str, Any]: ...
+def backend_info() -> dict[str, str]: ...

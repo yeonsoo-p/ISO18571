@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from importlib.metadata import version
 
 import numpy as np
 
@@ -91,10 +92,16 @@ def test_native_surface_is_small_and_accepts_numpy_arrays(
     assert not hasattr(native_core, "score_components")
     assert not hasattr(native_core, "magnitude_ratio")
     assert not hasattr(native_core, "warp_path")
-    assert backend_info()["dtw_layout"] == "index_incremental"
-    assert backend_info()["reduction_mode"] == "all"
-    assert backend_info()["name"] == "iso18571"
-    assert str(backend_info()["selected_x86_64_level"]).startswith("x86-64-v")
+    info = backend_info()
+    assert set(info) == {"name", "implementation", "version", "optimization"}
+    assert info["name"] == "iso18571"
+    assert info["implementation"] == "C++17"
+    assert info["version"] == version("iso18571")
+    assert info["optimization"].startswith("x86-64-v")
+    assert native_core.backend_info() == {
+        "implementation": "C++17",
+        "optimization": info["optimization"],
+    }
 
 
 def test_native_short_curves_fail_clearly() -> None:

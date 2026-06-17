@@ -75,20 +75,19 @@ def main(argv: Sequence[str] | None = None) -> int:
     out_dir = args.out_dir.resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    if host == "windows":
-        raise SystemExit(
-            "Release wheels are not built from a Windows host by this script. "
-            "Use a Linux host, WSL2, or CI so Linux wheels can use manylinux "
-            "and Windows wheels can use the clang-cl/xwin cross-build lane."
-        )
-
     for target in platforms:
-        if target == "linux":
-            build_with_cibuildwheel(target, pythons, out_dir)
-        elif target == "windows" and host == "linux":
+        if target == "windows" and host == "linux":
             build_windows_cross(args, pythons, out_dir)
+        elif target == "windows" and host == "windows":
+            build_with_cibuildwheel(target, pythons, out_dir)
+        elif target == "linux":
+            build_with_cibuildwheel(target, pythons, out_dir)
         else:
-            raise SystemExit(f"Unsupported host/target combination: {host}/{target}")
+            raise SystemExit(
+                "Windows wheels from this host are unsupported. Use a Linux host "
+                "for the clang-cl/xwin cross-build lane or a Windows host for "
+                "the native MSVC/cibuildwheel lane."
+            )
 
     return 0
 
@@ -118,7 +117,7 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         "--out-dir",
         type=Path,
         default=Path("dist"),
-        help="Directory for built wheels.",
+        help="Directory for built wheels. Defaults to dist.",
     )
     parser.add_argument(
         "--cache-dir",
@@ -133,10 +132,12 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         help="xwin SDK/CRT root. Defaults to XWIN_ROOT or ~/.cache/iso18571-xwin.",
     )
     parser.add_argument(
-        "--accept-ms-license",
-        action="store_true",
-        help="Allow xwin to download Microsoft SDK/CRT files if the cache is missing.",
+        "--no-accept-ms-license",
+        dest="accept_ms_license",
+        action="store_false",
+        help="Do not let xwin download Microsoft SDK/CRT files if the cache is missing.",
     )
+    parser.set_defaults(accept_ms_license=True)
     return parser.parse_args(argv)
 
 
@@ -243,7 +244,7 @@ def ensure_xwin_root(xwin: Path, xwin_root: Path, accept_license: bool) -> None:
     if not accept_license:
         raise SystemExit(
             f"xwin SDK/CRT cache is missing at {xwin_root}. Re-run with "
-            "--accept-ms-license to let xwin download Microsoft build inputs."
+            "the default license-accepting behavior, or provision XWIN_ROOT manually."
         )
     xwin_root.parent.mkdir(parents=True, exist_ok=True)
     run(
