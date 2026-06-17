@@ -9,7 +9,6 @@ set(ISO18571_NATIVE_SOURCES
     src/iso18571_native/_core.cpp
     src/iso18571_native/simd_scalar.cpp
 )
-set(ISO18571_NATIVE_DEFINITIONS ISO18571_COMPILED_SCALAR=1)
 
 string(TOLOWER "${CMAKE_SYSTEM_PROCESSOR}" ISO18571_PROCESSOR)
 if(ISO18571_PROCESSOR MATCHES "x86_64|amd64|x64")
@@ -18,17 +17,13 @@ if(ISO18571_PROCESSOR MATCHES "x86_64|amd64|x64")
         src/iso18571_native/simd_avx2.cpp
         src/iso18571_native/simd_avx2_fma.cpp
     )
-    list(APPEND ISO18571_NATIVE_DEFINITIONS
-        ISO18571_COMPILED_SSE2=1
-        ISO18571_COMPILED_AVX2=1
-        ISO18571_COMPILED_AVX2_FMA=1
-    )
+else()
+    message(FATAL_ERROR "iso18571_native currently requires an x86_64/AMD64 compiler target with SSE2, AVX2, and FMA translation-unit support")
 endif()
 
 pybind11_add_module(_core MODULE ${ISO18571_NATIVE_SOURCES})
 target_compile_features(_core PRIVATE cxx_std_17)
 target_include_directories(_core PRIVATE src/iso18571_native)
-target_compile_definitions(_core PRIVATE ${ISO18571_NATIVE_DEFINITIONS})
 
 if(MSVC)
     target_compile_options(_core PRIVATE /O2 /fp:precise /W4 /permissive-)

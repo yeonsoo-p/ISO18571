@@ -45,10 +45,6 @@ def unix_commands(out_dir: Path) -> list[list[str]]:
         "-I",
         str(SRC_DIR),
         *pybind11_include_flags(msvc=False),
-        "-DISO18571_COMPILED_SCALAR=1",
-        "-DISO18571_COMPILED_SSE2=1",
-        "-DISO18571_COMPILED_AVX2=1",
-        "-DISO18571_COMPILED_AVX2_FMA=1",
         "-S",
     ]
     sources = (
@@ -88,10 +84,6 @@ def msvc_commands(out_dir: Path) -> list[list[str]]:
                 "/EHsc",
                 f"/I{SRC_DIR}",
                 *pybind11_include_flags(msvc=True),
-                "/DISO18571_COMPILED_SCALAR=1",
-                "/DISO18571_COMPILED_SSE2=1",
-                "/DISO18571_COMPILED_AVX2=1",
-                "/DISO18571_COMPILED_AVX2_FMA=1",
                 "/c",
                 "/FA",
                 f"/Fa{output}",

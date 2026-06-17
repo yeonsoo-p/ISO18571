@@ -10,11 +10,12 @@ from iso18571_native import (
     ReductionMode,
     SimdLevel,
     SimdTargetMode,
-    _magnitude_ratio_variant_spec,
-    _score_components_variant_spec,
+    _resolve_simd_level,
     _simd_info,
     magnitude_ratio,
+    magnitude_variant_function,
     score_components,
+    score_variant_function,
     warp_path,
 )
 from tests.iso18571_annex import (
@@ -39,6 +40,19 @@ def _scores(case, backend: str) -> dict[str, float]:
         "EM": iso.magnitude_rating(ndigits=-1),
         "ES": iso.slope_rating(ndigits=-1),
     }
+
+
+SIMD_NAME_MAP = {
+    "scalar": SimdLevel.Scalar,
+    "sse2": SimdLevel.Sse2,
+    "avx2": SimdLevel.Avx2,
+    "avx2_fma": SimdLevel.Avx2Fma,
+}
+
+
+def _selected_simd_level(simd_level: SimdLevel) -> SimdLevel:
+    selected_name = _resolve_simd_level(simd_level)["selected_simd_level"]
+    return SIMD_NAME_MAP[selected_name]
 
 
 def test_local_iso_backtrack_uses_required_tie_order() -> None:
@@ -166,15 +180,13 @@ def test_native_experimental_variants_match_public_magnitude_ratio() -> None:
         y = 0.9 * x + rng.normal(scale=0.2, size=n)
         expected = magnitude_ratio(x, y, 0.1)
         for dtw_layout, parallel_mode, block_size, simd_level, simd_target_mode, max_threads in variants:
-            observed = _magnitude_ratio_variant_spec(
+            observed = magnitude_variant_function(_selected_simd_level(simd_level), simd_target_mode)(
                 x,
                 y,
                 0.1,
                 dtw_layout,
                 parallel_mode,
                 block_size,
-                simd_level,
-                simd_target_mode,
                 max_threads,
             )
             np.testing.assert_allclose(
@@ -184,6 +196,43 @@ def test_native_experimental_variants_match_public_magnitude_ratio() -> None:
                 atol=1e-12,
                 err_msg=f"{dtw_layout} {parallel_mode} {simd_level} n={n}",
             )
+
+
+def test_native_simd_target_modes_match_public_magnitude_ratio() -> None:
+    rng = np.random.default_rng(18573)
+    simd_levels = (SimdLevel.Scalar, SimdLevel.Sse2, SimdLevel.Avx2, SimdLevel.Avx2Fma)
+    simd_target_modes = (
+        SimdTargetMode.GradientOnly,
+        SimdTargetMode.PhaseProducts,
+        SimdTargetMode.DtwLocalCost,
+        SimdTargetMode.SlopeSmoothing,
+        SimdTargetMode.MagnitudePath,
+        SimdTargetMode.All,
+    )
+    for n in (64, 129):
+        x = rng.normal(size=n)
+        y = 0.85 * x + rng.normal(scale=0.15, size=n)
+        expected = magnitude_ratio(x, y, 0.1)
+        for simd_level in simd_levels:
+            selected_simd_level = _selected_simd_level(simd_level)
+            for simd_target_mode in simd_target_modes:
+                observed = magnitude_variant_function(selected_simd_level, simd_target_mode)(
+                    x,
+                    y,
+                    0.1,
+                    DtwLayout.Current,
+                    ParallelMode.Blocked,
+                    64,
+                    2,
+                )
+                np.testing.assert_allclose(
+                    observed,
+                    expected,
+                    rtol=1e-12,
+                    atol=1e-12,
+                    equal_nan=True,
+                    err_msg=f"n={n} {selected_simd_level} {simd_target_mode}",
+                )
 
 
 def test_native_score_component_variants_match_public_scorer() -> None:
@@ -261,7 +310,7 @@ def test_native_score_component_variants_match_public_scorer() -> None:
             simd_target_mode,
             max_threads,
         ) in variants:
-            observed = _score_components_variant_spec(
+            observed = score_variant_function(_selected_simd_level(simd_level), simd_target_mode)(
                 case.reference_curve,
                 case.comparison_curve,
                 {"dt": case.dt},
@@ -269,8 +318,6 @@ def test_native_score_component_variants_match_public_scorer() -> None:
                 reduction_mode,
                 parallel_mode,
                 block_size,
-                simd_level,
-                simd_target_mode,
                 max_threads,
             )
             variant_label = f"{dtw_layout} {reduction_mode} {parallel_mode} {simd_level} {simd_target_mode}"
@@ -305,7 +352,8 @@ def test_native_simd_target_modes_match_public_scorer() -> None:
         expected = score_components(case.reference_curve, case.comparison_curve, {"dt": case.dt})
         for simd_target_mode in simd_target_modes:
             for simd_level in simd_levels:
-                observed = _score_components_variant_spec(
+                selected_simd_level = _selected_simd_level(simd_level)
+                observed = score_variant_function(selected_simd_level, simd_target_mode)(
                     case.reference_curve,
                     case.comparison_curve,
                     {"dt": case.dt},
@@ -313,8 +361,6 @@ def test_native_simd_target_modes_match_public_scorer() -> None:
                     ReductionMode.All,
                     ParallelMode.Blocked,
                     64,
-                    simd_level,
-                    simd_target_mode,
                     2,
                 )
                 variant_label = f"{simd_target_mode} {simd_level}"
@@ -349,7 +395,7 @@ def test_native_phase_product_simd_preserves_near_tie_shift_decision() -> None:
     expected = score_components(reference_curve, comparison_curve, {"dt": 1.0 / (n - 1)})
 
     for simd_level in (SimdLevel.Scalar, SimdLevel.Sse2, SimdLevel.Avx2, SimdLevel.Avx2Fma):
-        observed = _score_components_variant_spec(
+        observed = score_variant_function(_selected_simd_level(simd_level), SimdTargetMode.PhaseProducts)(
             reference_curve,
             comparison_curve,
             {"dt": 1.0 / (n - 1)},
@@ -357,8 +403,6 @@ def test_native_phase_product_simd_preserves_near_tie_shift_decision() -> None:
             ReductionMode.All,
             ParallelMode.NoParallel,
             0,
-            simd_level,
-            SimdTargetMode.PhaseProducts,
             1,
         )
         for key in ("n_eps", "rho_e", "reference_start", "comparison_start", "shift_length"):
@@ -374,12 +418,15 @@ def test_native_phase_product_simd_preserves_near_tie_shift_decision() -> None:
 
 def test_native_enum_variant_api_reports_simd_metadata_and_auto_dispatches() -> None:
     info = _simd_info()
-    assert "compiled_avx2_fma" in info
+    assert "detected_avx2" in info
+    assert "detected_fma" in info
     assert "auto_level" in info
     assert "compiled_avx512" not in info
 
     case = fixed_signal_annex_case("chirp", 64)
-    observed = _score_components_variant_spec(
+    resolved = _resolve_simd_level(SimdLevel.Auto)
+    selected_simd_level = SIMD_NAME_MAP[resolved["selected_simd_level"]]
+    observed = score_variant_function(selected_simd_level, SimdTargetMode.All)(
         case.reference_curve,
         case.comparison_curve,
         {"dt": case.dt},
@@ -387,19 +434,17 @@ def test_native_enum_variant_api_reports_simd_metadata_and_auto_dispatches() -> 
         ReductionMode.All,
         ParallelMode.NoParallel,
         0,
-        SimdLevel.Auto,
-        SimdTargetMode.All,
         1,
     )
-    assert observed["requested_simd_level"] == "auto"
+    assert resolved["requested_simd_level"] == "auto"
     assert observed["selected_simd_level"] in {"scalar", "sse2", "avx2", "avx2_fma"}
-    assert isinstance(observed["simd_fallback"], bool)
+    assert isinstance(resolved["simd_fallback"], bool)
 
 
 def test_native_enum_variant_api_rejects_invalid_blocked_specs() -> None:
     case = fixed_signal_annex_case("chirp", 64)
     try:
-        _score_components_variant_spec(
+        score_variant_function(SimdLevel.Scalar, SimdTargetMode.GradientOnly)(
             case.reference_curve,
             case.comparison_curve,
             {"dt": case.dt},
@@ -407,8 +452,6 @@ def test_native_enum_variant_api_rejects_invalid_blocked_specs() -> None:
             ReductionMode.NoReduction,
             ParallelMode.Blocked,
             0,
-            SimdLevel.Scalar,
-            SimdTargetMode.GradientOnly,
             1,
         )
     except ValueError:

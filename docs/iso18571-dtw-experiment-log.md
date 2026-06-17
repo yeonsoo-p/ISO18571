@@ -872,3 +872,81 @@
   - run a broader `phase_products` atlas across `4096,8192,12288,16384,32768,
     65536` and then test pairwise combinations only if a single target remains
     preferred or competitive across families.
+
+## 2026-06-17 09:02 KST - Direct SIMD Variant Dispatch Checkpoint
+
+- Git status: dirty at start of batch with SIMD dispatch cleanup in progress.
+- Hypothesis:
+  - replacing private string/spec calls with direct enum-selected monomorphic
+    variant functions will lower measured SIMD dispatch overhead while keeping
+    public production scoring unchanged;
+  - if dispatch overhead was the main reason for SIMD losses, explicit AVX2 and
+    AVX2+FMA target modes should become incrementally better than scalar across
+    the smoke atlas.
+- Files changed:
+  - `iso18571_native/__init__.py` now exposes
+    `score_variant_function(...)` and `magnitude_variant_function(...)` maps
+    over direct monomorphic native variant functions;
+  - `_core.cpp` registers SIMD-level and target-mode specific scorer and
+    magnitude functions instead of one private string/spec-style execution path;
+  - SIMD build definitions were simplified so x86_64/AMD64 builds always
+    compile SSE2, AVX2, and AVX2+FMA translation units;
+  - tests and benchmarks now resolve SIMD once before timing and call the
+    selected function directly;
+  - the temporary pytest policy scanner was removed by request.
+- Commands:
+  - `uv pip install -e .`
+  - `uv run --with pytest --with pytest-benchmark python -m pytest -q tests/test_iso18571_backends.py --iso18571-backends local_iso_numpy,local_iso_native`
+  - `ISO18571_REGIME_FAMILIES=chirp ISO18571_REGIME_LENGTHS=4096 ISO18571_REGIME_THREADS=1 ISO18571_REGIME_VARIANTS=dtw_current+all_reductions+parallel_none ISO18571_REGIME_SIMD_LEVELS=scalar,avx2 ISO18571_REGIME_SIMD_TARGETS=gradient_only,phase_products,dtw_local_cost,slope_smoothing,magnitude_path uv run --with pytest --with pytest-benchmark python -m pytest -q tests/test_iso18571_regime_benchmarks.py -o addopts= -m regime --benchmark-disable`
+  - `mkdir -p .benchmarks/iso18571-highway-dispatch-smoke && ISO18571_REGIME_FAMILIES=chirp,gaussian_noise,sparse_spikes,phase_multitone_shift_020,phase_chirp_shift_050,phase_smooth_step_shift_180 ISO18571_REGIME_LENGTHS=4096,8192 ISO18571_REGIME_THREADS=1,8 ISO18571_REGIME_VARIANTS=dtw_current+reduce_none+parallel_none,dtw_current+all_reductions+blocked128 ISO18571_REGIME_SIMD_LEVELS=scalar,avx2,avx2_fma ISO18571_REGIME_SIMD_TARGETS=gradient_only,phase_products,dtw_local_cost,slope_smoothing,magnitude_path uv run --with pytest --with pytest-benchmark python -m pytest -q tests/test_iso18571_regime_benchmarks.py -o addopts= -m regime --benchmark-warmup off --benchmark-min-rounds 1 --benchmark-max-time 0.01 --benchmark-quiet --benchmark-json .benchmarks/iso18571-highway-dispatch-smoke/regime.json`
+  - `uv run --with pybind11 python tools/iso18571/emit_native_assembly.py --output-dir .benchmarks/iso18571-highway-asm`
+  - `uv run python tools/iso18571/report_assembly_wrinkles.py .benchmarks/iso18571-highway-asm`
+- Validation result:
+  - editable CMake build succeeded;
+  - focused native backend tests: `18 passed`;
+  - regime target-axis correctness smoke without benchmarking: `10 passed`;
+  - measured SIMD dispatch smoke atlas: `540 passed in 58.00s`;
+  - assembly emission/report succeeded.
+- Benchmark/result:
+  - SIMD was not universally incrementally better than scalar after dispatch
+    cleanup;
+  - across 360 SIMD-vs-same-target-scalar comparisons, 194 were slower at any
+    margin, 45 were slower by more than 3%, and 7 were slower by more than 10%;
+  - `phase_products` was the clearest target winner:
+    - AVX2 mean ratio `0.892`, best ratio `0.676`, losses `12/36`;
+    - AVX2+FMA mean ratio `0.925`, best ratio `0.755`, losses `13/36`;
+  - the strongest rows were structured/phase-like medium cases:
+    - chirp, 8192, blocked128, 8 threads, AVX2 phase products: `0.676x`;
+    - phase chirp, 8192, blocked128, 8 threads, AVX2 phase products: `0.681x`;
+    - sparse spikes, 8192, blocked128, 8 threads, AVX2 phase products:
+      `0.715x`;
+  - the clearest losses were irregular/shorter path cases:
+    - Gaussian noise, 4096, blocked128, 8 threads, AVX2 magnitude path:
+      `1.255x`;
+    - Gaussian noise, 4096, blocked128, 8 threads, AVX2+FMA magnitude path:
+      `1.220x`;
+    - sparse spikes, 4096, blocked128, 8 threads, AVX2 DTW local cost:
+      `1.214x`.
+- Assembly observations:
+  - `_core.s` still contains calls to `select_simd_level` and
+    `simd_capabilities`, but targeted inspection placed those in binding/
+    metadata helpers rather than direct scorer hot loops;
+  - `simd_avx2.s` showed expected vectorized dot product, local-cost staging,
+    smoothing, and L1 accumulation kernels;
+  - `simd_avx2_fma.s` showed FMA in the dot-product kernel, while non-dot
+    AVX2+FMA entrypoints jump through to AVX2 kernels, which is an avoidable
+    call edge for a later cleanup;
+  - `smooth9_contiguous_avx2` has overlapping-window load traffic;
+  - `l1_pair_contiguous_avx2` shows stack traffic and horizontal-reduction
+    spills, matching the weak `magnitude_path` smoke rows.
+- Conclusion:
+  - a clear winner exists by target axis: `phase_products` is the only SIMD
+    target that currently looks broadly worth expanding;
+  - there is no universal SIMD-level winner across all signal families and
+    target modes in this smoke atlas;
+  - AVX2 is the best phase-products candidate in the measured rows, while
+    AVX2+FMA is not a clear overall improvement because only the dot-product
+    kernel uses FMA and other kernels route to AVX2.
+- Next hypothesis:
+  - remove the avoidable AVX2+FMA non-dot wrapper jumps, then rerun the
+    `phase_products` atlas at larger lengths before combining targets.

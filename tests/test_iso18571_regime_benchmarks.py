@@ -13,8 +13,9 @@ from iso18571_native import (
     ReductionMode,
     SimdLevel,
     SimdTargetMode,
-    _score_components_variant_spec,
+    _resolve_simd_level,
     score_components,
+    score_variant_function,
 )
 from tests.iso18571_annex import fixed_signal_annex_case, phase_shift_annex_case
 
@@ -62,6 +63,12 @@ SIMD_TARGET_MAP = {
     "slope_smoothing": SimdTargetMode.SlopeSmoothing,
     "magnitude_path": SimdTargetMode.MagnitudePath,
     "all": SimdTargetMode.All,
+}
+SIMD_NAME_MAP = {
+    "scalar": SimdLevel.Scalar,
+    "sse2": SimdLevel.Sse2,
+    "avx2": SimdLevel.Avx2,
+    "avx2_fma": SimdLevel.Avx2Fma,
 }
 
 
@@ -131,6 +138,11 @@ def _simd_target_from_label(simd_target: str) -> SimdTargetMode:
         return SIMD_TARGET_MAP[simd_target]
     except KeyError as exc:
         raise AssertionError(f"unknown SIMD target {simd_target}") from exc
+
+
+def _selected_simd_level(simd_level: SimdLevel) -> SimdLevel:
+    selected_name = _resolve_simd_level(simd_level)["selected_simd_level"]
+    return SIMD_NAME_MAP[selected_name]
 
 
 @lru_cache(maxsize=None)
@@ -259,7 +271,9 @@ def test_native_score_component_variant_regime_speed(
     case = _case(family, n)
     params = {"dt": case.dt}
     expected = _expected_scores(family, n)
-    observed = _score_components_variant_spec(
+    selected_simd_level = _selected_simd_level(simd_level)
+    variant_function = score_variant_function(selected_simd_level, simd_target_mode)
+    observed = variant_function(
         case.reference_curve,
         case.comparison_curve,
         params,
@@ -267,8 +281,6 @@ def test_native_score_component_variant_regime_speed(
         reduction_mode,
         parallel_mode,
         block_size,
-        simd_level,
-        simd_target_mode,
         max_threads,
     )
     for key in ("Z", "EP", "EM", "ES", "R", "n_eps", "rho_e", "shift_length"):
@@ -293,7 +305,7 @@ def test_native_score_component_variant_regime_speed(
     benchmark.extra_info["simd_target_mode"] = simd_target_label
     benchmark.extra_info["max_threads"] = max_threads
     benchmark(
-        lambda: _score_components_variant_spec(
+        lambda: variant_function(
             case.reference_curve,
             case.comparison_curve,
             params,
@@ -301,8 +313,6 @@ def test_native_score_component_variant_regime_speed(
             reduction_mode,
             parallel_mode,
             block_size,
-            simd_level,
-            simd_target_mode,
             max_threads,
         )
     )

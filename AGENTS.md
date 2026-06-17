@@ -77,14 +77,15 @@
   - filter expensive regime runs with `ISO18571_REGIME_FAMILIES`,
     `ISO18571_REGIME_LENGTHS`, `ISO18571_REGIME_THREADS`, and
     `ISO18571_REGIME_VARIANTS`.
-  - SIMD experiments use enum-based private hooks, not C++ string-token
-    execution paths. Human-readable env vars are mapped to `DtwLayout`,
-    `ReductionMode`, `ParallelMode`, `SimdLevel`, and `SimdTargetMode` in
-    Python before calling `_score_components_variant_spec` or
-    `_magnitude_ratio_variant_spec`.
+  - SIMD experiments use enum-based direct monomorphic private hooks, not C++
+    string-token execution paths. Human-readable env vars are mapped to
+    `DtwLayout`, `ReductionMode`, `ParallelMode`, `SimdLevel`, and
+    `SimdTargetMode` in Python before selecting `score_variant_function(...)`
+    or `magnitude_variant_function(...)`.
   - supported SIMD levels are scalar, SSE2, AVX2, AVX2+FMA, and auto; AVX-512
-    is intentionally not implemented. Runtime dispatch must fall back safely
-    for prebuilt wheels.
+    is intentionally not implemented. x86_64/AMD64 builds must compile SSE2,
+    AVX2, and AVX2+FMA translation units; runtime dispatch must still fall back
+    safely for CPUs that cannot execute a compiled level.
   - `SimdLevel.Auto` is a runtime dispatch feature for explicit smoke/parity
     tests, not a benchmark matrix axis. Regime benchmark matrices should use
     explicit `scalar`, `sse2`, `avx2`, and `avx2_fma` SIMD levels.

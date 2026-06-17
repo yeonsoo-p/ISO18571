@@ -6,12 +6,13 @@
 #if defined(__AVX2__)
 #include <immintrin.h>
 #define ISO18571_HAS_AVX2_INTRINSICS 1
+#else
+#error "simd_avx2.cpp must be compiled with AVX2 enabled"
 #endif
 
 namespace iso18571_native {
 
 void gradient_contiguous_avx2(const double* values, std::size_t n, double dt, double* out) {
-#if defined(ISO18571_HAS_AVX2_INTRINSICS)
     out[0] = (values[1] - values[0]) / dt;
 
     const __m256d scale = _mm256_set1_pd(2.0 * dt);
@@ -26,13 +27,9 @@ void gradient_contiguous_avx2(const double* values, std::size_t n, double dt, do
         out[idx] = (values[idx + 1] - values[idx - 1]) / (2.0 * dt);
     }
     out[n - 1] = (values[n - 1] - values[n - 2]) / dt;
-#else
-    gradient_contiguous_scalar(values, n, dt, out);
-#endif
 }
 
 double dot_product_contiguous_avx2(const double* x, const double* y, std::size_t n) {
-#if defined(ISO18571_HAS_AVX2_INTRINSICS)
     __m256d acc = _mm256_setzero_pd();
     std::size_t idx = 0;
     for (; idx + 3 < n; idx += 4) {
@@ -47,13 +44,9 @@ double dot_product_contiguous_avx2(const double* x, const double* y, std::size_t
         out += x[idx] * y[idx];
     }
     return out;
-#else
-    return dot_product_contiguous_scalar(x, y, n);
-#endif
 }
 
 void local_cost_contiguous_avx2(double x_value, const double* y, std::size_t n, double* out) {
-#if defined(ISO18571_HAS_AVX2_INTRINSICS)
     const __m256d vx = _mm256_set1_pd(x_value);
     std::size_t idx = 0;
     for (; idx + 3 < n; idx += 4) {
@@ -65,13 +58,9 @@ void local_cost_contiguous_avx2(double x_value, const double* y, std::size_t n, 
         const double delta = x_value - y[idx];
         out[idx] = delta * delta;
     }
-#else
-    local_cost_contiguous_scalar(x_value, y, n, out);
-#endif
 }
 
 void smooth9_contiguous_avx2(const double* gradient, std::size_t n, double* out) {
-#if defined(ISO18571_HAS_AVX2_INTRINSICS)
     const __m256d scale = _mm256_set1_pd(1.0 / 9.0);
     std::size_t idx = 4;
     for (; idx + 7 < n; idx += 4) {
@@ -93,13 +82,9 @@ void smooth9_contiguous_avx2(const double* gradient, std::size_t n, double* out)
         }
         out[idx] = sum / 9.0;
     }
-#else
-    smooth9_contiguous_scalar(gradient, n, out);
-#endif
 }
 
 L1Sums l1_pair_contiguous_avx2(const double* x, const double* y, std::size_t n) {
-#if defined(ISO18571_HAS_AVX2_INTRINSICS)
     const __m256d sign = _mm256_set1_pd(-0.0);
     __m256d numerator = _mm256_setzero_pd();
     __m256d denominator = _mm256_setzero_pd();
@@ -123,13 +108,9 @@ L1Sums l1_pair_contiguous_avx2(const double* x, const double* y, std::size_t n) 
         out.denominator += std::abs(y[idx]);
     }
     return out;
-#else
-    return l1_pair_contiguous_scalar(x, y, n);
-#endif
 }
 
 L1Sums l1_x_constant_contiguous_avx2(const double* x, double y_value, std::size_t n) {
-#if defined(ISO18571_HAS_AVX2_INTRINSICS)
     const __m256d sign = _mm256_set1_pd(-0.0);
     const __m256d vy = _mm256_set1_pd(y_value);
     __m256d numerator = _mm256_setzero_pd();
@@ -149,13 +130,9 @@ L1Sums l1_x_constant_contiguous_avx2(const double* x, double y_value, std::size_
         out.denominator += std::abs(y_value);
     }
     return out;
-#else
-    return l1_x_constant_contiguous_scalar(x, y_value, n);
-#endif
 }
 
 L1Sums l1_constant_y_contiguous_avx2(double x_value, const double* y, std::size_t n) {
-#if defined(ISO18571_HAS_AVX2_INTRINSICS)
     const __m256d sign = _mm256_set1_pd(-0.0);
     const __m256d vx = _mm256_set1_pd(x_value);
     __m256d numerator = _mm256_setzero_pd();
@@ -179,9 +156,6 @@ L1Sums l1_constant_y_contiguous_avx2(double x_value, const double* y, std::size_
         out.denominator += std::abs(y[idx]);
     }
     return out;
-#else
-    return l1_constant_y_contiguous_scalar(x_value, y, n);
-#endif
 }
 
 }  // namespace iso18571_native

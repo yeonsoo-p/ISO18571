@@ -20,10 +20,6 @@ struct SimdSelection {
 };
 
 struct SimdCapabilities {
-    bool compiled_scalar = true;
-    bool compiled_sse2 = false;
-    bool compiled_avx2 = false;
-    bool compiled_avx2_fma = false;
     bool detected_sse2 = false;
     bool detected_avx2 = false;
     bool detected_fma = false;
@@ -43,42 +39,35 @@ void gradient_contiguous_scalar(const double* values, std::size_t n, double dt, 
 void gradient_contiguous_sse2(const double* values, std::size_t n, double dt, double* out);
 void gradient_contiguous_avx2(const double* values, std::size_t n, double dt, double* out);
 void gradient_contiguous_avx2_fma(const double* values, std::size_t n, double dt, double* out);
-void gradient_contiguous(const double* values, std::size_t n, double dt, double* out, SimdLevel level);
 
 double dot_product_contiguous_scalar(const double* x, const double* y, std::size_t n);
 double dot_product_contiguous_sse2(const double* x, const double* y, std::size_t n);
 double dot_product_contiguous_avx2(const double* x, const double* y, std::size_t n);
 double dot_product_contiguous_avx2_fma(const double* x, const double* y, std::size_t n);
-double dot_product_contiguous(const double* x, const double* y, std::size_t n, SimdLevel level);
 
 void local_cost_contiguous_scalar(double x_value, const double* y, std::size_t n, double* out);
 void local_cost_contiguous_sse2(double x_value, const double* y, std::size_t n, double* out);
 void local_cost_contiguous_avx2(double x_value, const double* y, std::size_t n, double* out);
 void local_cost_contiguous_avx2_fma(double x_value, const double* y, std::size_t n, double* out);
-void local_cost_contiguous(double x_value, const double* y, std::size_t n, double* out, SimdLevel level);
 
 void smooth9_contiguous_scalar(const double* gradient, std::size_t n, double* out);
 void smooth9_contiguous_sse2(const double* gradient, std::size_t n, double* out);
 void smooth9_contiguous_avx2(const double* gradient, std::size_t n, double* out);
 void smooth9_contiguous_avx2_fma(const double* gradient, std::size_t n, double* out);
-void smooth9_contiguous(const double* gradient, std::size_t n, double* out, SimdLevel level);
 
 L1Sums l1_pair_contiguous_scalar(const double* x, const double* y, std::size_t n);
 L1Sums l1_pair_contiguous_sse2(const double* x, const double* y, std::size_t n);
 L1Sums l1_pair_contiguous_avx2(const double* x, const double* y, std::size_t n);
 L1Sums l1_pair_contiguous_avx2_fma(const double* x, const double* y, std::size_t n);
-L1Sums l1_pair_contiguous(const double* x, const double* y, std::size_t n, SimdLevel level);
 
 L1Sums l1_x_constant_contiguous_scalar(const double* x, double y_value, std::size_t n);
 L1Sums l1_x_constant_contiguous_sse2(const double* x, double y_value, std::size_t n);
 L1Sums l1_x_constant_contiguous_avx2(const double* x, double y_value, std::size_t n);
 L1Sums l1_x_constant_contiguous_avx2_fma(const double* x, double y_value, std::size_t n);
-L1Sums l1_x_constant_contiguous(const double* x, double y_value, std::size_t n, SimdLevel level);
 
 L1Sums l1_constant_y_contiguous_scalar(double x_value, const double* y, std::size_t n);
 L1Sums l1_constant_y_contiguous_sse2(double x_value, const double* y, std::size_t n);
 L1Sums l1_constant_y_contiguous_avx2(double x_value, const double* y, std::size_t n);
 L1Sums l1_constant_y_contiguous_avx2_fma(double x_value, const double* y, std::size_t n);
-L1Sums l1_constant_y_contiguous(double x_value, const double* y, std::size_t n, SimdLevel level);
 
 }  // namespace iso18571_native

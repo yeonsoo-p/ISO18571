@@ -10,9 +10,9 @@ from iso18571_native import (
     ParallelMode,
     SimdLevel,
     SimdTargetMode,
-    _magnitude_ratio_variant_spec,
     _parallel_barrier_overhead,
     magnitude_ratio,
+    magnitude_variant_function,
 )
 from tests.iso18571_signals import signal_case
 
@@ -50,28 +50,25 @@ def test_magnitude_layout_variant_calculation_speed(
 ) -> None:
     x, y = _values(family, n)
     expected = magnitude_ratio(x, y, 0.1)
-    observed = _magnitude_ratio_variant_spec(
+    variant_function = magnitude_variant_function(SimdLevel.Scalar, SimdTargetMode.GradientOnly)
+    observed = variant_function(
         x,
         y,
         0.1,
         dtw_layout,
         ParallelMode.NoParallel,
         0,
-        SimdLevel.Scalar,
-        SimdTargetMode.GradientOnly,
         1,
     )
     np.testing.assert_allclose(observed, expected, rtol=1e-12, atol=1e-12, equal_nan=True)
     benchmark(
-        lambda: _magnitude_ratio_variant_spec(
+        lambda: variant_function(
             x,
             y,
             0.1,
             dtw_layout,
             ParallelMode.NoParallel,
             0,
-            SimdLevel.Scalar,
-            SimdTargetMode.GradientOnly,
             1,
         )
     )
@@ -85,28 +82,25 @@ def test_magnitude_layout_variant_calculation_speed(
 def test_diagonal_parallel_threshold_speed(benchmark, family: str, n: int, max_threads: int) -> None:
     x, y = _values(family, n)
     expected = magnitude_ratio(x, y, 0.1)
-    observed = _magnitude_ratio_variant_spec(
+    variant_function = magnitude_variant_function(SimdLevel.Scalar, SimdTargetMode.GradientOnly)
+    observed = variant_function(
         x,
         y,
         0.1,
         DtwLayout.Current,
         ParallelMode.Diagonal,
         0,
-        SimdLevel.Scalar,
-        SimdTargetMode.GradientOnly,
         max_threads,
     )
     np.testing.assert_allclose(observed, expected, rtol=1e-12, atol=1e-12, equal_nan=True)
     benchmark(
-        lambda: _magnitude_ratio_variant_spec(
+        lambda: variant_function(
             x,
             y,
             0.1,
             DtwLayout.Current,
             ParallelMode.Diagonal,
             0,
-            SimdLevel.Scalar,
-            SimdTargetMode.GradientOnly,
             max_threads,
         )
     )
