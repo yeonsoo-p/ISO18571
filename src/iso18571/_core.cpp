@@ -11,7 +11,6 @@ namespace py = pybind11;
 
 namespace {
 
-using iso18571::ArrayView;
 using iso18571::CurveView;
 using iso18571::Index;
 using iso18571::ScoreParams;
@@ -125,33 +124,6 @@ std::pair<CurveView, CurveView> validate_curves(
     return {reference, comparison};
 }
 
-ArrayView view_from_array(const py::array_t<double, py::array::forcecast>& array, const char* name) {
-    const py::buffer_info info = array.request();
-    if (info.ndim != 1) {
-        throw std::invalid_argument(std::string(name) + " must be a 1D array");
-    }
-    if (info.shape[0] <= 0) {
-        throw std::invalid_argument(std::string(name) + " must not be empty");
-    }
-    return {
-        static_cast<const char*>(info.ptr),
-        static_cast<Index>(info.strides[0]),
-        static_cast<Index>(info.shape[0]),
-    };
-}
-
-std::pair<ArrayView, ArrayView> validate_inputs(
-    const py::array_t<double, py::array::forcecast>& x,
-    const py::array_t<double, py::array::forcecast>& y
-) {
-    const ArrayView x_view = view_from_array(x, "x");
-    const ArrayView y_view = view_from_array(y, "y");
-    if (x_view.n != y_view.n) {
-        throw std::invalid_argument("ISO DTW expects equal-length arrays");
-    }
-    return {x_view, y_view};
-}
-
 void add_score_fields(py::dict& out, const ScoreResult& score) {
     out["Z"] = score.z;
     out["EP"] = score.ep;
@@ -163,41 +135,6 @@ void add_score_fields(py::dict& out, const ScoreResult& score) {
     out["reference_start"] = score.shift.reference_start;
     out["comparison_start"] = score.shift.comparison_start;
     out["shift_length"] = score.shift.length;
-}
-
-py::array_t<Index> warp_path(
-    py::array_t<double, py::array::forcecast> x,
-    py::array_t<double, py::array::forcecast> y,
-    double window_size
-) {
-    const auto views = validate_inputs(x, y);
-    iso18571::WarpPath pairs;
-    {
-        py::gil_scoped_release release;
-        pairs = iso18571::dispatch_table().warp_path(views.first, views.second, window_size);
-    }
-
-    py::array_t<Index> out({static_cast<Index>(pairs.size()), static_cast<Index>(2)});
-    auto mutable_out = out.mutable_unchecked<2>();
-    for (Index idx = 0; idx < static_cast<Index>(pairs.size()); ++idx) {
-        mutable_out(idx, 0) = pairs[static_cast<std::size_t>(idx)].first;
-        mutable_out(idx, 1) = pairs[static_cast<std::size_t>(idx)].second;
-    }
-    return out;
-}
-
-double magnitude_ratio(
-    py::array_t<double, py::array::forcecast> x,
-    py::array_t<double, py::array::forcecast> y,
-    double window_size
-) {
-    const auto views = validate_inputs(x, y);
-    double ratio = 0.0;
-    {
-        py::gil_scoped_release release;
-        ratio = iso18571::dispatch_table().magnitude_ratio(views.first, views.second, window_size);
-    }
-    return ratio;
 }
 
 py::dict score_components(
@@ -240,10 +177,8 @@ py::dict backend_info() {
 PYBIND11_MODULE(_core, m) {
     m.doc() = "Clean-room native ISO/TS 18571 scorer";
     m.def("backend_info", &backend_info);
-    m.def("warp_path", &warp_path, py::arg("x"), py::arg("y"), py::arg("window_size"));
-    m.def("magnitude_ratio", &magnitude_ratio, py::arg("x"), py::arg("y"), py::arg("window_size"));
     m.def(
-        "score_components",
+        "_score_components",
         &score_components,
         py::arg("reference_curve"),
         py::arg("comparison_curve"),

@@ -2,16 +2,32 @@ from __future__ import annotations
 
 import csv
 import re
+import urllib.error
+import urllib.request
+import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
+import numpy.typing as npt
 
-from tests.iso18571_signals import PHASE_SHIFT_SIGNAL_FAMILIES, SIGNAL_FAMILIES, analytic_phase_signal_case, signal_case
+from tests.iso18571_signals import (
+    PHASE_SHIFT_SIGNAL_FAMILIES,
+    SIGNAL_FAMILIES,
+    analytic_phase_signal_case,
+    signal_case,
+)
 
 SCORE_NAMES = ("R", "Z", "EP", "EM", "ES")
-DEFAULT_ANNEX_DIR = Path("ISO_TS 18571 ed.2 - Annex_data_csv_files")
+ANNEX_ZIP_URL = (
+    "https://standards.iso.org/iso/ts/18571/ed-2/en/"
+    "ISO_TS%2018571%20ed.2%20-%20Annex_data_csv_files.zip"
+)
+ANNEX_ZIP_NAME = "ISO_TS_18571_ed2_Annex_data_csv_files.zip"
+OFFICIAL_CACHE_VERSION = "official-v1"
+GENERATED_CACHE_VERSION = "generated-v1"
 ANNEX_FILE_RE = re.compile(r"annex_c_(\d+_\d+)__.*__cae(\d+)\.csv")
+GENERATED_FILE_RE = re.compile(r"generated__(.+)__n(\d+)\.csv")
 
 EXPECTED_SCORES: dict[str, dict[int, tuple[float, float, float, float, float]]] = {
     "1_1": {
@@ -93,31 +109,69 @@ GENERATED_PHASE_LENGTHS = (64, 129, 512, 1430)
 @dataclass(frozen=True)
 class AnnexCase:
     name: str
-    reference_curve: np.ndarray
-    comparison_curve: np.ndarray
+    reference_curve: npt.NDArray[np.float64]
+    comparison_curve: npt.NDArray[np.float64]
     dt: float
     expected: dict[str, float] | None
 
 
-def load_downloaded_annex_cases(annex_dir: Path = DEFAULT_ANNEX_DIR) -> list[AnnexCase]:
-    cases = []
+def official_annex_dir(cache_dir: Path) -> Path:
+    target_dir = cache_dir / OFFICIAL_CACHE_VERSION
+    if _official_annex_is_ready(target_dir):
+        return target_dir
+
+    target_dir.mkdir(parents=True, exist_ok=True)
+    zip_path = cache_dir / ANNEX_ZIP_NAME
+    if not zip_path.exists():
+        _download_official_annex(zip_path)
+    _extract_official_annex(zip_path, target_dir)
+    if not _official_annex_is_ready(target_dir):
+        raise RuntimeError(f"Downloaded Annex cache is incomplete in {target_dir}")
+    return target_dir
+
+
+def generated_annex_dir(cache_dir: Path) -> Path:
+    target_dir = cache_dir / GENERATED_CACHE_VERSION
+    manifest_path = target_dir / "manifest.txt"
+    expected_manifest = _generated_manifest()
+    if (
+        manifest_path.exists()
+        and manifest_path.read_text(encoding="utf-8") == expected_manifest
+    ):
+        return target_dir
+
+    target_dir.mkdir(parents=True, exist_ok=True)
+    for path in target_dir.glob("generated__*.csv"):
+        path.unlink()
+    for case in _generated_cases_in_memory():
+        _write_case_csv(target_dir / f"{case.name}.csv", case)
+    manifest_path.write_text(expected_manifest, encoding="utf-8")
+    return target_dir
+
+
+def load_downloaded_annex_cases(annex_dir: Path) -> list[AnnexCase]:
+    cases: list[AnnexCase] = []
     for path in sorted(annex_dir.glob("*.csv")):
         match = ANNEX_FILE_RE.match(path.name)
         if match is None:
             continue
-        table_key = match.group(1)
+        table_key = match[1]
         cae_no = int(match.group(2))
-        rows = []
+        rows: list[tuple[float, float, float]] = []
         with path.open(newline="") as csv_file:
             for row in list(csv.DictReader(csv_file))[1:]:
                 try:
-                    rows.append((float(row["Time"]), float(row["Test"]), float(row["CAE"])))
+                    rows.append(
+                        (float(row["Time"]), float(row["Test"]), float(row["CAE"]))
+                    )
                 except (KeyError, TypeError, ValueError):
                     continue
         if not rows:
             raise ValueError(f"No signal data found in {path}")
         array = np.asarray(rows, dtype=np.float64)
-        expected = dict(zip(SCORE_NAMES, EXPECTED_SCORES[table_key][cae_no], strict=True))
+        expected = dict(
+            zip(SCORE_NAMES, EXPECTED_SCORES[table_key][cae_no], strict=True)
+        )
         cases.append(
             AnnexCase(
                 name=path.name,
@@ -132,8 +186,88 @@ def load_downloaded_annex_cases(annex_dir: Path = DEFAULT_ANNEX_DIR) -> list[Ann
     return cases
 
 
-def load_generated_annex_cases() -> list[AnnexCase]:
-    cases = []
+def load_generated_annex_cases(annex_dir: Path) -> list[AnnexCase]:
+    cases: list[AnnexCase] = []
+    for path in sorted(annex_dir.glob("generated__*.csv")):
+        match = GENERATED_FILE_RE.match(path.name)
+        if match is None:
+            continue
+        rows: list[tuple[float, float, float]] = []
+        with path.open(newline="") as csv_file:
+            for row in csv.DictReader(csv_file):
+                try:
+                    rows.append(
+                        (
+                            float(row["Time"]),
+                            float(row["Reference"]),
+                            float(row["Comparison"]),
+                        )
+                    )
+                except (KeyError, TypeError, ValueError):
+                    continue
+        if not rows:
+            raise ValueError(f"No generated signal data found in {path}")
+        array = np.asarray(rows, dtype=np.float64)
+        cases.append(
+            AnnexCase(
+                name=path.stem,
+                reference_curve=np.column_stack((array[:, 0], array[:, 1])),
+                comparison_curve=np.column_stack((array[:, 0], array[:, 2])),
+                dt=float(np.median(np.diff(array[:, 0]))),
+                expected=None,
+            )
+        )
+
+    expected_count = len(GENERATED_LENGTHS) * len(SIGNAL_FAMILIES) + len(
+        GENERATED_PHASE_LENGTHS
+    ) * len(PHASE_SHIFT_SIGNAL_FAMILIES)
+    if len(cases) != expected_count:
+        raise ValueError(
+            f"Expected {expected_count} generated Annex cases, found {len(cases)} in {annex_dir}"
+        )
+    return cases
+
+
+def _official_annex_is_ready(annex_dir: Path) -> bool:
+    return (
+        annex_dir.is_dir()
+        and len(
+            [path for path in annex_dir.glob("*.csv") if ANNEX_FILE_RE.match(path.name)]
+        )
+        == 42
+    )
+
+
+def _download_official_annex(zip_path: Path) -> None:
+    zip_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = zip_path.with_suffix(".tmp")
+    try:
+        with urllib.request.urlopen(ANNEX_ZIP_URL, timeout=60.0) as response:
+            tmp_path.write_bytes(response.read())
+    except (OSError, urllib.error.URLError) as exc:
+        raise RuntimeError(
+            f"Could not download ISO/TS 18571 Annex data from {ANNEX_ZIP_URL}: {exc}"
+        ) from exc
+    tmp_path.replace(zip_path)
+
+
+def _extract_official_annex(zip_path: Path, target_dir: Path) -> None:
+    for path in target_dir.glob("*.csv"):
+        path.unlink()
+    try:
+        with zipfile.ZipFile(zip_path) as archive:
+            for member in archive.infolist():
+                member_name = Path(member.filename).name
+                if ANNEX_FILE_RE.match(member_name):
+                    (target_dir / member_name).write_bytes(archive.read(member))
+    except (OSError, zipfile.BadZipFile) as exc:
+        raise RuntimeError(
+            f"Could not extract ISO/TS 18571 Annex cache {zip_path}: {exc}"
+        ) from exc
+
+
+def _generated_cases_in_memory() -> list[AnnexCase]:
+    cases: list[AnnexCase] = []
     for n in GENERATED_LENGTHS:
         for family in SIGNAL_FAMILIES:
             signal = signal_case(family, n)
@@ -159,3 +293,30 @@ def load_generated_annex_cases() -> list[AnnexCase]:
                 )
             )
     return cases
+
+
+def _write_case_csv(path: Path, case: AnnexCase) -> None:
+    with path.open("w", newline="") as csv_file:
+        writer = csv.writer(csv_file)
+        writer.writerow(("Time", "Reference", "Comparison"))
+        for row in np.column_stack(
+            (
+                case.reference_curve[:, 0],
+                case.reference_curve[:, 1],
+                case.comparison_curve[:, 1],
+            )
+        ):
+            writer.writerow((f"{row[0]:.17g}", f"{row[1]:.17g}", f"{row[2]:.17g}"))
+
+
+def _generated_manifest() -> str:
+    return "\n".join(
+        (
+            GENERATED_CACHE_VERSION,
+            ",".join(str(length) for length in GENERATED_LENGTHS),
+            ",".join(str(length) for length in GENERATED_PHASE_LENGTHS),
+            ",".join(SIGNAL_FAMILIES),
+            ",".join(PHASE_SHIFT_SIGNAL_FAMILIES),
+            "",
+        )
+    )

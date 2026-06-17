@@ -2,18 +2,14 @@
 
 ## ISO/TS 18571 Native Scorer
 
-- Continue iterating until the user explicitly says to stop.
-- On every resume or context compaction, read this file, the latest entries in
-  `docs/iso18571-dtw-experiment-log.md`, and run `git status --short --branch`.
 - The native scorer must remain clean-room. Do not copy implementation code from
   third-party DTW packages.
 
 ## Current Package Shape
 
 - The public production scorer is `iso18571.ISO18571`.
-- The native extension module is `iso18571._core`; public package exports include
-  `ISO18571`, `score_components`, `magnitude_ratio`, `warp_path`, and
-  `backend_info`.
+- The native extension module is `iso18571._core`; public package exports are
+  `ISO18571` and `backend_info`.
 - Reference scorers live in source-only `iso18571_reference` and are used for
   tests/research only:
   - `rating_dtwalign.ISO18571`;
@@ -23,8 +19,7 @@
 
 ## Correctness
 
-- Preserve the NumPy `(n, 2)` curve input contract, including strided arrays and
-  numeric force-casting to `float64`.
+- Preserve the NumPy `(n, 2)` curve input contract, including strided arrays and numeric force-casting to `float64`.
 - Preserve ISO/TS 18571 DTW behavior already captured in this repo:
   - squared local cost;
   - Sakoe-Chiba radius `min(n, max(1, ceil(window_size*n)))`;
@@ -73,15 +68,22 @@
   - `uv run --extra test ruff format .`
   - `uv run --extra test ruff check .`
   - `uv run --extra test ruff format --check .`
+  - `uv run --extra test mypy iso18571 iso18571_reference tests`
   - `git diff --check`
+- Benchmarks live in `tests/test_iso18571_benchmarks.py` and are deselected by
+  default through the `benchmark` marker. They use pytest-benchmark plus spawned
+  Python workers to measure setup/load time, warm runtime, and peak process
+  memory on Linux and Windows. Benchmark rows record peak swap/pagefile usage;
+  rows with `swap_invalidated` are stress outcomes, not valid in-memory timing
+  numbers.
 
 ## Validation Commands
 
 - Editable build: `uv pip install -e .`
 - Tests: `uv run --extra test python -m pytest -q`
 - Wheel: `uv build --wheel`
-- Wheel smoke:
-  `uv run --with dist/euroncap-0.1.0-*.whl python tools/iso18571/wheel_smoke.py`
+- Benchmarks:
+  `uv run --extra test python -m pytest -q -m benchmark --benchmark-json .benchmarks/iso18571-readme/benchmarks.json`
 
 ## Experiment Tracking
 
@@ -90,5 +92,4 @@
 - Include timestamp, git status summary, hypothesis, files changed, commands,
   validation result, conclusion, and next hypothesis.
 - Keep root tidy:
-  - repeatable tools belong under `tools/iso18571/`;
   - durable notes belong under `docs/`.

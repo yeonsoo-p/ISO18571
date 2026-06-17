@@ -3,12 +3,14 @@ from __future__ import annotations
 import librosa
 import numpy as np
 
-from iso18571_reference._common import BaseISO18571, local_cost_matrix
+from iso18571_reference._common import BaseISO18571, FloatArray, local_cost_matrix
 
 
 class ISO18571(BaseISO18571):
     @staticmethod
-    def _compute_magnitude(x: np.ndarray, y: np.ndarray, window_size: float) -> tuple[np.ndarray, np.ndarray]:
+    def _compute_magnitude(
+        x: FloatArray, y: FloatArray, window_size: float
+    ) -> tuple[FloatArray, FloatArray]:
         cost = local_cost_matrix(x, y, window_size)
         step_sizes = np.asarray([[1, 0], [0, 1], [1, 1]], dtype=np.uint32)
         weights = np.zeros(3, dtype=np.float64)
@@ -21,4 +23,7 @@ class ISO18571(BaseISO18571):
             backtrack=True,
         )
         path = np.asarray(warping_path[::-1], dtype=np.int64)
-        return x[path[:, 0]], y[path[:, 1]]
+        return (
+            np.asarray(x[path[:, 0]], dtype=np.float64),
+            np.asarray(y[path[:, 1]], dtype=np.float64),
+        )

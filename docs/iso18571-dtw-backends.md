@@ -14,9 +14,6 @@ production wheels.
   scoring, and weighted final scoring.
 - Public package exports are intentionally small:
   - `ISO18571`
-  - `score_components(reference_curve, comparison_curve, params)`
-  - `magnitude_ratio(x, y, window_size)`
-  - `warp_path(x, y, window_size)`
   - `backend_info()`
 
 ## Preserved DTW Behavior
@@ -61,9 +58,10 @@ weighting logic. They differ only in the magnitude-DTW path implementation.
 
 Parity covers:
 
-- downloaded official Annex CSV files, checked against official expected scores;
+- official Annex CSV files downloaded into the pytest cache and checked against
+  official expected scores;
 - one generated Annex set combining fixed signal families and analytic
-  phase-shift families;
+  phase-shift families, also written into the pytest cache;
 - `n_eps`, `rho_e`, unrounded `Z`, `EP`, `EM`, `ES`, and `R`;
 - rounded three-decimal score outputs.
 
@@ -78,8 +76,14 @@ uv run --extra test ruff check --fix .
 uv run --extra test ruff format .
 uv run --extra test ruff check .
 uv run --extra test ruff format --check .
+uv run --extra test mypy iso18571 iso18571_reference tests
 git diff --check
 uv run --extra test python -m pytest -q
-uv build --wheel
-uv run --with dist/euroncap-0.1.0-*.whl python tools/iso18571/wheel_smoke.py
+uv build
+uv run --extra test python -m pytest -q -m benchmark --benchmark-json .benchmarks/iso18571-readme/benchmarks.json
 ```
+
+Benchmark rows include peak process memory and peak swap/pagefile usage in
+pytest-benchmark `extra_info`. If `swap_invalidated` is true, the row completed
+as a memory stress result but its timing should not be interpreted as an
+in-memory runtime number.

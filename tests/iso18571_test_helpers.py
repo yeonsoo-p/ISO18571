@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import warnings
 from collections.abc import Callable
-from typing import Any
+from typing import Protocol, TypeVar
 
 import numpy as np
 
@@ -16,18 +16,42 @@ EXPECTED_NUMERIC_WARNING_PATTERNS = (
 )
 SCORE_KEYS = ("Z", "EP", "EM", "ES", "R")
 ROUND_SCORE_KEYS = tuple(f"{key}_round" for key in SCORE_KEYS)
+ScoreDict = dict[str, float | int]
+T = TypeVar("T")
 
 
-def assert_only_expected_numeric_warnings(records: list[warnings.WarningMessage], context: str) -> None:
+class Scorer(Protocol):
+    @property
+    def n_eps(self) -> int: ...
+
+    @property
+    def rho_e(self) -> float: ...
+
+    def corridor_rating(self, ndigits: int = 3) -> float: ...
+
+    def phase_rating(self, ndigits: int = 3) -> float: ...
+
+    def magnitude_rating(self, ndigits: int = 3) -> float: ...
+
+    def slope_rating(self, ndigits: int = 3) -> float: ...
+
+    def overall_rating(self, ndigits: int = 3) -> float: ...
+
+
+def assert_only_expected_numeric_warnings(
+    records: list[warnings.WarningMessage], context: str
+) -> None:
     for record in records:
         message = str(record.message)
-        expected_message = any(pattern in message for pattern in EXPECTED_NUMERIC_WARNING_PATTERNS)
+        expected_message = any(
+            pattern in message for pattern in EXPECTED_NUMERIC_WARNING_PATTERNS
+        )
         assert record.category is RuntimeWarning and expected_message, (
             f"{context}: unexpected warning {record.category.__name__}: {message}"
         )
 
 
-def with_expected_numeric_warnings(fn: Callable[[], Any], context: str) -> Any:
+def with_expected_numeric_warnings(fn: Callable[[], T], context: str) -> T:
     with warnings.catch_warnings(record=True) as records:
         warnings.simplefilter("always", RuntimeWarning)
         value = fn()
@@ -35,15 +59,22 @@ def with_expected_numeric_warnings(fn: Callable[[], Any], context: str) -> Any:
     return value
 
 
-def scores_for_case(case: AnnexCase, backend: str) -> dict[str, float | int]:
+def scores_for_case(case: AnnexCase, backend: str) -> ScoreDict:
+    iso: Scorer
     if backend == "native":
         iso = iso18571.ISO18571(case.reference_curve, case.comparison_curve, dt=case.dt)
     elif backend == "dtwalign":
-        iso = rating_dtwalign.ISO18571(case.reference_curve, case.comparison_curve, dt=case.dt)
+        iso = rating_dtwalign.ISO18571(
+            case.reference_curve, case.comparison_curve, dt=case.dt
+        )
     elif backend == "dtw_python":
-        iso = rating_dtw_python.ISO18571(case.reference_curve, case.comparison_curve, dt=case.dt)
+        iso = rating_dtw_python.ISO18571(
+            case.reference_curve, case.comparison_curve, dt=case.dt
+        )
     elif backend == "librosa":
-        iso = rating_librosa.ISO18571(case.reference_curve, case.comparison_curve, dt=case.dt)
+        iso = rating_librosa.ISO18571(
+            case.reference_curve, case.comparison_curve, dt=case.dt
+        )
     else:
         raise AssertionError(f"unknown parity backend {backend}")
 
@@ -63,16 +94,18 @@ def scores_for_case(case: AnnexCase, backend: str) -> dict[str, float | int]:
     }
 
 
-def score_result(case: AnnexCase, backend: str) -> dict[str, float | int] | type[BaseException]:
+def score_result(case: AnnexCase, backend: str) -> ScoreDict | type[BaseException]:
     try:
-        return with_expected_numeric_warnings(lambda: scores_for_case(case, backend), f"{case.name} {backend}")
+        return with_expected_numeric_warnings(
+            lambda: scores_for_case(case, backend), f"{case.name} {backend}"
+        )
     except Exception as exc:
         return type(exc)
 
 
 def assert_scores_close(
-    observed: dict[str, float | int],
-    expected: dict[str, float | int],
+    observed: ScoreDict,
+    expected: ScoreDict,
     case_name: str,
     backend: str,
 ) -> None:
@@ -105,7 +138,9 @@ def assert_scores_close(
         )
 
 
-def assert_downloaded_expected_scores(scores: dict[str, float | int], case: AnnexCase, backend: str) -> None:
+def assert_downloaded_expected_scores(
+    scores: ScoreDict, case: AnnexCase, backend: str
+) -> None:
     assert case.expected is not None
     for key in SCORE_NAMES:
         np.testing.assert_allclose(

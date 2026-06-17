@@ -10,10 +10,18 @@ from iso18571 import ISO18571
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Calculate ISO/TS 18571 scores for two curve CSV files.")
-    parser.add_argument("reference", type=Path, help="Reference CSV with two columns: time,value")
-    parser.add_argument("comparison", type=Path, help="Comparison CSV with two columns: time,value")
-    parser.add_argument("--dt", type=float, default=0.0001, help="Sample period used for slope scoring")
+    parser = argparse.ArgumentParser(
+        description="Calculate ISO/TS 18571 scores for two curve CSV files."
+    )
+    parser.add_argument(
+        "reference", type=Path, help="Reference CSV with two columns: time,value"
+    )
+    parser.add_argument(
+        "comparison", type=Path, help="Comparison CSV with two columns: time,value"
+    )
+    parser.add_argument(
+        "--dt", type=float, default=0.0001, help="Sample period used for slope scoring"
+    )
     parser.add_argument("--delimiter", default=",", help="CSV delimiter")
     return parser.parse_args(argv)
 
@@ -25,7 +33,9 @@ def load_curve(path: Path, delimiter: str) -> np.ndarray:
     return curve
 
 
-def score_curves(reference: np.ndarray, comparison: np.ndarray, dt: float) -> dict[str, float]:
+def score_curves(
+    reference: np.ndarray, comparison: np.ndarray, dt: float
+) -> dict[str, float]:
     iso = ISO18571(reference, comparison, dt=dt)
     return {
         "R": iso.overall_rating(),

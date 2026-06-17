@@ -199,20 +199,20 @@ bool supports_v4() {
 DispatchTable make_dispatch_table() {
 #if defined(ISO18571_COMPILED_X86_64_V4)
     if (supports_v4()) {
-        return {score_components_v4, magnitude_ratio_v4, warp_path_v4, "x86-64-v4"};
+        return {score_components_v4, "x86-64-v4"};
     }
 #endif
 #if defined(ISO18571_COMPILED_X86_64_V3)
     if (supports_v3()) {
-        return {score_components_v3, magnitude_ratio_v3, warp_path_v3, "x86-64-v3"};
+        return {score_components_v3, "x86-64-v3"};
     }
 #endif
 #if defined(ISO18571_COMPILED_X86_64_V2)
     if (supports_v2()) {
-        return {score_components_v2, magnitude_ratio_v2, warp_path_v2, "x86-64-v2"};
+        return {score_components_v2, "x86-64-v2"};
     }
 #endif
-    return {score_components_v1, magnitude_ratio_v1, warp_path_v1, "x86-64-v1"};
+    return {score_components_v1, "x86-64-v1"};
 }
 
 }  // namespace

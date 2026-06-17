@@ -1,8 +1,6 @@
 #pragma once
 
 #include <cstddef>
-#include <utility>
-#include <vector>
 
 namespace iso18571 {
 
@@ -63,38 +61,25 @@ struct ScoreResult {
     ShiftResult shift;
 };
 
-using WarpPath = std::vector<std::pair<Index, Index>>;
 using ScoreComponentsFn = ScoreResult (*)(const CurveView&, const CurveView&, const ScoreParams&);
-using MagnitudeRatioFn = double (*)(const ArrayView&, const ArrayView&, double);
-using WarpPathFn = WarpPath (*)(const ArrayView&, const ArrayView&, double);
 
 struct DispatchTable {
     ScoreComponentsFn score_components = nullptr;
-    MagnitudeRatioFn magnitude_ratio = nullptr;
-    WarpPathFn warp_path = nullptr;
     const char* level = "x86-64-v1";
 };
 
 ScoreResult score_components_v1(const CurveView& reference, const CurveView& comparison, const ScoreParams& params);
-double magnitude_ratio_v1(const ArrayView& x, const ArrayView& y, double window_size);
-WarpPath warp_path_v1(const ArrayView& x, const ArrayView& y, double window_size);
 
 #if defined(ISO18571_COMPILED_X86_64_V2)
 ScoreResult score_components_v2(const CurveView& reference, const CurveView& comparison, const ScoreParams& params);
-double magnitude_ratio_v2(const ArrayView& x, const ArrayView& y, double window_size);
-WarpPath warp_path_v2(const ArrayView& x, const ArrayView& y, double window_size);
 #endif
 
 #if defined(ISO18571_COMPILED_X86_64_V3)
 ScoreResult score_components_v3(const CurveView& reference, const CurveView& comparison, const ScoreParams& params);
-double magnitude_ratio_v3(const ArrayView& x, const ArrayView& y, double window_size);
-WarpPath warp_path_v3(const ArrayView& x, const ArrayView& y, double window_size);
 #endif
 
 #if defined(ISO18571_COMPILED_X86_64_V4)
 ScoreResult score_components_v4(const CurveView& reference, const CurveView& comparison, const ScoreParams& params);
-double magnitude_ratio_v4(const ArrayView& x, const ArrayView& y, double window_size);
-WarpPath warp_path_v4(const ArrayView& x, const ArrayView& y, double window_size);
 #endif
 
 const DispatchTable& dispatch_table();

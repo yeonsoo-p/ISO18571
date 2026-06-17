@@ -1,17 +1,19 @@
 from __future__ import annotations
 
-from typing import Any
-
 import numpy as np
+import numpy.typing as npt
 
-from ._core import score_components
+from ._core import _score_components
+
+ScoreComponents = dict[str, float | int]
+ScoreParams = dict[str, float | int]
 
 
 class ISO18571:
     def __init__(
         self,
-        reference_curve: np.ndarray,
-        comparison_curve: np.ndarray,
+        reference_curve: npt.ArrayLike,
+        comparison_curve: npt.ArrayLike,
         k_z: int = 2,
         k_p: int = 1,
         k_m: int = 1,
@@ -31,36 +33,41 @@ class ISO18571:
         if self.reference_curve.shape != self.comparison_curve.shape:
             raise ValueError("Curves are not equal in size/dimension")
 
-        self._scores = score_components(
+        params: ScoreParams = {
+            "k_z": k_z,
+            "k_p": k_p,
+            "k_m": k_m,
+            "eps_m": eps_m,
+            "e_s": e_s,
+            "init_min": init_min,
+            "a_0": a_0,
+            "b_0": b_0,
+            "w_z": w_z,
+            "w_p": w_p,
+            "w_m": w_m,
+            "w_s": w_s,
+            "dt": dt,
+        }
+        self._scores: ScoreComponents = _score_components(
             self.reference_curve,
             self.comparison_curve,
-            {
-                "k_z": k_z,
-                "k_p": k_p,
-                "k_m": k_m,
-                "eps_m": eps_m,
-                "e_s": e_s,
-                "init_min": init_min,
-                "a_0": a_0,
-                "b_0": b_0,
-                "w_z": w_z,
-                "w_p": w_p,
-                "w_m": w_m,
-                "w_s": w_s,
-                "dt": dt,
-            },
+            params,
         )
 
         reference_start = int(self._scores["reference_start"])
         comparison_start = int(self._scores["comparison_start"])
         shift_length = int(self._scores["shift_length"])
-        self._t_ts = self.reference_curve[reference_start : reference_start + shift_length, :].copy()
-        self._cae_ts = self.comparison_curve[comparison_start : comparison_start + shift_length, :].copy()
+        self._t_ts = self.reference_curve[
+            reference_start : reference_start + shift_length, :
+        ].copy()
+        self._cae_ts = self.comparison_curve[
+            comparison_start : comparison_start + shift_length, :
+        ].copy()
         self._n_eps = int(self._scores["n_eps"])
         self._rho_e = float(self._scores["rho_e"])
 
     @property
-    def scores(self) -> dict[str, float | int]:
+    def scores(self) -> ScoreComponents:
         return dict(self._scores)
 
     @property
@@ -72,11 +79,11 @@ class ISO18571:
         return self._rho_e
 
     @property
-    def shifted_reference_curve(self) -> np.ndarray:
+    def shifted_reference_curve(self) -> npt.NDArray[np.float64]:
         return self._t_ts.copy()
 
     @property
-    def shifted_comparison_curve(self) -> np.ndarray:
+    def shifted_comparison_curve(self) -> npt.NDArray[np.float64]:
         return self._cae_ts.copy()
 
     @property
@@ -92,10 +99,11 @@ class ISO18571:
         return int(self._scores["shift_length"])
 
     @staticmethod
-    def _rating_value(value: Any, ndigits: int) -> Any:
+    def _rating_value(value: float | int, ndigits: int) -> float:
+        value_float = float(value)
         if ndigits < 0:
-            return value
-        return round(value, ndigits=ndigits)
+            return value_float
+        return round(value_float, ndigits=ndigits)
 
     def corridor_rating(self, ndigits: int = 3) -> float:
         return ISO18571._rating_value(self._scores["Z"], ndigits)

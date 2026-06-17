@@ -1,15 +1,19 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import cast
 
 import numpy as np
+import numpy.typing as npt
+
+FloatArray = npt.NDArray[np.float64]
+IntArray = npt.NDArray[np.int64]
 
 
 class BaseISO18571:
     def __init__(
         self,
-        reference_curve: np.ndarray,
-        comparison_curve: np.ndarray,
+        reference_curve: npt.ArrayLike,
+        comparison_curve: npt.ArrayLike,
         k_z: float = 2.0,
         k_p: int = 1,
         k_m: int = 1,
@@ -28,7 +32,9 @@ class BaseISO18571:
         self.comparison_curve = np.asarray(comparison_curve, dtype=np.float64)
 
         if self.reference_curve.shape != self.comparison_curve.shape:
-            raise ValueError("Curves are not equal in size/dimension.\nInterpolation not implemented. ")
+            raise ValueError(
+                "Curves are not equal in size/dimension.\nInterpolation not implemented. "
+            )
 
         self._k_z = k_z
         if self._k_z not in [1, 2, 3]:
@@ -54,11 +60,15 @@ class BaseISO18571:
 
         weights_sum = self._w_z + self._w_m + self._w_p + self._w_s
         if weights_sum != 1:
-            raise ValueError(f"Sum of weighting factors (w_z, w_m, w_p, w_s) is {weights_sum}, but must be 1")
+            raise ValueError(
+                f"Sum of weighting factors (w_z, w_m, w_p, w_s) is {weights_sum}, but must be 1"
+            )
 
         self.dt = dt
         self._max_shift = round(1.0 - self._init_min, 2)
-        self._cae_ts, self._t_ts, self._n_eps, self._rho_e = self._get_shifted_curve_and_pr()
+        self._cae_ts, self._t_ts, self._n_eps, self._rho_e = (
+            self._get_shifted_curve_and_pr()
+        )
 
     @property
     def n_eps(self) -> int:
@@ -69,28 +79,36 @@ class BaseISO18571:
         return float(self._rho_e)
 
     @property
-    def shifted_reference_curve(self) -> np.ndarray:
+    def shifted_reference_curve(self) -> FloatArray:
         return self._t_ts.copy()
 
     @property
-    def shifted_comparison_curve(self) -> np.ndarray:
+    def shifted_comparison_curve(self) -> FloatArray:
         return self._cae_ts.copy()
 
-    def _get_shifted_curve_and_pr(self) -> tuple[np.ndarray, np.ndarray, int, float]:
-        window_size = int(np.floor(len(self.comparison_curve[:, 1]) * self._max_shift) + 1)
-        ccr_max = np.corrcoef(self.reference_curve[:, 1], self.comparison_curve[:, 1])[0][-1]
+    def _get_shifted_curve_and_pr(self) -> tuple[FloatArray, FloatArray, int, float]:
+        window_size = int(
+            np.floor(len(self.comparison_curve[:, 1]) * self._max_shift) + 1
+        )
+        ccr_max = np.corrcoef(self.reference_curve[:, 1], self.comparison_curve[:, 1])[
+            0
+        ][-1]
         idx_ccr_max = 0
         t_ts = self.reference_curve
         cae_ts = self.comparison_curve
         for idx in range(1, window_size):
-            ccr_left = np.corrcoef(self.reference_curve[:-idx, 1], self.comparison_curve[idx:, 1])[0][-1]
+            ccr_left = np.corrcoef(
+                self.reference_curve[:-idx, 1], self.comparison_curve[idx:, 1]
+            )[0][-1]
             if ccr_left > ccr_max:
                 ccr_max = ccr_left
                 idx_ccr_max = idx
                 t_ts = self.reference_curve[:-idx, :]
                 cae_ts = self.comparison_curve[idx:, :]
 
-            ccr_right = np.corrcoef(self.reference_curve[idx:, 1], self.comparison_curve[:-idx, 1])[0][-1]
+            ccr_right = np.corrcoef(
+                self.reference_curve[idx:, 1], self.comparison_curve[:-idx, 1]
+            )[0][-1]
             if ccr_right > ccr_max:
                 ccr_max = ccr_right
                 idx_ccr_max = idx
@@ -100,24 +118,32 @@ class BaseISO18571:
         return cae_ts.copy(), t_ts.copy(), idx_ccr_max, ccr_max
 
     @staticmethod
-    def _compute_magnitude(x: np.ndarray, y: np.ndarray, window_size: float) -> tuple[np.ndarray, np.ndarray]:
+    def _compute_magnitude(
+        x: FloatArray, y: FloatArray, window_size: float
+    ) -> tuple[FloatArray, FloatArray]:
         raise NotImplementedError
 
     @staticmethod
-    def _rating_value(value: Any, ndigits: int) -> Any:
+    def _rating_value(value: float | int, ndigits: int) -> float:
+        value_float = float(value)
         if ndigits < 0:
-            return value
-        return round(value, ndigits=ndigits)
+            return value_float
+        return round(value_float, ndigits=ndigits)
 
     def corridor_rating(self, ndigits: int = 3) -> float:
         t_norm = max(np.abs(self.reference_curve[:, 1]))
         inner_corridor = self._a_0 * t_norm
         outer_corridor = self._b_0 * t_norm
         abs_diff = np.absolute(np.subtract(self.reference_curve, self.comparison_curve))
-        c_i = np.array(pow(((outer_corridor - abs_diff[:, 1]) / (outer_corridor - inner_corridor)), self._k_z))
+        c_i = np.array(
+            pow(
+                ((outer_corridor - abs_diff[:, 1]) / (outer_corridor - inner_corridor)),
+                self._k_z,
+            )
+        )
         c_i[abs_diff[:, 1] < inner_corridor] = 1
         c_i[abs_diff[:, 1] > outer_corridor] = 0
-        z = sum(c_i) / len(abs_diff)
+        z = float(np.sum(c_i) / len(abs_diff))
         return self._rating_value(z, ndigits)
 
     def phase_rating(self, ndigits: int = 3) -> float:
@@ -125,25 +151,33 @@ class BaseISO18571:
         max_allowable_time_shift_threshold = curve_size * self._max_shift
 
         if self._n_eps == 0:
-            e_p = 1
+            e_p = 1.0
         elif abs(self._n_eps) >= max_allowable_time_shift_threshold:
-            e_p = 0
+            e_p = 0.0
         else:
             e_p = (
-                (max_allowable_time_shift_threshold - abs(self._n_eps)) / max_allowable_time_shift_threshold
-            ) ** self._k_p
+                float(
+                    (max_allowable_time_shift_threshold - abs(self._n_eps))
+                    / max_allowable_time_shift_threshold
+                )
+                ** self._k_p
+            )
         return self._rating_value(e_p, ndigits)
 
     def magnitude_rating(self, ndigits: int = 3) -> float:
-        cae_ts_w, t_ts_w = self._compute_magnitude(self._cae_ts[:, 1], self._t_ts[:, 1], window_size=0.1)
-        e_mag = np.linalg.norm(cae_ts_w - t_ts_w, ord=1) / np.linalg.norm(t_ts_w, ord=1)
+        cae_ts_w, t_ts_w = self._compute_magnitude(
+            self._cae_ts[:, 1], self._t_ts[:, 1], window_size=0.1
+        )
+        e_mag = float(
+            np.linalg.norm(cae_ts_w - t_ts_w, ord=1) / np.linalg.norm(t_ts_w, ord=1)
+        )
 
         if e_mag == 0:
-            score_mag = 1
+            score_mag = 1.0
         elif e_mag > self._eps_m:
-            score_mag = 0
+            score_mag = 0.0
         else:
-            score_mag = ((self._eps_m - e_mag) / self._eps_m) ** self._k_m
+            score_mag = float(((self._eps_m - e_mag) / self._eps_m) ** self._k_m)
         return self._rating_value(score_mag, ndigits)
 
     def slope_rating(self, ndigits: int = 3) -> float:
@@ -165,14 +199,16 @@ class BaseISO18571:
         cae_ts_d[4:-4] = np.convolve(cae_ts_0_d, np.ones(nr) / nr, mode="valid")
         t_ts_d[4:-4] = np.convolve(t_ts_0_d, np.ones(nr) / nr, mode="valid")
 
-        e_slope = np.linalg.norm(cae_ts_d - t_ts_d, ord=1) / np.linalg.norm(t_ts_d, ord=1)
+        e_slope = float(
+            np.linalg.norm(cae_ts_d - t_ts_d, ord=1) / np.linalg.norm(t_ts_d, ord=1)
+        )
 
         if e_slope <= 0:
-            slope_score = 1
+            slope_score = 1.0
         elif e_slope >= self._e_s:
-            slope_score = 0
+            slope_score = 0.0
         else:
-            slope_score = (self._e_s - e_slope) / self._e_s
+            slope_score = float((self._e_s - e_slope) / self._e_s)
         return self._rating_value(slope_score, ndigits)
 
     def overall_rating(self, ndigits: int = 3) -> float:
@@ -180,7 +216,9 @@ class BaseISO18571:
         e_p = self.phase_rating(ndigits=-1)
         e_m = self.magnitude_rating(ndigits=-1)
         e_s = self.slope_rating(ndigits=-1)
-        overall_rating = self._w_z * z + self._w_p * e_p + self._w_m * e_m + self._w_s * e_s
+        overall_rating = float(
+            self._w_z * z + self._w_p * e_p + self._w_m * e_m + self._w_s * e_s
+        )
         return self._rating_value(overall_rating, ndigits)
 
 
@@ -190,7 +228,7 @@ def dtw_window_radius(n: int, window_size: float) -> int:
     return min(n, max(1, int(np.ceil(window_size * n))))
 
 
-def iso_backtrack(accumulated: np.ndarray) -> np.ndarray:
+def iso_backtrack(accumulated: FloatArray) -> IntArray:
     accumulated = np.where(np.isnan(accumulated), np.inf, accumulated)
     i = accumulated.shape[0] - 1
     j = accumulated.shape[1] - 1
@@ -207,13 +245,13 @@ def iso_backtrack(accumulated: np.ndarray) -> np.ndarray:
         _, i, j = candidates[int(np.argmin(costs))]
         path.append((i, j))
     path.reverse()
-    return np.asarray(path, dtype=np.int64)
+    return cast(IntArray, np.asarray(path, dtype=np.int64))
 
 
-def local_cost_matrix(x: np.ndarray, y: np.ndarray, window_size: float) -> np.ndarray:
+def local_cost_matrix(x: FloatArray, y: FloatArray, window_size: float) -> FloatArray:
     n = x.shape[0]
     radius = dtw_window_radius(n, window_size)
     cost = np.square(x[:, np.newaxis] - y[np.newaxis, :])
     idx = np.arange(n)
     cost[np.abs(idx[:, np.newaxis] - idx[np.newaxis, :]) >= radius] = np.inf
-    return cost
+    return cast(FloatArray, cost)

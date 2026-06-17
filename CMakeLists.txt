@@ -64,4 +64,4 @@ install(TARGETS _core
     LIBRARY DESTINATION iso18571
     RUNTIME DESTINATION iso18571
 )
-install(FILES iso18571/__init__.py iso18571/rating.py DESTINATION iso18571)
+install(FILES iso18571/__init__.py iso18571/rating.py iso18571/_core.pyi iso18571/py.typed DESTINATION iso18571)

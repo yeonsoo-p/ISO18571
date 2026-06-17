@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <limits>
 #include <stdexcept>
+#include <vector>
 
 #ifndef ISO18571_IMPL_SUFFIX
 #error "ISO18571_IMPL_SUFFIX must be defined before including scorer_impl.hpp"
@@ -22,7 +23,6 @@ using iso18571::Index;
 using iso18571::ScoreParams;
 using iso18571::ScoreResult;
 using iso18571::ShiftResult;
-using iso18571::WarpPath;
 
 constexpr std::uint8_t DIR_NONE = 0;
 constexpr std::uint8_t DIR_VERTICAL = 1;
@@ -129,37 +129,6 @@ DtwState compute_directions_index_incremental(const ArrayView& x, const ArrayVie
         throw std::runtime_error("No valid ISO DTW path found");
     }
     return state;
-}
-
-WarpPath backtrack_pairs(const DtwState& state) {
-    WarpPath reversed;
-    reversed.reserve(static_cast<std::size_t>(2 * state.n));
-    Index i = state.n - 1;
-    Index j = state.n - 1;
-
-    while (true) {
-        reversed.emplace_back(i, j);
-        if (i == 0 && j == 0) {
-            break;
-        }
-
-        const auto direction = state.directions[static_cast<std::size_t>(
-            direction_index(i, j, state.radius, state.band_width)
-        )];
-        if (direction == DIR_VERTICAL) {
-            --i;
-        } else if (direction == DIR_HORIZONTAL) {
-            --j;
-        } else if (direction == DIR_DIAGONAL) {
-            --i;
-            --j;
-        } else {
-            throw std::runtime_error("No valid ISO DTW predecessor found");
-        }
-    }
-
-    std::reverse(reversed.begin(), reversed.end());
-    return reversed;
 }
 
 double magnitude_ratio_from_state(const ArrayView& x, const ArrayView& y, const DtwState& state) {
@@ -562,15 +531,6 @@ ScoreResult ISO18571_VARIANT(score_components)(
     const ScoreParams& params
 ) {
     return score_components_impl(reference, comparison, params);
-}
-
-double ISO18571_VARIANT(magnitude_ratio)(const ArrayView& x, const ArrayView& y, double window_size) {
-    return magnitude_ratio_impl(x, y, window_size);
-}
-
-WarpPath ISO18571_VARIANT(warp_path)(const ArrayView& x, const ArrayView& y, double window_size) {
-    const DtwState state = compute_directions_index_incremental(x, y, window_size);
-    return backtrack_pairs(state);
 }
 
 }  // namespace iso18571

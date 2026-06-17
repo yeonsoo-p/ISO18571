@@ -12,7 +12,7 @@ dependencies = ["numpy"]
 
 [project.optional-dependencies]
 build = ["build", "cibuildwheel"]
-test = ["dtw-python", "dtwalign", "librosa", "pytest", "ruff", "scipy"]
+test = ["dtw-python", "dtwalign", "librosa", "mypy", "pytest", "pytest-benchmark", "ruff", "scipy"]
 
 [tool.scikit-build]
 build-dir = "build/{wheel_tag}"
@@ -20,13 +20,28 @@ cmake.version = ">=3.21"
 wheel.packages = []
 
 [tool.cibuildwheel]
-build = "cp313-*"
+build = "cp312-* cp313-* cp314-*"
 skip = "*-musllinux_*"
-test-sources = ["tools/iso18571/wheel_smoke.py"]
-test-command = "python tools/iso18571/wheel_smoke.py"
 
 [tool.cibuildwheel.linux]
 archs = ["x86_64"]
 
 [tool.cibuildwheel.windows]
 archs = ["AMD64"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unused_configs = true
+
+[[tool.mypy.overrides]]
+module = [
+    "dtw",
+    "dtwalign",
+    "dtwalign.*",
+    "librosa",
+    "librosa.*",
+    "scipy",
+    "scipy.*",
+]
+ignore_missing_imports = true

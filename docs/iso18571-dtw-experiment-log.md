@@ -1151,3 +1151,90 @@
 - Next hypothesis:
   - the next useful work is broader Windows wheel validation for MSVC dispatch
     behavior, then any remaining public API polishing around parameter errors.
+
+## 2026-06-17 11:02 KST - Original Reference Large-Signal Memory Check
+
+- Git status: clean `master` at start.
+- Hypothesis:
+  - `ref/rating_original.py` may not handle 30,000-sample signals because its
+    DTW magnitude path materializes dense `n x n` arrays before applying the
+    Sakoe-Chiba window.
+- Files changed:
+  - `docs/iso18571-dtw-experiment-log.md` only, to record the investigation.
+- Commands:
+  - `git status --short --branch`
+  - `sed -n '1,220p' AGENTS.md`
+  - `tail -n 120 docs/iso18571-dtw-experiment-log.md`
+  - `rg --files -u ref | rg 'rating_original\.py$|rating_.*\.py$'`
+  - `nl -ba ref/rating_original.py | sed -n '1,420p'`
+  - `uv run python` memory-size calculation for dense and banded DTW layouts.
+- Validation result:
+  - `magnitude_rating()` calls `_compute_magnitude()` with `window_size=0.1`;
+  - `_compute_magnitude()` builds `scipy.spatial.distance.cdist(...)` as a
+    dense `n x n` float64 matrix before constructing the `dtwalign`
+    Sakoe-Chiba window;
+  - for `n=30000`, that single dense matrix is 900,000,000 float64 values, or
+    about 6.71 GiB, before additional DTW/window/path allocations.
+- Conclusion:
+  - `ref/rating_original.py` is expected to fail or become impractical for
+    30,000-sample magnitude/overall scoring on ordinary machines due to memory,
+    even though the nominal 10% Sakoe-Chiba band is much smaller than the full
+    square matrix.
+- Next hypothesis:
+  - use the production native scorer for large-signal runs, and keep
+    `rating_original.py` only as ignored historical reference material.
+
+## 2026-06-17 11:52 KST - Cached Annexes, Strict Typing, In-Test Benchmarks, And Public API Cleanup
+
+- Git status: dirty from the implementation batch.
+- Hypothesis:
+  - a fresh clone should be able to run parity tests without manually
+    downloading Annex CSV files, while benchmark tooling should live in pytest
+    and report peak memory plus swap invalidation for large reference backends.
+- Files changed:
+  - cached official Annex download and generated Annex materialization in
+    `tests/`;
+  - strict mypy typing support with `iso18571/_core.pyi` and `py.typed`;
+  - public package exports narrowed to `ISO18571` and `backend_info`;
+  - Python bindings for standalone `warp_path` and `magnitude_ratio` removed;
+  - `tools/` removed, including wheel smoke;
+  - pytest-benchmark matrix added under `tests/`;
+  - README, AGENTS, and backend docs updated.
+- Commands:
+  - `uv run --extra test ruff check --fix .`
+  - `uv run --extra test ruff format .`
+  - `uv run --extra test ruff check .`
+  - `uv run --extra test ruff format --check .`
+  - `uv run --extra test mypy iso18571 iso18571_reference tests`
+  - `git diff --check`
+  - `uv pip install -e .`
+  - `uv run --extra test python -m pytest -q`
+  - `uv build`
+  - `uv run --extra test python -m pytest -q -m benchmark --benchmark-json .benchmarks/iso18571-readme/benchmarks.json`
+  - `uv run python -m zipfile -l dist/euroncap-1.0.0-cp313-cp313-linux_x86_64.whl`
+- Validation result:
+  - Ruff check and format gates passed;
+  - mypy strict passed for `iso18571`, `iso18571_reference`, and `tests`;
+  - default pytest passed: `5 passed, 32 deselected`;
+  - wheel build passed with no C++ warnings after removing dead DTW path export
+    code;
+  - wheel contents include only `iso18571` package files and dist metadata.
+- Benchmark result:
+  - full 32-row pytest-benchmark matrix passed in `472.27s`;
+  - benchmark JSON records `peak_rss_mib`, `peak_swap_mib`, and
+    `swap_invalidated`;
+  - `dtwalign` at length `32768` used swap during runtime and is timing
+    invalidated;
+  - `dtw_python` at length `32768` used swap during load and runtime and is
+    timing invalidated;
+  - native rows did not use swap, including length `32768`
+    (`load_ms=776.39`, `peak_rss_mib=250.84`, `runtime_ms=610.56`).
+- Conclusion:
+  - Annex tests are now cache-backed and clone-friendly;
+  - benchmark support is pytest-native and cross-platform in approach;
+  - standalone native DTW helpers are no longer Python API surface;
+  - large reference backends can complete under added swap, but swapped rows are
+    explicitly marked as stress outcomes.
+- Next hypothesis:
+  - consider whether `score_components` should remain `_core`-private or move
+    fully behind a pybind class wrapper.
