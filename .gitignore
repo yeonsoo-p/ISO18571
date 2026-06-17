@@ -17,3 +17,5 @@ dist/
 *.csv
 .ruff_cache/
 .vscode/
+.python-version
+uv.lock
