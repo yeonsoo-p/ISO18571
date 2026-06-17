@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 
 import iso18571
-from iso18571_native import magnitude_ratio
+from iso18571 import magnitude_ratio
 
 
 def main() -> int:

@@ -1007,3 +1007,147 @@
   - with the surface area reduced, the next useful work is either broader parity
     case design or targeted scalar-source C++ profiling inside the single
     production scorer.
+
+## 2026-06-17 10:18 KST - Dead/Inconsistent Code Review Pass
+
+- Git status: dirty at start of review with `src/iso18571_native/_core.cpp`
+  already modified to remove an unused `<cmath>` include.
+- Hypothesis:
+  - after the native-only cleanup, remaining dead or inconsistent code is most
+    likely in packaging metadata, test extras, and x86-64 dispatch platform
+    branches rather than in the main scorer path.
+- Files changed:
+  - `docs/iso18571-dtw-experiment-log.md` only, to record this review pass.
+- Commands:
+  - `sed -n '1,240p' AGENTS.md`
+  - `tail -n 160 docs/iso18571-dtw-experiment-log.md`
+  - `git status --short --branch`
+  - `rg --files -g '!ref/**' -g '!dist/**' -g '!build/**' -g '!*.egg-info/**' -g '!.benchmarks/**'`
+  - `git diff -- src/iso18571_native/_core.cpp`
+  - line-numbered source/test/doc reads with `nl -ba`
+  - `rg` scans for retired backend, variant, SIMD, benchmark, and public-surface
+    terms
+  - `uv run --extra test ruff check .`
+  - `uv run --extra test ruff format --check .`
+  - `git diff --check`
+  - `uv pip install -e .`
+  - `uv run --extra test python -m pytest -q`
+  - `uv build --wheel`
+  - `uv run --with dist/euroncap-0.1.0-cp313-cp313-linux_x86_64.whl python tools/iso18571/wheel_smoke.py`
+  - `uv run python -m zipfile -l dist/euroncap-0.1.0-cp313-cp313-linux_x86_64.whl`
+  - `uv run --with vulture vulture iso18571 iso18571_native src tests tools main.py --min-confidence 60`
+  - `nl -ba .github/workflows/wheels.yml`
+  - `git status --short --ignored .github`
+- Validation result:
+  - Ruff check passed;
+  - Ruff format check passed;
+  - whitespace diff check passed;
+  - editable CMake build passed;
+  - default parity suite passed: `3 passed`;
+  - wheel build passed and installed `main.py` at the wheel root;
+  - wheel smoke passed;
+  - Vulture found only the expected pytest hook false positive in
+    `tests/conftest.py`.
+- Conclusion:
+  - no dead code was found in the primary native scorer implementation;
+  - review findings are concentrated in MSVC dispatch feature detection,
+    stale optional test dependencies, an unadvertised packaged `main.py`, and
+    ignored stale workflow/package metadata.
+- Next hypothesis:
+  - clean the low-risk stale packaging/test-extra items first, then add or
+    adjust a Windows dispatch probe before relying on v3/v4 selection in MSVC
+    wheels.
+
+## 2026-06-17 10:21 KST - Native Efficiency And Correctness Review Probes
+
+- Git status: dirty at start of review with `src/iso18571_native/_core.cpp`
+  already modified and the previous review log entry present.
+- Hypothesis:
+  - the native-only scorer's main Annex path is likely correct, while remaining
+    risks should appear around API-edge validation, oversized windows, and
+    platform dispatch.
+- Files changed:
+  - `docs/iso18571-dtw-experiment-log.md` only, to record the review probes.
+- Commands:
+  - `git status --short --branch`
+  - `tail -n 160 docs/iso18571-dtw-experiment-log.md`
+  - line-numbered reads of `src/iso18571_native/`, `iso18571_native/`,
+    `iso18571/rating.py`, `CMakeLists.txt`, `pyproject.toml`, and parity tests
+  - `git diff -- src/iso18571_native/_core.cpp`
+  - `uv run --extra test python -m pytest -q`
+  - native API probes for short curves, strided curves, DTW window validation,
+    parameter domains, weight-sum equality, pybind integer casting, and
+    non-finite curve values
+  - reference-oracle type/value spot checks for short curves and selected
+    parameter edges
+- Validation result:
+  - default parity suite passed: `3 passed`;
+  - selected runtime backend reported compiled levels
+    `x86-64-v1,x86-64-v2,x86-64-v3,x86-64-v4` and selected `x86-64-v3`;
+  - negative-stride curve views scored successfully;
+  - curves shorter than 9 samples fail with a native `ValueError` before slope
+    scoring;
+  - exact weight equality rejected several mathematically normalized weight
+    combinations;
+  - `dt=0.0` produced `nan` slope and overall scores rather than an early
+    validation error.
+- Conclusion:
+  - Annex parity is healthy on this Linux host;
+  - highest-value fixes are parameter-domain validation, capping oversized DTW
+    radii, and correcting Windows/MSVC dispatch feature detection.
+- Next hypothesis:
+  - add focused edge tests for parameter validation and `window_size > 1`, then
+    fix those without changing Annex parity.
+
+## 2026-06-17 10:43 KST - Production Package Rename And True Reference Parity
+
+- Git status: dirty at start with prior review-log entries and `_core.cpp`
+  include cleanup already present.
+- Hypothesis:
+  - moving reference scorers into source-only `iso18571_reference` and placing
+    the native extension directly under public `iso18571` will make parity
+    labels truthful while keeping the production import stable.
+- Files changed:
+  - renamed native C++ source from `src/iso18571_native/` to `src/iso18571/`;
+  - removed importable `iso18571_native`;
+  - added source-only `iso18571_reference` full scorers for dtwalign,
+    dtw-python, and librosa;
+  - updated CMake install layout, tests, wheel smoke, README, AGENTS, backend
+    docs, `.gitignore`, package metadata, and native validation/dispatch code.
+- Commands:
+  - `git status --short --branch`
+  - `tail -n 80 docs/iso18571-dtw-experiment-log.md`
+  - `sed -n '1,140p' AGENTS.md`
+  - targeted `rg`, `sed`, and `git diff` inspection commands
+  - `uv pip install -e .`
+  - `uv run --extra test python -m pytest -q`
+  - `uv run --extra test ruff check --fix .`
+  - `uv run --extra test ruff format .`
+  - `uv run --extra test ruff check .`
+  - `uv run --extra test ruff format --check .`
+  - `git diff --check`
+  - `uv build --wheel`
+  - `uv run --with dist/euroncap-1.0.0-cp313-cp313-linux_x86_64.whl python tools/iso18571/wheel_smoke.py`
+  - `uv run python -m zipfile -l dist/euroncap-1.0.0-cp313-cp313-linux_x86_64.whl`
+  - isolated `/tmp` wheel import probe for `iso18571`, `iso18571_reference`,
+    and `iso18571_native`.
+- Validation result:
+  - full scorer parity and edge suite passed: `6 passed`;
+  - Ruff check and format gates passed;
+  - whitespace diff check passed;
+  - editable CMake build passed;
+  - Linux wheel build passed and installed only `iso18571/_core`,
+    `iso18571/__init__.py`, and `iso18571/rating.py`;
+  - wheel smoke passed;
+  - isolated wheel import reported `backend_info()["name"] == "iso18571"` and
+    no import specs for `iso18571_reference` or `iso18571_native`.
+- Conclusion:
+  - production import remains `from iso18571 import ISO18571`;
+  - reference parity now compares four full scorers: native, dtwalign,
+    dtw-python, and librosa;
+  - stale `iso18571_native` and top-level wheel `main.py` surfaces are removed;
+  - native dispatch now guards CPUID leaf 7 and uses the correct extended LZCNT
+    bit on MSVC.
+- Next hypothesis:
+  - the next useful work is broader Windows wheel validation for MSVC dispatch
+    behavior, then any remaining public API polishing around parameter errors.

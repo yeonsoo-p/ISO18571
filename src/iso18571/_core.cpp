@@ -11,11 +11,11 @@ namespace py = pybind11;
 
 namespace {
 
-using iso18571_native::ArrayView;
-using iso18571_native::CurveView;
-using iso18571_native::Index;
-using iso18571_native::ScoreParams;
-using iso18571_native::ScoreResult;
+using iso18571::ArrayView;
+using iso18571::CurveView;
+using iso18571::Index;
+using iso18571::ScoreParams;
+using iso18571::ScoreResult;
 
 template <typename T>
 T get_param(const py::dict& params, const char* name, T default_value) {
@@ -23,6 +23,26 @@ T get_param(const py::dict& params, const char* name, T default_value) {
         return py::cast<T>(params[py::str(name)]);
     }
     return default_value;
+}
+
+void require_finite(double value, const char* name) {
+    if (!std::isfinite(value)) {
+        throw std::invalid_argument(std::string(name) + " must be finite");
+    }
+}
+
+void require_positive(double value, const char* name) {
+    require_finite(value, name);
+    if (value <= 0.0) {
+        throw std::invalid_argument(std::string(name) + " must be positive");
+    }
+}
+
+void require_non_negative(double value, const char* name) {
+    require_finite(value, name);
+    if (value < 0.0) {
+        throw std::invalid_argument(std::string(name) + " must be non-negative");
+    }
 }
 
 ScoreParams score_params_from_dict(const py::dict& params) {
@@ -50,6 +70,22 @@ ScoreParams score_params_from_dict(const py::dict& params) {
     if (out.k_m < 1 || out.k_m > 3) {
         throw std::invalid_argument("k_m has to be 1, 2, or 3");
     }
+    require_positive(out.eps_m, "eps_m");
+    require_positive(out.e_s, "e_s");
+    require_finite(out.init_min, "init_min");
+    if (out.init_min < 0.0 || out.init_min >= 1.0) {
+        throw std::invalid_argument("init_min must be finite and satisfy 0 <= init_min < 1");
+    }
+    require_non_negative(out.a_0, "a_0");
+    require_non_negative(out.b_0, "b_0");
+    if (out.b_0 <= out.a_0) {
+        throw std::invalid_argument("b_0 must be greater than a_0");
+    }
+    require_non_negative(out.w_z, "w_z");
+    require_non_negative(out.w_p, "w_p");
+    require_non_negative(out.w_m, "w_m");
+    require_non_negative(out.w_s, "w_s");
+    require_positive(out.dt, "dt");
     const double weights_sum = out.w_z + out.w_m + out.w_p + out.w_s;
     if (weights_sum != 1.0) {
         throw std::invalid_argument("Sum of weighting factors (w_z, w_m, w_p, w_s) must be 1");
@@ -135,10 +171,10 @@ py::array_t<Index> warp_path(
     double window_size
 ) {
     const auto views = validate_inputs(x, y);
-    iso18571_native::WarpPath pairs;
+    iso18571::WarpPath pairs;
     {
         py::gil_scoped_release release;
-        pairs = iso18571_native::dispatch_table().warp_path(views.first, views.second, window_size);
+        pairs = iso18571::dispatch_table().warp_path(views.first, views.second, window_size);
     }
 
     py::array_t<Index> out({static_cast<Index>(pairs.size()), static_cast<Index>(2)});
@@ -159,7 +195,7 @@ double magnitude_ratio(
     double ratio = 0.0;
     {
         py::gil_scoped_release release;
-        ratio = iso18571_native::dispatch_table().magnitude_ratio(views.first, views.second, window_size);
+        ratio = iso18571::dispatch_table().magnitude_ratio(views.first, views.second, window_size);
     }
     return ratio;
 }
@@ -175,7 +211,7 @@ py::dict score_components(
     ScoreResult score;
     {
         py::gil_scoped_release release;
-        score = iso18571_native::dispatch_table().score_components(views.first, views.second, score_params);
+        score = iso18571::dispatch_table().score_components(views.first, views.second, score_params);
     }
 
     py::dict out;
@@ -185,17 +221,17 @@ py::dict score_components(
 
 py::dict backend_info() {
     py::dict info;
-    info["name"] = "iso18571_native";
+    info["name"] = "iso18571";
     info["language"] = "C++17";
-    info["window"] = "abs(i-j) < max(1, ceil(window_size*n))";
+    info["window"] = "abs(i-j) < min(n, max(1, ceil(window_size*n)))";
     info["tie_order"] = "vertical,horizontal,diagonal";
     info["cost"] = "squared";
     info["dtw_layout"] = "index_incremental";
     info["reduction_mode"] = "all";
     info["parallelism"] = "none";
     info["x86_64_dispatch"] = "internal_best_effort";
-    info["compiled_x86_64_levels"] = iso18571_native::compiled_x86_64_levels();
-    info["selected_x86_64_level"] = iso18571_native::dispatch_table().level;
+    info["compiled_x86_64_levels"] = iso18571::compiled_x86_64_levels();
+    info["selected_x86_64_level"] = iso18571::dispatch_table().level;
     return info;
 }
 

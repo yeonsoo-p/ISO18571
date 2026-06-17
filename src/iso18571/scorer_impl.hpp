@@ -16,13 +16,13 @@
 
 namespace {
 
-using iso18571_native::ArrayView;
-using iso18571_native::CurveView;
-using iso18571_native::Index;
-using iso18571_native::ScoreParams;
-using iso18571_native::ScoreResult;
-using iso18571_native::ShiftResult;
-using iso18571_native::WarpPath;
+using iso18571::ArrayView;
+using iso18571::CurveView;
+using iso18571::Index;
+using iso18571::ScoreParams;
+using iso18571::ScoreResult;
+using iso18571::ShiftResult;
+using iso18571::WarpPath;
 
 constexpr std::uint8_t DIR_NONE = 0;
 constexpr std::uint8_t DIR_VERTICAL = 1;
@@ -50,8 +50,11 @@ Index window_radius(Index n, double window_size) {
     if (!std::isfinite(window_size) || window_size < 0.0) {
         throw std::invalid_argument("DTW window_size must be a finite non-negative value");
     }
+    if (window_size >= 1.0) {
+        return n;
+    }
     const auto raw = static_cast<Index>(std::ceil(window_size * static_cast<double>(n)));
-    return std::max<Index>(1, raw);
+    return std::min<Index>(n, std::max<Index>(1, raw));
 }
 
 Index direction_index(Index i, Index j, Index radius, Index band_width) {
@@ -551,7 +554,7 @@ ScoreResult score_components_impl(const CurveView& reference, const CurveView& c
 
 }  // namespace
 
-namespace iso18571_native {
+namespace iso18571 {
 
 ScoreResult ISO18571_VARIANT(score_components)(
     const CurveView& reference,
@@ -570,7 +573,7 @@ WarpPath ISO18571_VARIANT(warp_path)(const ArrayView& x, const ArrayView& y, dou
     return backtrack_pairs(state);
 }
 
-}  // namespace iso18571_native
+}  // namespace iso18571
 
 #undef ISO18571_VARIANT
 #undef ISO18571_PASTE

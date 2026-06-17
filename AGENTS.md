@@ -8,20 +8,30 @@
 - The native scorer must remain clean-room. Do not copy implementation code from
   third-party DTW packages.
 
+## Current Package Shape
+
+- The public production scorer is `iso18571.ISO18571`.
+- The native extension module is `iso18571._core`; public package exports include
+  `ISO18571`, `score_components`, `magnitude_ratio`, `warp_path`, and
+  `backend_info`.
+- Reference scorers live in source-only `iso18571_reference` and are used for
+  tests/research only:
+  - `rating_dtwalign.ISO18571`;
+  - `rating_dtw_python.ISO18571`;
+  - `rating_librosa.ISO18571`.
+- Do not install `iso18571_reference` into production wheels.
+
 ## Correctness
 
-- The public scorer is `iso18571.ISO18571`.
-- The package is native-only: Python calls
-  `iso18571_native.score_components(reference_curve, comparison_curve, params)`.
 - Preserve the NumPy `(n, 2)` curve input contract, including strided arrays and
   numeric force-casting to `float64`.
 - Preserve ISO/TS 18571 DTW behavior already captured in this repo:
   - squared local cost;
-  - Sakoe-Chiba radius `max(1, ceil(window_size*n))`;
+  - Sakoe-Chiba radius `min(n, max(1, ceil(window_size*n)))`;
   - valid cells where `abs(i-j) < radius`;
   - predecessor tie priority vertical, horizontal, diagonal;
   - Annex `R`, `Z`, `EP`, `EM`, and `ES` within `0.001`.
-- Generated Annex parity compares four test-only scorers: `native`, `original`,
+- Generated Annex parity compares four full scorers: `native`, `dtwalign`,
   `dtw_python`, and `librosa`.
 - Generated parity compares `n_eps`, `rho_e`, unrounded scores, and rounded
   three-decimal scores. Degenerate generated cases pass only when all four
@@ -34,35 +44,30 @@
 
 - The native extension is built with CMake through scikit-build-core. Do not
   reintroduce `setup.py`.
-- Implementation source belongs under `src/iso18571_native/`; importable native
-  package files belong under `iso18571_native/`.
+- Implementation source belongs under `src/iso18571/`.
 - Keep GCC/Clang `-O3`, MSVC `/O2 /fp:precise`, and no fast-math or native-CPU
   flags.
 - C++ should build with warning flags enabled. Suppress warnings only narrowly
   and document why.
 - The scorer is scalar-source C++ with internal x86-64 level dispatch:
   - v1 builds always;
-  - v2/v3/v4 source variants are compiled on a best-effort basis when the
-    compiler supports the requested flags;
+  - GCC/Clang compile v2/v3/v4 source variants on a best-effort basis;
+  - MSVC compiles v3/v4 variants on a best-effort basis because it has no direct
+    x86-64-v2 flag;
   - runtime C++ initialization selects the highest compiled-and-supported level
     once and stores direct function pointers;
-  - Python does not expose or configure this dispatch.
+  - Python does not configure dispatch, but `backend_info()` reports it.
 
 ## Test And Style
 
 - Do not use pytest outcome helpers in tests or `tests/conftest.py`; outcomes
   should be normal `assert` or explicit `raise AssertionError`.
-- Keep tests parity-focused:
-  - downloaded official Annex CSVs plus expected scores;
-  - one generated Annex set combining fixed signal families and analytic
-    phase-shift families at practical lengths;
-  - four test-only scorers: `native`, `original`, `dtw_python`, and `librosa`.
 - Expected degenerate numeric warnings must be caught and asserted explicitly;
   unexpected warnings should fail tests.
 - Avoid inline imports in project Python. Use module-level imports or shared
   loading helpers.
 - `ref/` is ignored reference material. Do not lint, package, or build files from
-  `ref/`; oracle tests load `ref/rating_original.py` explicitly.
+  `ref/`.
 - Before committing code changes, run:
   - `uv run --extra test ruff check --fix .`
   - `uv run --extra test ruff format .`

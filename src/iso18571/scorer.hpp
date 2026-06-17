@@ -4,7 +4,7 @@
 #include <utility>
 #include <vector>
 
-namespace iso18571_native {
+namespace iso18571 {
 
 using Index = std::ptrdiff_t;
 
@@ -100,4 +100,4 @@ WarpPath warp_path_v4(const ArrayView& x, const ArrayView& y, double window_size
 const DispatchTable& dispatch_table();
 const char* compiled_x86_64_levels();
 
-}  // namespace iso18571_native
+}  // namespace iso18571

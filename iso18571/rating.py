@@ -4,11 +4,7 @@ from typing import Any
 
 import numpy as np
 
-from iso18571_native import score_components
-
-
-class CurveLengthError(ValueError):
-    pass
+from ._core import score_components
 
 
 class ISO18571:
@@ -33,7 +29,7 @@ class ISO18571:
         self.reference_curve = np.asarray(reference_curve, dtype=np.float64)
         self.comparison_curve = np.asarray(comparison_curve, dtype=np.float64)
         if self.reference_curve.shape != self.comparison_curve.shape:
-            raise CurveLengthError("Curves are not equal in size/dimension.\nInterpolation not implemented. ")
+            raise ValueError("Curves are not equal in size/dimension")
 
         self._scores = score_components(
             self.reference_curve,
@@ -62,6 +58,38 @@ class ISO18571:
         self._cae_ts = self.comparison_curve[comparison_start : comparison_start + shift_length, :].copy()
         self._n_eps = int(self._scores["n_eps"])
         self._rho_e = float(self._scores["rho_e"])
+
+    @property
+    def scores(self) -> dict[str, float | int]:
+        return dict(self._scores)
+
+    @property
+    def n_eps(self) -> int:
+        return self._n_eps
+
+    @property
+    def rho_e(self) -> float:
+        return self._rho_e
+
+    @property
+    def shifted_reference_curve(self) -> np.ndarray:
+        return self._t_ts.copy()
+
+    @property
+    def shifted_comparison_curve(self) -> np.ndarray:
+        return self._cae_ts.copy()
+
+    @property
+    def reference_start(self) -> int:
+        return int(self._scores["reference_start"])
+
+    @property
+    def comparison_start(self) -> int:
+        return int(self._scores["comparison_start"])
+
+    @property
+    def shift_length(self) -> int:
+        return int(self._scores["shift_length"])
 
     @staticmethod
     def _rating_value(value: Any, ndigits: int) -> Any:

@@ -14,7 +14,6 @@ dist/
 *.so
 *.pyd
 *.xlsx
-.github/
 *.csv
 .ruff_cache/
 .vscode/
