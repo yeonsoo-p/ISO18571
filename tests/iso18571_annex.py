@@ -1,35 +1,15 @@
 from __future__ import annotations
 
 import csv
-import hashlib
-import re
-import urllib.error
-import urllib.request
-import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 import numpy.typing as npt
 
-from tests.iso18571_signals import (
-    PHASE_SHIFT_SIGNAL_FAMILIES,
-    SIGNAL_FAMILIES,
-    analytic_phase_signal_case,
-    signal_case,
-)
+from tools import example_data
 
 SCORE_NAMES = ("R", "Z", "EP", "EM", "ES")
-ANNEX_ZIP_URL = (
-    "https://standards.iso.org/iso/ts/18571/ed-2/en/"
-    "ISO_TS%2018571%20ed.2%20-%20Annex_data_csv_files.zip"
-)
-ANNEX_ZIP_NAME = "ISO_TS_18571_ed2_Annex_data_csv_files.zip"
-ANNEX_ZIP_SHA256 = "cbc8c5a1ea5677ece8aa097387f9d9d2e6fe7a2a5bb2ce5d17ecf84fe52271d7"
-OFFICIAL_CACHE_VERSION = "official-v2"
-GENERATED_CACHE_VERSION = "generated-v1"
-ANNEX_FILE_RE = re.compile(r"annex_c_(\d+_\d+)__.*__cae(\d+)\.csv")
-GENERATED_FILE_RE = re.compile(r"generated__(.+)__n(\d+)\.csv")
 
 EXPECTED_SCORES: dict[str, dict[int, tuple[float, float, float, float, float]]] = {
     "1_1": {
@@ -104,9 +84,6 @@ EXPECTED_SCORES: dict[str, dict[int, tuple[float, float, float, float, float]]] 
     },
 }
 
-GENERATED_LENGTHS = (9, 10, 17, 64, 129, 512, 1430)
-GENERATED_PHASE_LENGTHS = (64, 129, 512, 1430)
-
 
 @dataclass(frozen=True)
 class AnnexCase:
@@ -120,42 +97,22 @@ class AnnexCase:
 
 
 def official_annex_dir(cache_dir: Path) -> Path:
-    target_dir = cache_dir / OFFICIAL_CACHE_VERSION
-    if _official_annex_is_ready(target_dir):
-        return target_dir
-
-    target_dir.mkdir(parents=True, exist_ok=True)
-    zip_path = cache_dir / ANNEX_ZIP_NAME
-    _ensure_official_annex_zip(zip_path)
-    _extract_official_annex(zip_path, target_dir)
-    if not _official_annex_is_ready(target_dir):
-        raise RuntimeError(f"Downloaded Annex cache is incomplete in {target_dir}")
-    return target_dir
+    return example_data.ensure_official_annex_csvs(
+        cache_dir / example_data.OFFICIAL_CACHE_VERSION,
+        zip_path=cache_dir / example_data.ANNEX_ZIP_NAME,
+    )
 
 
 def generated_annex_dir(cache_dir: Path) -> Path:
-    target_dir = cache_dir / GENERATED_CACHE_VERSION
-    manifest_path = target_dir / "manifest.txt"
-    expected_manifest = _generated_manifest()
-    if (
-        manifest_path.exists()
-        and manifest_path.read_text(encoding="utf-8") == expected_manifest
-    ):
-        return target_dir
-
-    target_dir.mkdir(parents=True, exist_ok=True)
-    for path in target_dir.glob("generated__*.csv"):
-        path.unlink()
-    for case in _generated_cases_in_memory():
-        _write_case_csv(target_dir / f"{case.name}.csv", case)
-    manifest_path.write_text(expected_manifest, encoding="utf-8")
-    return target_dir
+    return example_data.write_generated_annex_csvs(
+        cache_dir / example_data.GENERATED_CACHE_VERSION
+    )[0]
 
 
 def load_downloaded_annex_cases(annex_dir: Path) -> list[AnnexCase]:
     cases: list[AnnexCase] = []
     for path in sorted(annex_dir.glob("*.csv")):
-        match = ANNEX_FILE_RE.match(path.name)
+        match = example_data.ANNEX_FILE_RE.match(path.name)
         if match is None:
             continue
         table_key = match[1]
@@ -211,7 +168,7 @@ def load_downloaded_annex_cases(annex_dir: Path) -> list[AnnexCase]:
 def load_generated_annex_cases(annex_dir: Path) -> list[AnnexCase]:
     cases: list[AnnexCase] = []
     for path in sorted(annex_dir.glob("generated__*.csv")):
-        match = GENERATED_FILE_RE.match(path.name)
+        match = example_data.GENERATED_FILE_RE.match(path.name)
         if match is None:
             continue
         rows: list[tuple[float, float, float]] = []
@@ -240,155 +197,9 @@ def load_generated_annex_cases(annex_dir: Path) -> list[AnnexCase]:
             )
         )
 
-    expected_count = len(GENERATED_LENGTHS) * len(SIGNAL_FAMILIES) + len(
-        GENERATED_PHASE_LENGTHS
-    ) * len(PHASE_SHIFT_SIGNAL_FAMILIES)
+    expected_count = example_data.generated_annex_case_count()
     if len(cases) != expected_count:
         raise ValueError(
             f"Expected {expected_count} generated Annex cases, found {len(cases)} in {annex_dir}"
         )
     return cases
-
-
-def _official_annex_is_ready(annex_dir: Path) -> bool:
-    manifest_path = annex_dir / "manifest.txt"
-    return (
-        annex_dir.is_dir()
-        and manifest_path.exists()
-        and manifest_path.read_text(encoding="utf-8") == _official_manifest()
-        and len(
-            [path for path in annex_dir.glob("*.csv") if ANNEX_FILE_RE.match(path.name)]
-        )
-        == 42
-    )
-
-
-def _official_manifest() -> str:
-    return "\n".join(
-        (
-            OFFICIAL_CACHE_VERSION,
-            ANNEX_ZIP_URL,
-            ANNEX_ZIP_SHA256,
-            "",
-        )
-    )
-
-
-def _file_sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as file:
-        for chunk in iter(lambda: file.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
-def _require_official_annex_zip_hash(zip_path: Path) -> None:
-    actual = _file_sha256(zip_path)
-    if actual != ANNEX_ZIP_SHA256:
-        raise RuntimeError(
-            f"ISO/TS 18571 Annex ZIP hash mismatch for {zip_path}: "
-            f"expected {ANNEX_ZIP_SHA256}, got {actual}"
-        )
-
-
-def _ensure_official_annex_zip(zip_path: Path) -> None:
-    if zip_path.exists():
-        try:
-            _require_official_annex_zip_hash(zip_path)
-            return
-        except RuntimeError:
-            zip_path.unlink()
-
-    _download_official_annex(zip_path)
-    try:
-        _require_official_annex_zip_hash(zip_path)
-    except RuntimeError:
-        zip_path.unlink(missing_ok=True)
-        raise
-
-
-def _download_official_annex(zip_path: Path) -> None:
-    zip_path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = zip_path.with_suffix(".tmp")
-    try:
-        with urllib.request.urlopen(ANNEX_ZIP_URL, timeout=60.0) as response:
-            tmp_path.write_bytes(response.read())
-    except (OSError, urllib.error.URLError) as exc:
-        raise RuntimeError(
-            f"Could not download ISO/TS 18571 Annex data from {ANNEX_ZIP_URL}: {exc}"
-        ) from exc
-    tmp_path.replace(zip_path)
-
-
-def _extract_official_annex(zip_path: Path, target_dir: Path) -> None:
-    _require_official_annex_zip_hash(zip_path)
-    for path in target_dir.glob("*.csv"):
-        path.unlink()
-    (target_dir / "manifest.txt").unlink(missing_ok=True)
-    try:
-        with zipfile.ZipFile(zip_path) as archive:
-            for member in archive.infolist():
-                member_name = Path(member.filename).name
-                if ANNEX_FILE_RE.match(member_name):
-                    (target_dir / member_name).write_bytes(archive.read(member))
-    except (OSError, zipfile.BadZipFile) as exc:
-        raise RuntimeError(
-            f"Could not extract ISO/TS 18571 Annex cache {zip_path}: {exc}"
-        ) from exc
-    (target_dir / "manifest.txt").write_text(_official_manifest(), encoding="utf-8")
-
-
-def _generated_cases_in_memory() -> list[AnnexCase]:
-    cases: list[AnnexCase] = []
-    for n in GENERATED_LENGTHS:
-        for family in SIGNAL_FAMILIES:
-            signal = signal_case(family, n)
-            cases.append(
-                AnnexCase(
-                    name=f"generated__{family}__n{n}",
-                    reference_curve=signal.reference,
-                    comparison_curve=signal.comparison,
-                    dt=float(np.median(np.diff(signal.reference[:, 0]))),
-                    expected=None,
-                )
-            )
-    for n in GENERATED_PHASE_LENGTHS:
-        for family in PHASE_SHIFT_SIGNAL_FAMILIES:
-            signal = analytic_phase_signal_case(family, n)
-            cases.append(
-                AnnexCase(
-                    name=f"generated__{family}__n{n}",
-                    reference_curve=signal.reference,
-                    comparison_curve=signal.comparison,
-                    dt=float(np.median(np.diff(signal.reference[:, 0]))),
-                    expected=None,
-                )
-            )
-    return cases
-
-
-def _write_case_csv(path: Path, case: AnnexCase) -> None:
-    with path.open("w", newline="") as csv_file:
-        writer = csv.writer(csv_file)
-        writer.writerow(("Time", "Reference", "Comparison"))
-        for row in np.column_stack(
-            (
-                case.reference_curve[:, 0],
-                case.reference_curve[:, 1],
-                case.comparison_curve[:, 1],
-            )
-        ):
-            writer.writerow((f"{row[0]:.17g}", f"{row[1]:.17g}", f"{row[2]:.17g}"))
-
-
-def _generated_manifest() -> str:
-    return "\n".join(
-        (
-            GENERATED_CACHE_VERSION,
-            ",".join(str(length) for length in GENERATED_LENGTHS),
-            ",".join(str(length) for length in GENERATED_PHASE_LENGTHS),
-            ",".join(SIGNAL_FAMILIES),
-            ",".join(PHASE_SHIFT_SIGNAL_FAMILIES),
-            "",
-        )
-    )

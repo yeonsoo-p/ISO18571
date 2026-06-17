@@ -1,6 +1,7 @@
 *.pdf
 *.xlsx
 __pycache__/
+.ipynb_checkpoints/
 .benchmarks/
 .mypy_cache/
 .pytest_cache/
@@ -15,6 +16,9 @@ dist/
 *.pyd
 *.xlsx
 *.csv
+!examples/reference.csv
+!examples/comparison.csv
+examples/data/
 .ruff_cache/
 .vscode/
 .python-version

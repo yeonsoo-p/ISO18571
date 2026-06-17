@@ -12,6 +12,7 @@ dependencies = ["numpy"]
 
 [project.optional-dependencies]
 build = ["build", "cibuildwheel"]
+examples = ["jupyter", "matplotlib"]
 test = ["dtw-python", "dtwalign", "librosa", "mypy", "pytest", "pytest-benchmark", "ruff", "scipy"]
 
 [tool.scikit-build]

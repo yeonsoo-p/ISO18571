@@ -1942,3 +1942,66 @@
 - Next hypothesis:
   - commit the implementation and create/push git tag `v1.0.4` if validation
     passes.
+
+## 2026-06-17 19:42 KST - Fresh User CSV Example And Notebook Data Stages
+
+- Git status: dirty from example-script, notebook, example-data tooling, and
+  documentation changes.
+- Hypothesis:
+  - fresh users need a no-argument CSV script, tracked demo CSVs, and a guided
+    notebook that visualizes the bundled CSV stage, official downloaded Annex
+    stage, and generated Annex stage without adding plotting/Jupyter to normal
+    runtime dependencies.
+- Files changed:
+  - `main.py`;
+  - `examples/reference.csv`;
+  - `examples/comparison.csv`;
+  - `examples/quickstart.ipynb`;
+  - `tools/__init__.py`;
+  - `tools/example_data.py`;
+  - `tests/iso18571_annex.py`;
+  - `tests/iso18571_signals.py`;
+  - `.gitignore`;
+  - `pyproject.toml`;
+  - `README.md`;
+  - this experiment log.
+- Commands:
+  - added optional `examples = ["jupyter", "matplotlib"]`;
+  - rewrote `main.py` as a no-argument bundled-CSV reference script that prints
+    backend info, raw scores, and rounded component ratings as JSON;
+  - added `tools/example_data.py` for demo CSV generation, official Annex
+    download/extract, generated Annex CSV creation, and notebook loaders;
+  - moved generated Annex signal families from test-only code into the shared
+    example-data tool and made parity tests consume that tool;
+  - generated tracked `examples/reference.csv` and `examples/comparison.csv`;
+  - added `examples/quickstart.ipynb` with guided descriptions, signal plots,
+    strict timing rejection, official Annex scoring, and generated Annex scoring.
+- Validation result:
+  - `uv run python tools/example_data.py` passed and rewrote the bundled CSVs;
+  - `uv run python tools/example_data.py --generate-annex` passed and wrote
+    `118` generated Annex CSVs under ignored `examples/data/annex/generated`;
+  - `uv run python main.py` passed and printed a JSON score report for `600`
+    samples;
+  - `uv run python -m json.tool examples/quickstart.ipynb` passed;
+  - initial notebook execution failed because `tools.example_data` was not
+    importable from the notebook kernel path;
+  - splitting notebook repository-root bootstrap from imports fixed Ruff `E402`
+    and notebook import behavior;
+  - `uv run --extra examples jupyter nbconvert --execute --to notebook --stdout
+    examples/quickstart.ipynb > /tmp/iso18571-quickstart.ipynb` passed;
+  - `uv run --extra test ruff format .` passed;
+  - `uv run --extra test ruff check .` passed;
+  - `uv run --extra test ruff format --check .` passed;
+  - `uv run --extra test mypy iso18571 iso18571_reference tests` passed;
+  - `uv run --extra test mypy tools` passed;
+  - `uv run --extra test python -m pytest -q` passed:
+    `4 passed, 32 deselected`;
+  - `git diff --check` passed.
+- Conclusion:
+  - the fresh-user path now has tracked demo CSVs, a no-argument script, a
+    visual notebook with bundled/downloaded/generated stages, and shared
+    reusable example-data tooling while keeping runtime dependencies light.
+- Next hypothesis:
+  - if these examples are promoted into packaged documentation later, decide
+    whether repository-local `tools/` should become an installed helper module
+    or remain a source-tree-only convenience.
