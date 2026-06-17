@@ -2,8 +2,8 @@
 #include <pybind11/pybind11.h>
 
 #include "scorer.hpp"
+#include "validation.hpp"
 
-#include <cmath>
 #include <stdexcept>
 #include <string>
 
@@ -24,26 +24,6 @@ T get_param(const py::dict& params, const char* name, T default_value) {
     return default_value;
 }
 
-void require_finite(double value, const char* name) {
-    if (!std::isfinite(value)) {
-        throw std::invalid_argument(std::string(name) + " must be finite");
-    }
-}
-
-void require_positive(double value, const char* name) {
-    require_finite(value, name);
-    if (value <= 0.0) {
-        throw std::invalid_argument(std::string(name) + " must be positive");
-    }
-}
-
-void require_non_negative(double value, const char* name) {
-    require_finite(value, name);
-    if (value < 0.0) {
-        throw std::invalid_argument(std::string(name) + " must be non-negative");
-    }
-}
-
 ScoreParams score_params_from_dict(const py::dict& params) {
     ScoreParams out;
     out.k_z = get_param<int>(params, "k_z", out.k_z);
@@ -60,35 +40,7 @@ ScoreParams score_params_from_dict(const py::dict& params) {
     out.w_s = get_param<double>(params, "w_s", out.w_s);
     out.dt = get_param<double>(params, "dt", out.dt);
 
-    if (out.k_z < 1 || out.k_z > 3) {
-        throw std::invalid_argument("k_z has to be 1, 2, or 3");
-    }
-    if (out.k_p < 1 || out.k_p > 3) {
-        throw std::invalid_argument("k_p has to be 1, 2, or 3");
-    }
-    if (out.k_m < 1 || out.k_m > 3) {
-        throw std::invalid_argument("k_m has to be 1, 2, or 3");
-    }
-    require_positive(out.eps_m, "eps_m");
-    require_positive(out.e_s, "e_s");
-    require_finite(out.init_min, "init_min");
-    if (out.init_min < 0.0 || out.init_min >= 1.0) {
-        throw std::invalid_argument("init_min must be finite and satisfy 0 <= init_min < 1");
-    }
-    require_non_negative(out.a_0, "a_0");
-    require_non_negative(out.b_0, "b_0");
-    if (out.b_0 <= out.a_0) {
-        throw std::invalid_argument("b_0 must be greater than a_0");
-    }
-    require_non_negative(out.w_z, "w_z");
-    require_non_negative(out.w_p, "w_p");
-    require_non_negative(out.w_m, "w_m");
-    require_non_negative(out.w_s, "w_s");
-    require_positive(out.dt, "dt");
-    const double weights_sum = out.w_z + out.w_m + out.w_p + out.w_s;
-    if (weights_sum != 1.0) {
-        throw std::invalid_argument("Sum of weighting factors (w_z, w_m, w_p, w_s) must be 1");
-    }
+    iso18571::validate_score_params(out);
     return out;
 }
 

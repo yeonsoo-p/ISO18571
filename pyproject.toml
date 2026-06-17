@@ -4,7 +4,7 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "euroncap"
-version = "1.0.0"
+version = "1.0.1"
 description = "Euro NCAP and ISO/TS 18571 validation tooling"
 readme = "README.md"
 requires-python = ">=3.12"

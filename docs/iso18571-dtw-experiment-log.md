@@ -1238,3 +1238,153 @@
 - Next hypothesis:
   - consider whether `score_components` should remain `_core`-private or move
     fully behind a pybind class wrapper.
+
+## 2026-06-17 12:45 KST - Annex Hash Pinning And ISO PDF Correctness Review
+
+- Git status: dirty from review follow-up edits.
+- Hypothesis:
+  - official Annex cache tests should verify a pinned upstream ZIP hash instead
+    of silently accepting changed bytes;
+  - dependency locking should remain out of scope for the distributable native
+    module source tree, with `uv.lock` ignored;
+  - the local ISO/TS 18571:2024 PDF can distinguish true metric correctness
+    gaps from NumPy API compatibility gaps.
+- Files changed:
+  - `tests/iso18571_annex.py` pins the official Annex ZIP SHA-256 and writes an
+    official cache manifest;
+  - `.gitignore` ignores the out-of-scope virtual van qualification draft and
+    keeps ignoring `uv.lock`;
+  - `virtual_van_frontal_collision_avoidance_qualification.md` removed from the
+    Git index only;
+  - `README.md` and `docs/iso18571-dtw-backends.md` left without lock-file
+    validation steps.
+- Commands:
+  - `pdftotext -layout ISO/ISO_TS_18571_2024(en).pdf -`
+  - `pdfinfo ISO/ISO_TS_18571_2024(en).pdf`
+  - `curl -fsSL` of the official Annex ZIP followed by `sha256sum`
+  - `git rm --cached -- virtual_van_frontal_collision_avoidance_qualification.md`
+  - `uv run --extra test ruff check .`
+  - `uv run --extra test ruff format --check .`
+  - `uv run --extra test mypy iso18571 iso18571_reference tests`
+  - `uv run --extra test python -m pytest -q`
+  - `git diff --check`
+  - `uv build --wheel`
+  - isolated `/tmp` wheel import probe with the built wheel.
+- Validation result:
+  - official Annex ZIP downloaded from ISO matched SHA-256
+    `cbc8c5a1ea5677ece8aa097387f9d9d2e6fe7a2a5bb2ce5d17ecf84fe52271d7`
+    and contained 42 CSV files;
+  - Ruff, format check, mypy, default pytest, whitespace check, and wheel build
+    passed;
+  - isolated wheel import reported `euroncap==1.0.0`, public exports
+    `ISO18571` and `backend_info`, and no importable `iso18571_reference`.
+- Conclusion:
+  - Annex parity now fails clearly if the upstream official ZIP bytes change;
+  - dependency lock-file handling remains ignored for this source tree;
+  - ISO PDF review confirms default weights, DTW window, DTW tie order, phase
+    tie order, magnitude denominator, and slope smoothing match the current
+    implementation for default-parameter Annex-style inputs;
+  - true ISO input correctness is about equal sample counts, synchronized
+    time-history curves, constant time interval, and evaluation interval, not
+    NumPy memory layout.
+- Next hypothesis:
+  - add focused scorer validation for time-column/dt consistency and ISO
+    parameter bounds before changing any public API behavior.
+
+## 2026-06-17 12:59 KST - Native Validation Translation Unit
+
+- Git status: dirty from existing review follow-up edits plus this validation
+  refactor.
+- Hypothesis:
+  - scalar scorer parameter requirements should live in reusable native C++
+    validation code, while `_core.cpp` should only parse Python values and keep
+    Python array shape checks;
+  - ISO corridor bounds require `0 <= a_0 <= 1`, `0 <= b_0 <= 1`, and
+    `a_0 < b_0`.
+- Files changed:
+  - added `src/iso18571/validation.hpp` and `src/iso18571/validation.cpp`;
+  - wired `validation.cpp` into `CMakeLists.txt`;
+  - moved scalar `ScoreParams` checks out of `_core.cpp`;
+  - deleted `test_native_rejects_invalid_params` without adding replacement
+    tests.
+- Commands:
+  - `uv run --extra test ruff check .`
+  - `uv run --extra test ruff format --check .`
+  - `uv run --extra test mypy iso18571 iso18571_reference tests`
+  - `uv run --extra test python -m pytest -q`
+  - `git diff --check`
+  - `uv build --wheel`
+- Validation result:
+  - Ruff check and format check passed;
+  - mypy strict passed for `iso18571`, `iso18571_reference`, and `tests`;
+  - default pytest passed: `4 passed, 32 deselected`;
+  - whitespace check passed;
+  - wheel build passed and compiled `validation.cpp` into the native extension.
+- Conclusion:
+  - native scalar validation is separated from pybind parsing and now enforces
+    the ISO upper bounds for `a_0` and `b_0`.
+- Next hypothesis:
+  - after API behavior is settled, consider focused native validation coverage
+    for scalar requirements without reintroducing pybind-specific checks.
+
+## 2026-06-17 13:02 KST - Native Weight Sum Tolerance
+
+- Git status: dirty from existing review follow-up edits plus the native
+  validation refactor.
+- Hypothesis:
+  - the native weight-sum validation should allow small binary floating-point
+    normalization error while still rejecting materially invalid weight sets.
+- Files changed:
+  - `src/iso18571/validation.hpp` defines
+    `kWeightSumAbsoluteTolerance = 1.0e-12`;
+  - `src/iso18571/validation.cpp` uses that tolerance for the total weight
+    check.
+- Commands:
+  - `uv run --extra test ruff check .`
+  - `uv run --extra test ruff format --check .`
+  - `uv run --extra test mypy iso18571 iso18571_reference tests`
+  - `uv run --extra test python -m pytest -q`
+  - `git diff --check`
+  - `uv build --wheel`
+- Validation result:
+  - Ruff check, format check, mypy, default pytest, whitespace check, and wheel
+    build passed;
+  - default pytest passed: `4 passed, 32 deselected`.
+- Conclusion:
+  - weight validation now accepts sums within `1.0e-12` of `1.0` instead of
+    requiring exact floating-point equality.
+- Next hypothesis:
+  - keep validation tolerances named in native requirement definitions so future
+    scalar checks are auditable.
+
+## 2026-06-17 13:07 KST - v1.0.1 Release Validation
+
+- Git status: dirty from validation, Annex hash, ignore-list, and release
+  version edits before staging.
+- Hypothesis:
+  - the validation refactor, `a_0`/`b_0` ISO-bound fix, Annex hash pinning, and
+    ignored virtual-van material are ready to ship as `v1.0.1`.
+- Files changed:
+  - `pyproject.toml` bumps the package version to `1.0.1`;
+  - native validation, CMake wiring, parity-test removal, Annex hash pinning,
+    and ignore-list changes remain in the release diff.
+- Commands:
+  - `uv run --extra test ruff check --fix .`
+  - `uv run --extra test ruff format .`
+  - `uv run --extra test ruff check .`
+  - `uv run --extra test ruff format --check .`
+  - `uv run --extra test mypy iso18571 iso18571_reference tests`
+  - `uv run --extra test python -m pytest -q`
+  - `git diff --check`
+  - `uv build --wheel`
+- Validation result:
+  - Ruff fix/check and format/check passed;
+  - mypy strict passed for `iso18571`, `iso18571_reference`, and `tests`;
+  - default pytest passed: `4 passed, 32 deselected`;
+  - whitespace check passed;
+  - wheel build produced
+    `dist/euroncap-1.0.1-cp313-cp313-linux_x86_64.whl`.
+- Conclusion:
+  - release candidate `v1.0.1` is ready to commit, tag, and push.
+- Next hypothesis:
+  - confirm the remote tag and main branch receive the release commit cleanly.

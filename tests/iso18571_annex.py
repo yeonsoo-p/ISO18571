@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import re
 import urllib.error
 import urllib.request
@@ -24,7 +25,8 @@ ANNEX_ZIP_URL = (
     "ISO_TS%2018571%20ed.2%20-%20Annex_data_csv_files.zip"
 )
 ANNEX_ZIP_NAME = "ISO_TS_18571_ed2_Annex_data_csv_files.zip"
-OFFICIAL_CACHE_VERSION = "official-v1"
+ANNEX_ZIP_SHA256 = "cbc8c5a1ea5677ece8aa097387f9d9d2e6fe7a2a5bb2ce5d17ecf84fe52271d7"
+OFFICIAL_CACHE_VERSION = "official-v2"
 GENERATED_CACHE_VERSION = "generated-v1"
 ANNEX_FILE_RE = re.compile(r"annex_c_(\d+_\d+)__.*__cae(\d+)\.csv")
 GENERATED_FILE_RE = re.compile(r"generated__(.+)__n(\d+)\.csv")
@@ -122,8 +124,7 @@ def official_annex_dir(cache_dir: Path) -> Path:
 
     target_dir.mkdir(parents=True, exist_ok=True)
     zip_path = cache_dir / ANNEX_ZIP_NAME
-    if not zip_path.exists():
-        _download_official_annex(zip_path)
+    _ensure_official_annex_zip(zip_path)
     _extract_official_annex(zip_path, target_dir)
     if not _official_annex_is_ready(target_dir):
         raise RuntimeError(f"Downloaded Annex cache is incomplete in {target_dir}")
@@ -229,13 +230,60 @@ def load_generated_annex_cases(annex_dir: Path) -> list[AnnexCase]:
 
 
 def _official_annex_is_ready(annex_dir: Path) -> bool:
+    manifest_path = annex_dir / "manifest.txt"
     return (
         annex_dir.is_dir()
+        and manifest_path.exists()
+        and manifest_path.read_text(encoding="utf-8") == _official_manifest()
         and len(
             [path for path in annex_dir.glob("*.csv") if ANNEX_FILE_RE.match(path.name)]
         )
         == 42
     )
+
+
+def _official_manifest() -> str:
+    return "\n".join(
+        (
+            OFFICIAL_CACHE_VERSION,
+            ANNEX_ZIP_URL,
+            ANNEX_ZIP_SHA256,
+            "",
+        )
+    )
+
+
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as file:
+        for chunk in iter(lambda: file.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _require_official_annex_zip_hash(zip_path: Path) -> None:
+    actual = _file_sha256(zip_path)
+    if actual != ANNEX_ZIP_SHA256:
+        raise RuntimeError(
+            f"ISO/TS 18571 Annex ZIP hash mismatch for {zip_path}: "
+            f"expected {ANNEX_ZIP_SHA256}, got {actual}"
+        )
+
+
+def _ensure_official_annex_zip(zip_path: Path) -> None:
+    if zip_path.exists():
+        try:
+            _require_official_annex_zip_hash(zip_path)
+            return
+        except RuntimeError:
+            zip_path.unlink()
+
+    _download_official_annex(zip_path)
+    try:
+        _require_official_annex_zip_hash(zip_path)
+    except RuntimeError:
+        zip_path.unlink(missing_ok=True)
+        raise
 
 
 def _download_official_annex(zip_path: Path) -> None:
@@ -252,8 +300,10 @@ def _download_official_annex(zip_path: Path) -> None:
 
 
 def _extract_official_annex(zip_path: Path, target_dir: Path) -> None:
+    _require_official_annex_zip_hash(zip_path)
     for path in target_dir.glob("*.csv"):
         path.unlink()
+    (target_dir / "manifest.txt").unlink(missing_ok=True)
     try:
         with zipfile.ZipFile(zip_path) as archive:
             for member in archive.infolist():
@@ -264,6 +314,7 @@ def _extract_official_annex(zip_path: Path, target_dir: Path) -> None:
         raise RuntimeError(
             f"Could not extract ISO/TS 18571 Annex cache {zip_path}: {exc}"
         ) from exc
+    (target_dir / "manifest.txt").write_text(_official_manifest(), encoding="utf-8")
 
 
 def _generated_cases_in_memory() -> list[AnnexCase]:

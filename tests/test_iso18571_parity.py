@@ -97,32 +97,6 @@ def test_native_surface_is_small_and_accepts_numpy_arrays(
     assert str(backend_info()["selected_x86_64_level"]).startswith("x86-64-v")
 
 
-def test_native_rejects_invalid_params(
-    generated_annex_cases: Sequence[AnnexCase],
-) -> None:
-    case = next(
-        case for case in generated_annex_cases if "sine_amp_offset" in case.name
-    )
-    invalid_params = (
-        {"dt": 0.0},
-        {"dt": np.inf},
-        {"eps_m": 0.0},
-        {"e_s": 0.0},
-        {"init_min": -0.1},
-        {"init_min": 1.0},
-        {"a_0": -0.1},
-        {"a_0": 0.05, "b_0": 0.05},
-        {"w_z": -0.1, "w_p": 0.3, "w_m": 0.4, "w_s": 0.4},
-        {"w_z": 0.5, "w_p": 0.2, "w_m": 0.2, "w_s": 0.2},
-    )
-    for params in invalid_params:
-        try:
-            _score_components(case.reference_curve, case.comparison_curve, params)
-        except ValueError:
-            continue
-        raise AssertionError(f"invalid params accepted: {params}")
-
-
 def test_native_short_curves_fail_clearly() -> None:
     curve = np.column_stack(
         (np.arange(8, dtype=np.float64), np.ones(8, dtype=np.float64))

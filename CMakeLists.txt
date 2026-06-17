@@ -11,6 +11,7 @@ set(ISO18571_SOURCES
     src/iso18571/_core.cpp
     src/iso18571/dispatch.cpp
     src/iso18571/scorer_v1.cpp
+    src/iso18571/validation.cpp
 )
 set(ISO18571_DEFINITIONS ISO18571_COMPILED_X86_64_V1=1)
 
