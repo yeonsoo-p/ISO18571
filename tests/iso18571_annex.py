@@ -115,6 +115,8 @@ class AnnexCase:
     comparison_curve: npt.NDArray[np.float64]
     dt: float
     expected: dict[str, float] | None
+    expected_shifted_reference_values: npt.NDArray[np.float64] | None = None
+    expected_shifted_comparison_values: npt.NDArray[np.float64] | None = None
 
 
 def official_annex_dir(cache_dir: Path) -> Path:
@@ -159,6 +161,7 @@ def load_downloaded_annex_cases(annex_dir: Path) -> list[AnnexCase]:
         table_key = match[1]
         cae_no = int(match.group(2))
         rows: list[tuple[float, float, float]] = []
+        shifted_rows: list[tuple[float, float]] = []
         with path.open(newline="") as csv_file:
             for row in list(csv.DictReader(csv_file))[1:]:
                 try:
@@ -166,10 +169,22 @@ def load_downloaded_annex_cases(annex_dir: Path) -> list[AnnexCase]:
                         (float(row["Time"]), float(row["Test"]), float(row["CAE"]))
                     )
                 except (KeyError, TypeError, ValueError):
-                    continue
+                    pass
+                try:
+                    shifted_rows.append(
+                        (
+                            float(row["Test_Phase_Shifted"]),
+                            float(row["CAE_Phase_Shifted"]),
+                        )
+                    )
+                except (KeyError, TypeError, ValueError):
+                    pass
         if not rows:
             raise ValueError(f"No signal data found in {path}")
         array = np.asarray(rows, dtype=np.float64)
+        shifted_array = (
+            np.asarray(shifted_rows, dtype=np.float64) if shifted_rows else None
+        )
         expected = dict(
             zip(SCORE_NAMES, EXPECTED_SCORES[table_key][cae_no], strict=True)
         )
@@ -180,6 +195,12 @@ def load_downloaded_annex_cases(annex_dir: Path) -> list[AnnexCase]:
                 comparison_curve=np.column_stack((array[:, 0], array[:, 2])),
                 dt=float(np.median(np.diff(array[:, 0]))),
                 expected=expected,
+                expected_shifted_reference_values=(
+                    shifted_array[:, 0] if shifted_array is not None else None
+                ),
+                expected_shifted_comparison_values=(
+                    shifted_array[:, 1] if shifted_array is not None else None
+                ),
             )
         )
     if len(cases) != 42:

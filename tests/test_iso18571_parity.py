@@ -10,9 +10,13 @@ import iso18571._core as native_core
 from iso18571 import ISO18571, backend_info
 from tests.iso18571_annex import AnnexCase
 from tests.iso18571_test_helpers import (
+    AnnexParityResult,
     assert_downloaded_expected_scores,
+    assert_downloaded_expected_shifted_values,
     assert_scores_close,
     score_result,
+    scores_for_case,
+    with_expected_numeric_warnings,
 )
 
 PARITY_BACKENDS = ("dtwalign", "native", "dtw_python", "librosa")
@@ -22,12 +26,13 @@ def test_downloaded_annex_scores_match_official_and_parity(
     downloaded_annex_cases: Sequence[AnnexCase],
 ) -> None:
     for case in downloaded_annex_cases:
-        expected = None
+        expected: AnnexParityResult | None = None
         for backend in PARITY_BACKENDS:
-            result = score_result(case, backend)
-            if isinstance(result, type):
-                raise AssertionError(f"{case.name} {backend}: raised {result.__name__}")
+            result = with_expected_numeric_warnings(
+                lambda: scores_for_case(case, backend), f"{case.name} {backend}"
+            )
             assert_downloaded_expected_scores(result, case, backend)
+            assert_downloaded_expected_shifted_values(result, case, backend)
             if expected is None:
                 expected = result
             else:
@@ -39,10 +44,10 @@ def test_generated_annex_scores_match_or_raise_together(
 ) -> None:
     for case in generated_annex_cases:
         results = {backend: score_result(case, backend) for backend in PARITY_BACKENDS}
-        exception_types = {
+        exception_types: set[type[BaseException]] = {
             result for result in results.values() if isinstance(result, type)
         }
-        score_values = {
+        score_values: dict[str, AnnexParityResult] = {
             backend: result
             for backend, result in results.items()
             if not isinstance(result, type)

@@ -1784,3 +1784,88 @@
   - commit the param-boundary cleanup and keep any future `_core` changes
     exercised through public scorer parity unless a private native regression
     cannot be observed through `ISO18571`.
+
+## 2026-06-17 18:35 KST - Annex Phase Alignment Parity Tightening
+
+- Git status: clean before changes.
+- Hypothesis:
+  - Annex parity should compare not only final scores, but also phase alignment
+    start/length fields and shifted curves; generated degenerate parity should
+    not allow warning/assertion failures to masquerade as matching backend
+    exceptions.
+- Files changed:
+  - `tests/iso18571_test_helpers.py`;
+  - `tests/test_iso18571_parity.py`;
+  - `tests/iso18571_annex.py`;
+  - `iso18571_reference/_common.py`;
+  - `docs/iso18571-dtw-backends.md`;
+  - `docs/iso18571-dtw-experiment-log.md`.
+- Commands:
+  - add source-only reference diagnostic phase start/length properties;
+  - carry official Annex `Test_Phase_Shifted` and `CAE_Phase_Shifted` columns
+    through downloaded Annex fixtures;
+  - replace score-only parity helper results with an Annex parity result that
+    includes shifted curves;
+  - keep official Annex scoring on direct public-constructor calls and restrict
+    generated exception parity to real scorer exceptions.
+- Validation result:
+  - `uv run --extra test python -m pytest -q tests/test_iso18571_parity.py`
+    passed: `4 passed`;
+  - `uv run --extra test ruff check .` passed;
+  - `uv run --extra test ruff format --check .` passed;
+  - `uv run --extra test mypy iso18571 iso18571_reference tests` passed;
+  - `uv run --extra test python -m pytest -q` passed:
+    `4 passed, 32 deselected`;
+  - `git diff --check` passed.
+- Conclusion:
+  - Annex parity now covers official and generated Annex-shaped score parity,
+    phase start/length parity, shifted-curve parity, official phase-shifted
+    columns within `0.001`, and stricter generated exception semantics without
+    changing production API.
+- Next hypothesis:
+  - if future parity gaps appear, inspect DTW warped-curve intermediates against
+    the official Annex columns separately from this default score/phase parity
+    surface.
+
+## 2026-06-17 18:41 KST - v1.0.3 Annex Parity Release Validation
+
+- Git status: dirty from Annex parity tightening and version bump.
+- Hypothesis:
+  - the tightened Annex parity changes can ship as `1.0.3` without changing the
+    production API or breaking wheel builds.
+- Files changed:
+  - `pyproject.toml`;
+  - `README.md`;
+  - `tests/iso18571_test_helpers.py`;
+  - `tests/test_iso18571_parity.py`;
+  - `tests/iso18571_annex.py`;
+  - `iso18571_reference/_common.py`;
+  - `docs/iso18571-dtw-backends.md`;
+  - `docs/iso18571-dtw-experiment-log.md`.
+- Commands:
+  - bump package version and README diagnostic example from `1.0.2` to `1.0.3`;
+  - `uv pip install -e .`;
+  - `uv run --extra test ruff check --fix .`;
+  - `uv run --extra test ruff format .`;
+  - `uv run --extra test ruff check .`;
+  - `uv run --extra test ruff format --check .`;
+  - `uv run --extra test mypy iso18571 iso18571_reference tests`;
+  - `git diff --check`;
+  - `uv run --extra test python -m pytest -q tests/test_iso18571_parity.py`;
+  - `uv run --extra test python -m pytest -q`;
+  - `uv build --wheel`.
+- Validation result:
+  - editable install updated from `iso18571==1.0.2` to `iso18571==1.0.3`;
+  - Ruff fix/check and format/check passed;
+  - mypy passed;
+  - whitespace check passed;
+  - parity pytest passed: `4 passed`;
+  - default pytest passed: `4 passed, 32 deselected`;
+  - wheel build produced
+    `dist/iso18571-1.0.3-cp314-cp314-linux_x86_64.whl`.
+- Conclusion:
+  - `1.0.3` is validated locally with strengthened Annex parity and unchanged
+    production API.
+- Next hypothesis:
+  - push `main` with the existing parameter-boundary commit plus the new Annex
+    parity/version commit.

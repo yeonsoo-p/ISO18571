@@ -66,9 +66,15 @@ class BaseISO18571:
 
         self.dt = dt
         self._max_shift = round(1.0 - self._init_min, 2)
-        self._cae_ts, self._t_ts, self._n_eps, self._rho_e = (
-            self._get_shifted_curve_and_pr()
-        )
+        (
+            self._cae_ts,
+            self._t_ts,
+            self._n_eps,
+            self._rho_e,
+            self._reference_start,
+            self._comparison_start,
+            self._shift_length,
+        ) = self._get_shifted_curve_and_pr()
 
     @property
     def n_eps(self) -> int:
@@ -86,7 +92,21 @@ class BaseISO18571:
     def shifted_comparison_curve(self) -> FloatArray:
         return self._cae_ts.copy()
 
-    def _get_shifted_curve_and_pr(self) -> tuple[FloatArray, FloatArray, int, float]:
+    @property
+    def reference_start(self) -> int:
+        return int(self._reference_start)
+
+    @property
+    def comparison_start(self) -> int:
+        return int(self._comparison_start)
+
+    @property
+    def shift_length(self) -> int:
+        return int(self._shift_length)
+
+    def _get_shifted_curve_and_pr(
+        self,
+    ) -> tuple[FloatArray, FloatArray, int, float, int, int, int]:
         window_size = int(
             np.floor(len(self.comparison_curve[:, 1]) * self._max_shift) + 1
         )
@@ -96,6 +116,9 @@ class BaseISO18571:
         idx_ccr_max = 0
         t_ts = self.reference_curve
         cae_ts = self.comparison_curve
+        reference_start = 0
+        comparison_start = 0
+        shift_length = self.reference_curve.shape[0]
         for idx in range(1, window_size):
             ccr_left = np.corrcoef(
                 self.reference_curve[:-idx, 1], self.comparison_curve[idx:, 1]
@@ -105,6 +128,9 @@ class BaseISO18571:
                 idx_ccr_max = idx
                 t_ts = self.reference_curve[:-idx, :]
                 cae_ts = self.comparison_curve[idx:, :]
+                reference_start = 0
+                comparison_start = idx
+                shift_length = self.reference_curve.shape[0] - idx
 
             ccr_right = np.corrcoef(
                 self.reference_curve[idx:, 1], self.comparison_curve[:-idx, 1]
@@ -114,8 +140,19 @@ class BaseISO18571:
                 idx_ccr_max = idx
                 t_ts = self.reference_curve[idx:, :]
                 cae_ts = self.comparison_curve[:-idx, :]
+                reference_start = idx
+                comparison_start = 0
+                shift_length = self.reference_curve.shape[0] - idx
 
-        return cae_ts.copy(), t_ts.copy(), idx_ccr_max, ccr_max
+        return (
+            cae_ts.copy(),
+            t_ts.copy(),
+            idx_ccr_max,
+            ccr_max,
+            reference_start,
+            comparison_start,
+            shift_length,
+        )
 
     @staticmethod
     def _compute_magnitude(

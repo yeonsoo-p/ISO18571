@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import warnings
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Protocol, TypeVar
 
 import numpy as np
+import numpy.typing as npt
 
 import iso18571
 from iso18571_reference import rating_dtwalign, rating_dtw_python, rating_librosa
@@ -16,8 +18,21 @@ EXPECTED_NUMERIC_WARNING_PATTERNS = (
 )
 SCORE_KEYS = ("Z", "EP", "EM", "ES", "R")
 ROUND_SCORE_KEYS = tuple(f"{key}_round" for key in SCORE_KEYS)
-ScoreDict = dict[str, float | int]
+FloatArray = npt.NDArray[np.float64]
+ScoreDict = dict[str, float]
 T = TypeVar("T")
+
+
+@dataclass(frozen=True)
+class AnnexParityResult:
+    scores: ScoreDict
+    n_eps: int
+    rho_e: float
+    reference_start: int
+    comparison_start: int
+    shift_length: int
+    shifted_reference_curve: FloatArray
+    shifted_comparison_curve: FloatArray
 
 
 class Scorer(Protocol):
@@ -26,6 +41,21 @@ class Scorer(Protocol):
 
     @property
     def rho_e(self) -> float: ...
+
+    @property
+    def reference_start(self) -> int: ...
+
+    @property
+    def comparison_start(self) -> int: ...
+
+    @property
+    def shift_length(self) -> int: ...
+
+    @property
+    def shifted_reference_curve(self) -> FloatArray: ...
+
+    @property
+    def shifted_comparison_curve(self) -> FloatArray: ...
 
     def corridor_rating(self, ndigits: int = 3) -> float: ...
 
@@ -59,15 +89,12 @@ def with_expected_numeric_warnings(fn: Callable[[], T], context: str) -> T:
     return value
 
 
-def scores_for_case(case: AnnexCase, backend: str) -> ScoreDict:
+def scores_for_case(case: AnnexCase, backend: str) -> AnnexParityResult:
     iso: Scorer
     if backend == "native":
         iso = iso18571.ISO18571(
             case.reference_curve,
             case.comparison_curve,
-            k_z=2.0,
-            k_p=1.0,
-            k_m=1.0,
             dt=case.dt,
         )
     elif backend == "dtwalign":
@@ -85,9 +112,7 @@ def scores_for_case(case: AnnexCase, backend: str) -> ScoreDict:
     else:
         raise AssertionError(f"unknown parity backend {backend}")
 
-    return {
-        "n_eps": iso.n_eps,
-        "rho_e": iso.rho_e,
+    scores = {
         "Z": iso.corridor_rating(ndigits=-1),
         "EP": iso.phase_rating(ndigits=-1),
         "EM": iso.magnitude_rating(ndigits=-1),
@@ -99,27 +124,50 @@ def scores_for_case(case: AnnexCase, backend: str) -> ScoreDict:
         "ES_round": iso.slope_rating(ndigits=3),
         "R_round": iso.overall_rating(ndigits=3),
     }
+    return AnnexParityResult(
+        scores=scores,
+        n_eps=iso.n_eps,
+        rho_e=iso.rho_e,
+        reference_start=iso.reference_start,
+        comparison_start=iso.comparison_start,
+        shift_length=iso.shift_length,
+        shifted_reference_curve=iso.shifted_reference_curve,
+        shifted_comparison_curve=iso.shifted_comparison_curve,
+    )
 
 
-def score_result(case: AnnexCase, backend: str) -> ScoreDict | type[BaseException]:
+def score_result(
+    case: AnnexCase, backend: str
+) -> AnnexParityResult | type[BaseException]:
     try:
         return with_expected_numeric_warnings(
             lambda: scores_for_case(case, backend), f"{case.name} {backend}"
         )
+    except AssertionError:
+        raise
     except Exception as exc:
         return type(exc)
 
 
 def assert_scores_close(
-    observed: ScoreDict,
-    expected: ScoreDict,
+    observed: AnnexParityResult,
+    expected: AnnexParityResult,
     case_name: str,
     backend: str,
 ) -> None:
-    assert observed["n_eps"] == expected["n_eps"], f"{case_name} {backend} n_eps"
+    assert observed.n_eps == expected.n_eps, f"{case_name} {backend} n_eps"
+    assert observed.reference_start == expected.reference_start, (
+        f"{case_name} {backend} reference_start"
+    )
+    assert observed.comparison_start == expected.comparison_start, (
+        f"{case_name} {backend} comparison_start"
+    )
+    assert observed.shift_length == expected.shift_length, (
+        f"{case_name} {backend} shift_length"
+    )
     np.testing.assert_allclose(
-        observed["rho_e"],
-        expected["rho_e"],
+        observed.rho_e,
+        expected.rho_e,
         rtol=1e-10,
         atol=1e-10,
         equal_nan=True,
@@ -127,8 +175,8 @@ def assert_scores_close(
     )
     for key in SCORE_KEYS:
         np.testing.assert_allclose(
-            observed[key],
-            expected[key],
+            observed.scores[key],
+            expected.scores[key],
             rtol=1e-9,
             atol=1e-9,
             equal_nan=True,
@@ -136,25 +184,71 @@ def assert_scores_close(
         )
     for key in ROUND_SCORE_KEYS:
         np.testing.assert_allclose(
-            observed[key],
-            expected[key],
+            observed.scores[key],
+            expected.scores[key],
             rtol=0.0,
             atol=0.0,
             equal_nan=True,
             err_msg=f"{case_name} {backend} {key}",
         )
+    assert (
+        observed.shifted_reference_curve.shape == expected.shifted_reference_curve.shape
+    ), f"{case_name} {backend} shifted_reference_curve shape"
+    assert (
+        observed.shifted_comparison_curve.shape
+        == expected.shifted_comparison_curve.shape
+    ), f"{case_name} {backend} shifted_comparison_curve shape"
+    np.testing.assert_allclose(
+        observed.shifted_reference_curve,
+        expected.shifted_reference_curve,
+        rtol=0.0,
+        atol=0.0,
+        equal_nan=True,
+        err_msg=f"{case_name} {backend} shifted_reference_curve",
+    )
+    np.testing.assert_allclose(
+        observed.shifted_comparison_curve,
+        expected.shifted_comparison_curve,
+        rtol=0.0,
+        atol=0.0,
+        equal_nan=True,
+        err_msg=f"{case_name} {backend} shifted_comparison_curve",
+    )
 
 
 def assert_downloaded_expected_scores(
-    scores: ScoreDict, case: AnnexCase, backend: str
+    result: AnnexParityResult, case: AnnexCase, backend: str
 ) -> None:
     assert case.expected is not None
     for key in SCORE_NAMES:
         np.testing.assert_allclose(
-            scores[key],
+            result.scores[key],
             case.expected[key],
             rtol=0.0,
             atol=0.001,
             equal_nan=True,
             err_msg=f"{case.name} {backend} official {key}",
         )
+
+
+def assert_downloaded_expected_shifted_values(
+    result: AnnexParityResult, case: AnnexCase, backend: str
+) -> None:
+    assert case.expected_shifted_reference_values is not None
+    assert case.expected_shifted_comparison_values is not None
+    np.testing.assert_allclose(
+        result.shifted_reference_curve[:, 1],
+        case.expected_shifted_reference_values,
+        rtol=0.0,
+        atol=0.001,
+        equal_nan=True,
+        err_msg=f"{case.name} {backend} official shifted reference",
+    )
+    np.testing.assert_allclose(
+        result.shifted_comparison_curve[:, 1],
+        case.expected_shifted_comparison_values,
+        rtol=0.0,
+        atol=0.001,
+        equal_nan=True,
+        err_msg=f"{case.name} {backend} official shifted comparison",
+    )
