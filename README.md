@@ -13,8 +13,7 @@ overall = score.overall_rating()
 
 Curves are NumPy-compatible arrays with shape `(n, 2)`: time in the first column and signal value in the second column. The native scorer derives the sample interval from matching, uniformly spaced time columns.
 
-For a small runnable CSV example, use the bundled demo files in
-`examples/reference.csv` and `examples/comparison.csv`:
+For a small runnable CSV example, use the bundled demo files in `examples/reference.csv` and `examples/comparison.csv`:
 
 ```bash
 uv run python main.py
@@ -32,9 +31,7 @@ For a guided notebook with signal plots, open:
 uv run --extra examples jupyter lab examples/quickstart.ipynb
 ```
 
-The notebook walks through the bundled demo CSVs, a downloaded official Annex
-case, and a generated Annex case. The same data prep can be run from the
-terminal:
+The notebook walks through the bundled demo CSVs, a downloaded official Annex case, and a generated Annex case. The same data prep can be run from the terminal:
 
 ```bash
 uv run python tools/example_data.py --all
@@ -57,24 +54,16 @@ Install `uv` first; all project commands below assume it is available on `PATH`.
 
 Native builds need one of these build environments:
 
-- local build tools for editable installs and single-interpreter wheels: a C++17
-  compiler, CMake-compatible build tooling, and Python development headers;
-- Docker or Podman for Linux manylinux wheels, including Docker Desktop when
-  building Linux wheels from a Windows host;
-- on Linux hosts, `clang-cl`, `lld-link`, `llvm-rc`, `llvm-mt`, `objdump`, and
-  `xwin` for Windows cross-built wheels;
-- on Windows hosts, Visual Studio Build Tools with MSVC for native Windows
-  wheels.
+- local build tools for editable installs and single-interpreter wheels: a C++17 compiler, CMake-compatible build tooling, and Python development headers;
+- Docker or Podman for Linux manylinux wheels, including Docker Desktop when building Linux wheels from a Windows host;
+- on Linux hosts, `clang-cl`, `lld-link`, `llvm-rc`, `llvm-mt`, `objdump`, and `xwin` for Windows cross-built wheels;
+- on Windows hosts, Visual Studio Build Tools with MSVC for native Windows wheels.
 
 `uv` creates the Python build and test environments from `pyproject.toml`.
 
-Windows wheel users need the Microsoft Visual C++ Redistributable 2015-2022
-x64 installed at runtime. Install it from Microsoft's latest supported Visual
-C++ Redistributable downloads page. The wheels link to those runtime DLLs
-dynamically and do not bundle them.
+Windows wheel users need the Microsoft Visual C++ Redistributable 2015-2022 x64 installed at runtime. Install it from Microsoft's latest supported Visual C++ Redistributable downloads page. The wheels link to those runtime DLLs dynamically and do not bundle them.
 
-On Debian/Ubuntu, install Docker Engine from Docker's official Ubuntu
-instructions. Then install the remaining local release-build tools with:
+On Debian/Ubuntu, install Docker Engine from Docker's official Ubuntu instructions. Then install the remaining local release-build tools with:
 
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -123,8 +112,7 @@ The release wheel matrix targets CPython 3.12, 3.13, and 3.14 on:
 - Linux x86_64;
 - Windows AMD64.
 
-Use the project wheel builder as the normal entrypoint. On a Linux host it
-builds Linux wheels with `cibuildwheel` manylinux containers and Windows wheels with `clang-cl` plus `xwin`. On a Windows host it uses `cibuildwheel` for both native Windows MSVC wheels and Linux wheels through Docker.
+Use the project wheel builder as the normal entrypoint. On a Linux host it builds Linux wheels with `cibuildwheel`  anylinux containers and Windows wheels with `clang-cl` plus `xwin`. On a Windows host it uses `cibuildwheel` for both native Windows MSVC wheels and Linux wheels through Docker.
 
 For a full local release build:
 
@@ -146,9 +134,7 @@ uv run python tools/build_wheels.py \
   --python 3.12 3.13 3.14
 ```
 
-On Linux hosts, if the xwin SDK/CRT cache is missing, the Windows cross-build
-provisions it and accepts Microsoft's SDK redistribution terms by default. To
-require manual provisioning instead:
+On Linux hosts, if the xwin SDK/CRT cache is missing, the Windows cross-build provisions it and accepts Microsoft's SDK redistribution terms by default. To require manual provisioning instead:
 
 ```bash
 uv run python tools/build_wheels.py \
@@ -162,20 +148,15 @@ For Linux wheels only, keep Docker or Podman running:
 uv run python tools/build_wheels.py --platform linux
 ```
 
-The same Linux-wheel command is supported from Windows when Docker Desktop is
-running.
+The same Linux-wheel command is supported from Windows when Docker Desktop is running.
 
-`uv build` and `tools/build_wheels.py` both write to `dist/` in the examples
-above. That is also the default input path for `uv publish`.
+`uv build` and `tools/build_wheels.py` both write to `dist/` in the examples above. That is also the default input path for `uv publish`.
 
 ## Testing
 
-Production scoring is native-only. Python reference scorers live in
-`iso18571_reference` for parity tests and research; they are not installed in
-production wheels.
+Production scoring is native-only. Python reference scorers live in `iso18571_reference` for parity tests and research; they are not installed in production wheels.
 
-The official ISO/TS 18571 Annex CSV data is downloaded into the pytest cache on first test run. Generated fixed-signal and phase-shift Annex cases are also
-written into the pytest cache so a fresh clone can run the same parity suite.
+The official ISO/TS 18571 Annex CSV data is downloaded into the pytest cache on first test run. Generated fixed-signal and phase-shift Annex cases are also written into the pytest cache so a fresh clone can run the same parity suite.
 
 Run the standard checks:
 
@@ -188,27 +169,28 @@ uv run --extra test mypy iso18571 iso18571_reference tests
 uv run --extra test python -m pytest -q
 ```
 
+## References And Licensing
+
+This project implements
+[ISO/TS 18571:2024](https://www.iso.org/standard/85791.html), "Road vehicles - Objective rating metric for non-ambiguous signals". It includes a clean-room native scorer and parity tests informed by public ISO/TS 18571 validation work, including the TU Graz/OpenVT [Objective Rating Metric ISO18571](https://openvt.eu/validation-metrics/ISO18571) project.
+
+The production `iso18571` package is MIT-licensed under `LICENSE`. All source files remain MIT-licensed unless marked otherwise. The source-only `iso18571_reference/rating_dtw_python.py` test/research wrapper is `GPL-3.0-or-later` because it uses the GPL-licensed `dtw-python` backend. The reference modules are not installed in production wheels.
+
 ## Benchmarks
 
-Benchmark tests are excluded from default pytest. They compare `native`,
-`dtwalign`, `dtw_python`, and `librosa` on a mixed signal at lengths `512`,
-`2048`, `8192`, and `32768`.
+Benchmark tests are excluded from default pytest. They compare `native`, `dtwalign`, `dtw_python`, and `librosa` on a mixed signal at lengths `512`, `2048`, `8192`, and `32768`.
 
 ```bash
 uv run --extra test python -m pytest -q -m benchmark --benchmark-json .benchmarks/iso18571-readme/benchmarks.json
 ```
 
-The benchmark report separates setup/load behavior from dynamic calculation
-behavior:
+The benchmark report separates setup/load behavior from dynamic calculation behavior:
 
-- `load_memory` rows measure a fresh spawned Python process importing the
-  backend, generating data, scoring once, and reporting peak process memory and peak swap/pagefile usage.
+- `load_memory` rows measure a fresh spawned Python process importing the backend, generating data, scoring once, and reporting peak process memory and peak swap/pagefile usage.
 - `runtime` rows measure repeated scoring in a warmed spawned process.
-- Any row with `extra_info.swap_invalidated == true` leaked into swap/pagefile;
-  keep it as a stress outcome, but do not treat its timing as a valid in-memory runtime number.
+- Any row with `extra_info.swap_invalidated == true` leaked into swap/pagefile; keep it as a stress outcome, but do not treat its timing as a valid in-memory runtime number.
 
-Large reference-backend rows may need substantial swap to complete. On Linux,
-create temporary swap outside the test runner before the full benchmark matrix:
+Large reference-backend rows may need substantial swap to complete. On Linux, create temporary swap outside the test runner before the full benchmark matrix:
 
 ```bash
 sudo fallocate -l 64G /swap_iso18571_bench.img
@@ -231,8 +213,8 @@ Benchmark snapshot from this machine:
 | Backend | 512 | 2048 | 8192 | 32768 |
 | --- | ---: | ---: | ---: | ---: |
 | native | 123.92 | 123.23 | 163.67 | 776.39 |
-| dtwalign | 3898.99 | 3813.41 | 4897.01 | 22929.49 |
-| dtw_python | 931.82 | 995.43 | 1803.67 | 38670.55 |
+| dtwalign | 3898.99 | 3813.41 | 4897.01 | -(invalid) |
+| dtw_python | 931.82 | 995.43 | 1803.67 | -(invalid) |
 | librosa | 1231.87 | 1274.18 | 2253.83 | 17590.40 |
 
 ### Peak RSS, MiB
@@ -240,8 +222,8 @@ Benchmark snapshot from this machine:
 | Backend | 512 | 2048 | 8192 | 32768 |
 | --- | ---: | ---: | ---: | ---: |
 | native | 46.05 | 45.89 | 58.86 | 250.84 |
-| dtwalign | 359.48 | 450.83 | 2105.46 | 28585.85 |
-| dtw_python | 253.07 | 431.89 | 3278.38 | 29065.60 |
+| dtwalign | 359.48 | 450.83 | 2105.46 | -(invalid) |
+| dtw_python | 253.07 | 431.89 | 3278.38 | -(invalid) |
 | librosa | 312.04 | 385.59 | 1759.17 | 24522.72 |
 
 ### Runtime, ms
@@ -249,15 +231,6 @@ Benchmark snapshot from this machine:
 | Backend | 512 | 2048 | 8192 | 32768 |
 | --- | ---: | ---: | ---: | ---: |
 | native | 0.19 | 2.44 | 35.78 | 610.56 |
-| dtwalign | 6.97 | 87.72 | 1177.31 | 22621.32 |
-| dtw_python | 7.01 | 62.88 | 936.57 | 36806.96 |
+| dtwalign | 6.97 | 87.72 | 1177.31 | -(invalid) |
+| dtw_python | 7.01 | 62.88 | 936.57 | -(invalid) |
 | librosa | 7.02 | 77.73 | 1049.70 | 16130.18 |
-
-### Swap Invalidated
-
-| Backend | 512 | 2048 | 8192 | 32768 |
-| --- | --- | --- | --- | --- |
-| native | no | no | no | no |
-| dtwalign | no | no | no | yes |
-| dtw_python | no | no | no | yes |
-| librosa | no | no | no | no |

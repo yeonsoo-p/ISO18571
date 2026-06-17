@@ -2005,3 +2005,45 @@
   - if these examples are promoted into packaged documentation later, decide
     whether repository-local `tools/` should become an installed helper module
     or remain a source-tree-only convenience.
+
+## 2026-06-18 08:46 KST - README References And Dtw-Python GPL Boundary
+
+- Git status: dirty from README reference/licensing text and
+  `rating_dtw_python.py` GPL notice cleanup.
+- Hypothesis:
+  - documenting the official ISO page and OpenVT/TU Graz project in the README,
+    while making only the dtw-python reference wrapper GPL-covered, clarifies
+    provenance without changing production scorer behavior or wheel contents.
+- Files changed:
+  - `README.md`;
+  - `iso18571_reference/rating_dtw_python.py`;
+  - this experiment log.
+- Commands:
+  - added README links for `https://www.iso.org/standard/85791.html` and
+    `https://openvt.eu/validation-metrics/ISO18571`;
+  - documented the MIT production package boundary and the GPL-only
+    `rating_dtw_python.py` reference wrapper boundary;
+  - kept CMake/scikit-build wheel install rules unchanged.
+- Validation result:
+  - `uv run --extra test ruff check --fix .` passed;
+  - `uv run --extra test ruff format .` passed with `20 files left unchanged`;
+  - `uv run --extra test ruff check .` passed;
+  - `uv run --extra test ruff format --check .` passed;
+  - `uv run --extra test mypy iso18571 iso18571_reference tests` passed;
+  - `git diff --check` passed;
+  - `uv run --extra test python -m pytest -q` passed:
+    `4 passed, 32 deselected`;
+  - `uv build --wheel` passed and produced
+    `dist/iso18571-1.0.4-cp314-cp314-linux_x86_64.whl`;
+  - `uv build --sdist` passed and produced `dist/iso18571-1.0.4.tar.gz`;
+  - wheel archive inspection found no `iso18571_reference` package and no
+    `rating_dtw_python.py`;
+  - sdist archive inspection found `iso18571_reference/rating_dtw_python.py`,
+    and that file contains the GPL text.
+- Conclusion:
+  - README references now point to both the official ISO page and OpenVT/TU
+    Graz project, while production wheels remain MIT-only native package
+    artifacts.
+- Next hypothesis:
+  - no scorer follow-up is needed unless the project later adopts a central
+    license-file convention for non-production reference modules.
