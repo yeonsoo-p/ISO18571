@@ -1,6 +1,7 @@
 #include "validation.hpp"
 
 #include <cmath>
+#include <limits>
 #include <stdexcept>
 #include <string>
 
@@ -9,6 +10,10 @@ namespace {
 
 [[noreturn]] void throw_score_exponent_error(const char* name) {
     throw std::invalid_argument(std::string(name) + " has to be 1, 2, or 3");
+}
+
+[[noreturn]] void throw_positive_integer_error(const char* name) {
+    throw std::invalid_argument(std::string(name) + " must be a positive integer");
 }
 
 void require_finite(double value, const char* name) {
@@ -34,6 +39,12 @@ void require_non_negative(double value, const char* name) {
 void require_score_exponent(int value, const char* name) {
     if (value < kScoreExponentMinimum || value > kScoreExponentMaximum) {
         throw_score_exponent_error(name);
+    }
+}
+
+void require_positive_integer(int value, const char* name) {
+    if (value < 1) {
+        throw_positive_integer_error(name);
     }
 }
 
@@ -69,8 +80,19 @@ int score_exponent_from_double(double value, const char* name) {
     throw_score_exponent_error(name);
 }
 
+int positive_integer_from_double(double value, const char* name) {
+    if (
+        !std::isfinite(value) || value < 1.0 ||
+        value > static_cast<double>(std::numeric_limits<int>::max()) ||
+        std::floor(value) != value
+    ) {
+        throw_positive_integer_error(name);
+    }
+    return static_cast<int>(value);
+}
+
 void validate_score_params(const ScoreParams& params) {
-    require_score_exponent(params.k_z, "k_z");
+    require_positive_integer(params.k_z, "k_z");
     require_score_exponent(params.k_p, "k_p");
     require_score_exponent(params.k_m, "k_m");
 

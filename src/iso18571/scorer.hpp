@@ -25,6 +25,10 @@ struct CurveView {
     double value(Index index) const {
         return *reinterpret_cast<const double*>(data + index * row_stride + column_stride);
     }
+
+    double time(Index index) const {
+        return *reinterpret_cast<const double*>(data + index * row_stride);
+    }
 };
 
 struct ScoreParams {

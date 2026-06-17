@@ -172,6 +172,9 @@ class BaseISO18571:
         inner_corridor = self._a_0 * t_norm
         outer_corridor = self._b_0 * t_norm
         abs_diff = np.absolute(np.subtract(self.reference_curve, self.comparison_curve))
+        if t_norm == 0:
+            z = float(np.sum(abs_diff[:, 1] == 0.0) / len(abs_diff))
+            return self._rating_value(z, ndigits)
         c_i = np.array(
             pow(
                 ((outer_corridor - abs_diff[:, 1]) / (outer_corridor - inner_corridor)),

@@ -376,6 +376,16 @@ double corridor_score(const CurveView& reference, const CurveView& comparison, c
         t_norm = std::max(t_norm, std::abs(reference.value(idx)));
     }
 
+    if (t_norm == 0.0) {
+        double sum = 0.0;
+        for (Index idx = 0; idx < reference.n; ++idx) {
+            if (reference.value(idx) == comparison.value(idx)) {
+                sum += 1.0;
+            }
+        }
+        return sum / static_cast<double>(reference.n);
+    }
+
     const double inner_corridor = params.a_0 * t_norm;
     const double outer_corridor = params.b_0 * t_norm;
     double sum = 0.0;

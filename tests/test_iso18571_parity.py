@@ -70,7 +70,7 @@ def test_native_surface_is_small_and_accepts_numpy_arrays(
     case = next(
         case for case in generated_annex_cases if "sine_amp_offset" in case.name
     )
-    scores = ISO18571(case.reference_curve, case.comparison_curve, dt=case.dt).scores
+    scores = ISO18571(case.reference_curve, case.comparison_curve).scores
     assert set(scores) == {
         "Z",
         "EP",

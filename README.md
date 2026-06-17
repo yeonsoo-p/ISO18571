@@ -7,11 +7,11 @@ This repository contains a native ISO/TS 18571 scorer for vehicle signal validat
 ```python
 from iso18571 import ISO18571
 
-score = ISO18571(reference_curve, comparison_curve, dt=0.0001)
+score = ISO18571(reference_curve, comparison_curve)
 overall = score.overall_rating()
 ```
 
-Curves are NumPy-compatible arrays with shape `(n, 2)`: time in the first column and signal value in the second column.
+Curves are NumPy-compatible arrays with shape `(n, 2)`: time in the first column and signal value in the second column. The native scorer derives the sample interval from matching, uniformly spaced time columns.
 
 The package also exposes a native diagnostic helper:
 
@@ -21,7 +21,7 @@ The package also exposes a native diagnostic helper:
 from iso18571 import backend_info
 
 print(backend_info())
-# {'name': 'iso18571', 'implementation': 'C++17', 'version': '1.0.3', 'optimization': 'x86-64-v3'}
+# {'name': 'iso18571', 'implementation': 'C++17', 'version': '1.0.4', 'optimization': 'x86-64-v3'}
 ```
 
 ## Prerequisites

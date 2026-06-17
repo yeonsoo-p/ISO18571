@@ -40,8 +40,7 @@ class ScorerClass(Protocol):
         self,
         reference_curve: np.ndarray,
         comparison_curve: np.ndarray,
-        *,
-        dt: float,
+        **kwargs: float,
     ) -> BenchmarkScorer: ...
 
 
@@ -133,9 +132,11 @@ def scorer_class(backend: str) -> ScorerClass:
 
 
 def score_case(backend: str, case: BenchmarkSignal) -> float:
-    scorer = scorer_class(backend)(
-        case.reference_curve, case.comparison_curve, dt=case.dt
-    )
+    score_cls = scorer_class(backend)
+    if backend == "native":
+        scorer = score_cls(case.reference_curve, case.comparison_curve)
+    else:
+        scorer = score_cls(case.reference_curve, case.comparison_curve, dt=case.dt)
     return scorer.overall_rating(ndigits=-1)
 
 

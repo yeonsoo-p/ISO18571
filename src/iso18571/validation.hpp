@@ -23,6 +23,7 @@ inline constexpr double kExpectedWeightSum = 1.0;
 inline constexpr double kWeightSumAbsoluteTolerance = 1.0e-12;
 
 int score_exponent_from_double(double value, const char* name);
+int positive_integer_from_double(double value, const char* name);
 void validate_score_params(const ScoreParams& params);
 
 }  // namespace iso18571

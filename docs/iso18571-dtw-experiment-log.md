@@ -1869,3 +1869,76 @@
 - Next hypothesis:
   - push `main` with the existing parameter-boundary commit plus the new Annex
     parity/version commit.
+
+## 2026-06-17 19:14 KST - Native Time-Derived Slope Interval And Corridor Edge Correction
+
+- Git status: clean before changes.
+- Hypothesis:
+  - production native scoring should derive slope `dt` from validated curve time
+    columns, reject inconsistent native time grids, and keep Annex parity while
+    preserving source-only reference `dt` constructor compatibility.
+- Files changed:
+  - native binding, validation, scorer headers/implementation;
+  - production Python wrapper, CLI, README, parity/benchmark native call sites;
+  - source-only reference corridor edge handling; this experiment log.
+- Commands:
+  - removed public production `ISO18571(..., dt=...)` plumbing and CLI `--dt`;
+  - added native time-column validation for finite, strictly increasing,
+    uniformly spaced, equal reference/comparison grids using
+    `max(1e-12, 1e-9 * dt)` tolerance;
+  - derived native `ScoreParams.dt` from the validated time column;
+  - split native `k_z` validation to accept positive integers while keeping
+    `k_p` and `k_m` in `{1, 2, 3}`;
+  - made zero-`Tnorm` corridor scoring exact-match based;
+  - kept reference constructors accepting `dt` and continued passing `dt` only
+    to reference backends in parity and benchmark helpers.
+- Validation result:
+  - initial parity run before rebuilding the extension failed on the generated
+    zero case because it used the stale native extension;
+  - `uv pip install -e .` rebuilt the native extension successfully;
+  - `uv run --extra test python -m pytest -q tests/test_iso18571_parity.py`
+    passed: `4 passed`;
+  - `uv run --extra test python -m pytest -q` passed:
+    `4 passed, 32 deselected`;
+  - `uv run --extra test ruff check .` passed;
+  - `uv run --extra test ruff format --check .` passed;
+  - `uv run --extra test mypy iso18571 iso18571_reference tests` passed.
+- Conclusion:
+  - official and generated Annex parity remain green after stricter native
+    timing validation and the production API no longer accepts caller-provided
+    `dt`; source-only references retain their `dt` parameter.
+- Next hypothesis:
+  - run the final whitespace check and consider a follow-up test-focused change
+    only if future invalid-time-grid coverage is desired.
+
+## 2026-06-17 19:16 KST - v1.0.4 Release Version Bump
+
+- Git status: dirty from native time-derived interval and corridor edge
+  correction before this follow-up.
+- Hypothesis:
+  - the native timing/corridor correction can ship as `1.0.4` after the normal
+    commit gates pass.
+- Files changed:
+  - `pyproject.toml`;
+  - `README.md`;
+  - this experiment log.
+- Commands:
+  - bump package version and README diagnostic example from `1.0.3` to
+    `1.0.4`.
+- Validation result:
+  - editable install updated from `iso18571==1.0.3` to `iso18571==1.0.4`;
+  - `uv run --extra test ruff check --fix .` passed;
+  - `uv run --extra test ruff format .` passed;
+  - `uv run --extra test ruff check .` passed;
+  - `uv run --extra test ruff format --check .` passed;
+  - `uv run --extra test mypy iso18571 iso18571_reference tests` passed;
+  - `git diff --check` passed;
+  - `uv run --extra test python -m pytest -q tests/test_iso18571_parity.py`
+    passed: `4 passed`;
+  - `uv run --extra test python -m pytest -q` passed:
+    `4 passed, 32 deselected`.
+- Conclusion:
+  - native timing/corridor correction is validated locally as `1.0.4`.
+- Next hypothesis:
+  - commit the implementation and create/push git tag `v1.0.4` if validation
+    passes.

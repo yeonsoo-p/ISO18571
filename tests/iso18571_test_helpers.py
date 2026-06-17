@@ -95,7 +95,6 @@ def scores_for_case(case: AnnexCase, backend: str) -> AnnexParityResult:
         iso = iso18571.ISO18571(
             case.reference_curve,
             case.comparison_curve,
-            dt=case.dt,
         )
     elif backend == "dtwalign":
         iso = rating_dtwalign.ISO18571(

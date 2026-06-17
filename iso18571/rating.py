@@ -33,7 +33,6 @@ class ISO18571:
         w_p: float = 0.2,
         w_m: float = 0.2,
         w_s: float = 0.2,
-        dt: float = 0.0001,
     ) -> None:
         self.reference_curve = np.asarray(reference_curve, dtype=np.float64)
         self.comparison_curve = np.asarray(comparison_curve, dtype=np.float64)
@@ -53,7 +52,6 @@ class ISO18571:
             "w_p": w_p,
             "w_m": w_m,
             "w_s": w_s,
-            "dt": dt,
         }
         self._scores: ScoreComponents = _score_components(
             self.reference_curve,
