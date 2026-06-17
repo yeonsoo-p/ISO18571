@@ -1,7 +1,6 @@
-# Euro NCAP ISO/TS 18571 Scoring
+# ISO/TS 18571 Scoring
 
-This repository contains a native ISO/TS 18571 scorer used for Euro NCAP
-validation work.
+This repository contains a native ISO/TS 18571 scorer for vehicle signal validation.
 
 ## Public API
 
@@ -19,7 +18,79 @@ The package also exposes a native diagnostic helper:
 
 - `iso18571.backend_info()`
 
-## References And Tests
+## Prerequisites
+
+Install `uv` first; all project commands below assume it is available on `PATH`.
+
+Native builds need one of these build environments:
+
+- local build tools for editable installs and single-interpreter wheels: a C++17
+  compiler, CMake-compatible build tooling, and Python development headers;
+- Docker or Podman for local Linux `cibuildwheel` builds;
+- MSVC Build Tools for local Windows builds.
+
+`uv` creates the Python build and test environments from `pyproject.toml`.
+
+## Building
+
+For an editable local native build:
+
+```bash
+uv pip install -e .
+```
+
+For a wheel targeting the current interpreter and platform:
+
+```bash
+uv build --wheel
+```
+
+The `cibuildwheel` matrix is configured for CPython 3.12, 3.13, and 3.14 on:
+
+- Linux x86_64;
+- Windows AMD64.
+
+For local manylinux wheels through `cibuildwheel`, keep Docker or Podman running:
+
+```bash
+uv run --extra build cibuildwheel \
+  --platform linux \
+  --output-dir dist
+```
+
+To build only one CPython version during a quick local check:
+
+```bash
+CIBW_BUILD='cp313-*' uv run --extra build cibuildwheel \
+  --platform linux \
+  --output-dir dist
+```
+
+On Windows with MSVC installed:
+
+```powershell
+uv run --extra build cibuildwheel --platform windows --output-dir dist
+```
+
+For a Linux release build, start with a clean distribution directory and build
+the source distribution plus Linux wheels:
+
+```bash
+rm -rf dist
+uv build --sdist
+uv run --extra build cibuildwheel \
+  --platform linux \
+  --output-dir dist
+```
+
+For Windows wheels, run the Windows `cibuildwheel` command on a Windows machine
+with MSVC installed, then collect those wheels into the same release `dist/`
+directory before publishing.
+
+Both `uv build` and `cibuildwheel` write to `dist/`. That is also the default
+input path for `uv publish`.
+
+## Testing
 
 Production scoring is native-only. Python reference scorers live in
 `iso18571_reference` for parity tests and research; they are not installed in
@@ -29,17 +100,15 @@ The official ISO/TS 18571 Annex CSV data is downloaded into the pytest cache on
 first test run. Generated fixed-signal and phase-shift Annex cases are also
 written into the pytest cache so a fresh clone can run the same parity suite.
 
-Run the main validation gates:
+Run the standard checks:
 
 ```bash
-uv pip install -e .
 uv run --extra test ruff check --fix .
 uv run --extra test ruff format .
 uv run --extra test ruff check .
 uv run --extra test ruff format --check .
 uv run --extra test mypy iso18571 iso18571_reference tests
 uv run --extra test python -m pytest -q
-uv build
 ```
 
 ## Benchmarks

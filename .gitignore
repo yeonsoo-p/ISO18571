@@ -18,5 +18,4 @@ dist/
 .ruff_cache/
 .vscode/
 .python-version
-virtual_van_frontal_collision_avoidance_qualification.md
 uv.lock

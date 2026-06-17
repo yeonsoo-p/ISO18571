@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.21)
 
-project(euroncap LANGUAGES CXX)
+project(iso18571 LANGUAGES CXX)
 
 include(CheckCXXCompilerFlag)
 
