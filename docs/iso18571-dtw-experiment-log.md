@@ -1388,3 +1388,303 @@
   - release candidate `v1.0.1` is ready to commit, tag, and push.
 - Next hypothesis:
   - confirm the remote tag and main branch receive the release commit cleanly.
+
+## 2026-06-17 13:55 KST - Zig Linux SIMD Flag Mapping
+
+- Git status: clean `main` at `f82d266`, then branched to
+  `experiment/zig-linux-simd` for the experiment.
+- Hypothesis:
+  - Zig can build the Linux Python extension with the same internal x86-64
+    dispatch coverage if CMake uses Zig's underscore CPU names for
+    `-march=x86_64_v2`, `-march=x86_64_v3`, and `-march=x86_64_v4`.
+- Files changed:
+  - `CMakeLists.txt` detects `zig c++` narrowly and uses Zig-specific
+    x86-64-v2/v3/v4 compile flags;
+  - this experiment log records the baseline and mapped Zig results.
+- Commands:
+  - `CC="zig cc" CXX="zig c++" uv build --wheel --out-dir /tmp/iso18571-zig-dist --clear -Cbuild-dir=/tmp/iso18571-zig-build`
+  - smoke import/scoring run with the baseline Zig wheel from `/tmp`
+  - `CC="zig cc" CXX="zig c++" uv build --wheel --out-dir /tmp/iso18571-zig-mapped-dist --clear -Cbuild-dir=/tmp/iso18571-zig-mapped-build`
+  - smoke import/scoring run with the mapped Zig wheel from `/tmp`
+  - `ldd` on the mapped Zig-built `_core` extension
+  - copied `tests/` and `iso18571_reference/` into `/tmp/iso18571-zig-parity`
+    without copying the source `iso18571/` package
+  - import-location probe against the mapped Zig wheel from the temp parity
+    workspace
+  - `uv run --with /tmp/iso18571-zig-mapped-dist/iso18571-1.0.1-cp313-cp313-linux_x86_64.whl --with pytest --with dtwalign --with dtw-python --with librosa --with scipy python -m pytest -q tests/test_iso18571_parity.py`
+  - `uv run --extra test ruff check --fix .`
+  - `uv run --extra test ruff format .`
+  - `uv run --extra test ruff check .`
+  - `uv run --extra test ruff format --check .`
+  - `uv run --extra test mypy iso18571 iso18571_reference tests`
+  - `uv run --extra test python -m pytest -q`
+  - `git diff --check`
+  - `uv build --wheel`
+- Validation result:
+  - baseline Zig Linux wheel built, imported, and scored `1.0`, but reported
+    only `compiled_x86_64_levels == "x86-64-v1"`;
+  - after CMake flag mapping, Zig built v1/v2/v3/v4 source variants and the
+    smoke run reported
+    `compiled_x86_64_levels == "x86-64-v1,x86-64-v2,x86-64-v3,x86-64-v4"`;
+  - mapped Zig smoke scoring returned `1.0` and selected `x86-64-v3` on this
+    host;
+  - `ldd` showed only `libm`, `libc`, and the system dynamic loader;
+  - the temp-workspace import probe confirmed `iso18571` and `_core` loaded
+    from the installed Zig wheel, not the repo source tree;
+  - wheel-backed parity suite passed: `4 passed in 25.40s`;
+  - Ruff, format check, mypy, default pytest, whitespace check, and normal GCC
+    wheel build passed.
+- Conclusion:
+  - Zig 0.16.0 is viable for Linux local extension builds with internal
+    dispatch preserved after translating the x86-64 level CPU flag spelling.
+- Next hypothesis:
+  - try the same Zig mapping inside Linux `cibuildwheel`/manylinux before
+    considering any Windows cross-build experiment.
+
+## 2026-06-17 14:09 KST - Zig Windows PYD Probe Under Wine
+
+- Git status: clean `experiment/zig-linux-simd` before recording the Windows
+  probe.
+- Hypothesis:
+  - Zig can cross-compile a Windows `_core.pyd` from Linux, and Wine can provide
+    enough Windows Python runtime coverage to smoke-test import behavior.
+- Files changed:
+  - experiment log only.
+- Commands:
+  - initialized a disposable 64-bit Wine prefix under
+    `/home/user/.cache/iso18571-wine/win64`;
+  - downloaded and unpacked the CPython 3.13.8 NuGet package into `/tmp`;
+  - verified the Windows `python.exe` runs under Wine;
+  - configured a `x86_64-windows-msvc` Zig/CMake build with Windows Python
+    headers and `python313.lib`;
+  - configured and built a `x86_64-windows-gnu` Zig/CMake build with the same
+    Windows Python inputs;
+  - imported the resulting `_core.cp313-win_amd64.pyd` under Wine;
+  - installed Windows NumPy wheels under the Wine Python and attempted a scoring
+    smoke.
+- Validation result:
+  - `x86_64-windows-msvc` configured but failed to compile because MSVC/Windows
+    SDK headers such as `io.h`, `new.h`, and `vcruntime_exception.h` are absent
+    on this Linux host;
+  - `x86_64-windows-gnu` built `_core.cp313-win_amd64.pyd` with v1/v2/v3/v4
+    source variants;
+  - Wine import of `iso18571._core` succeeded and `backend_info()` reported
+    `compiled_x86_64_levels == "x86-64-v1,x86-64-v2,x86-64-v3,x86-64-v4"`;
+  - Windows NumPy import failed under Ubuntu Wine 9.0 with unimplemented
+    `ucrtbase.dll.crealf`, so full scoring/parity under Wine is blocked by
+    Wine/NumPy runtime coverage rather than `_core` import.
+- Conclusion:
+  - Zig can produce a loadable Windows `.pyd` through the `windows-gnu` target,
+    but the distributable MSVC-ABI path needs Windows SDK/MSVC CRT headers, and
+    full runtime validation needs either newer Wine coverage or a real Windows
+    VM/host.
+- Next hypothesis:
+  - provision MSVC headers/libs via an `xwin`-style SDK layout for the
+    `x86_64-windows-msvc` target, then validate on real Windows or KVM if Wine
+    remains blocked by NumPy.
+
+## 2026-06-17 14:37 KST - Zig Windows uv/Wine Parity Probe
+
+- Git status: clean `experiment/zig-linux-simd` before appending this entry.
+- Hypothesis:
+  - Windows `uv` under Wine can replace NuGet as the Python source for runtime
+    testing and development artifacts;
+  - `xwin` can provide the missing MSVC CRT/Windows SDK headers for Zig's
+    `x86_64-windows-msvc` path;
+  - if any Windows NumPy lane imports under Wine, the full parity suite should
+    run against a Zig-built Windows `.pyd`.
+- Files changed:
+  - experiment log only.
+- Commands:
+  - initialized a fresh 64-bit Wine prefix under
+    `/home/user/.cache/iso18571-wine/uv-win64`;
+  - downloaded the official Windows `uv` release zip into `/tmp` after Wine
+    PowerShell did not expose an installed `uv.exe`;
+  - ran Windows `uv` under Wine for CPython 3.13 and 3.11 NumPy probes;
+  - installed `vcrun2022` with `winetricks`, set a `ucrtbase` native/builtin
+    DLL override, and retried NumPy imports;
+  - located uv-managed `Python.h`, `python311.lib`, `python311.dll`,
+    `python313.lib`, and `python313.dll`;
+  - installed `xwin` with Cargo and splatted the x86_64 MSVC CRT/Windows SDK to
+    `/home/user/.cache/iso18571-xwin`;
+  - configured Zig/CMake for `x86_64-windows-msvc` against uv's CPython 3.11
+    artifacts and the xwin sysroot;
+  - built a `x86_64-windows-gnu` `_core.cp311-win_amd64.pyd` against uv's
+    CPython 3.11 artifacts;
+  - checked the GNU-target `.pyd` imports with `objdump -p`;
+  - staged `iso18571`, `iso18571_reference`, and `tests` in `/tmp` with the
+    Zig-built Windows `.pyd`;
+  - smoke-tested import/scoring under Wine with `numpy==1.26.4`;
+  - ran
+    `wine /tmp/iso18571-win-uv/uv.exe run --isolated --python 3.11 --with pytest --with numpy==1.26.4 --with scipy --with dtwalign --with dtw-python --with librosa python -m pytest -q tests/test_iso18571_parity.py`.
+- Validation result:
+  - Windows `uv` 0.11.21 runs under Wine and installs uv-managed CPython
+    3.13.14 and 3.11.15;
+  - uv-managed Python includes usable headers, import libraries, and runtime
+    DLLs, so NuGet is unnecessary for this probe;
+  - current Windows NumPy on CPython 3.13 and 3.11 still fails under Ubuntu
+    Wine 9.0 with unimplemented `ucrtbase.dll.crealf`, even after `vcrun2022`
+    and a `ucrtbase` override;
+  - CPython 3.11 with `numpy==1.26.4` imports successfully under Wine;
+  - `xwin` provides the previously missing MSVC headers, and CMake configures
+    Zig's `x86_64-windows-msvc` target with v1/v2/v3/v4 source variants;
+  - the MSVC-ABI build compiles objects but does not link: CMake emits linker
+    flags Zig rejects (`/MANIFEST:EMBED`, `/version:0.0`), and after removing
+    those generated flags Zig's C++ runtime build for `windows-msvc` fails while
+    building libc++/libc++abi because `vcruntime_exception.h` is not available
+    to the internal runtime compilation;
+  - a Zig `x86_64-windows-gnu` CPython 3.11 `.pyd` builds successfully with
+    `compiled_x86_64_levels == "x86-64-v1,x86-64-v2,x86-64-v3,x86-64-v4"`;
+  - `objdump -p` shows the GNU-target `.pyd` imports `python311.dll`
+    dynamically, plus Windows/UCRT DLLs, and does not statically link Python;
+  - Wine smoke test with `numpy==1.26.4` imports the Windows `.pyd`, selects
+    `x86-64-v3`, and scores identical curves as `1.0`;
+  - full Windows/Wine parity passed against the Zig-built GNU `.pyd`:
+    `4 passed in 39.39s`.
+- Conclusion:
+  - Windows `uv` under Wine is a better runtime/dev-artifact source than NuGet;
+  - Wine parity is viable today only on the CPython 3.11 plus NumPy 1.26 lane;
+  - Zig can build and validate a Windows GNU `.pyd` with full internal dispatch
+    from Linux;
+  - Zig's MSVC C++ path remains blocked by driver/CMake integration and Zig
+    libc++/libc++abi support for `windows-msvc`, not by missing Python
+    artifacts.
+- Next hypothesis:
+  - use real Windows/MSVC or clang-cl with xwin for distributable
+    `win_amd64` wheels, while treating Zig `windows-gnu` as a useful local
+    experiment rather than the release path.
+
+## 2026-06-17 14:56 KST - clang-cl Windows 10 KVM Setup
+
+- Git status: dirty from the existing experiment-log entry before appending
+  this follow-up.
+- Hypothesis:
+  - `clang-cl` plus `lld-link` and the `xwin` SDK can build a real MSVC-ABI
+    Windows `.pyd` from Linux;
+  - a Windows 10 KVM VM can provide real Windows runtime coverage for parity,
+    avoiding Wine's NumPy/UCRT limitations.
+- Files changed:
+  - experiment log only.
+- Commands:
+  - copied `/media/user/Ventoy/iso/Win10_22H2_English_x64v1.iso` to
+    `/home/user/.cache/iso18571-win-vm/iso/`;
+  - created cache-only CMake helper wrappers for Wine Python and
+    `lld-link /lib`;
+  - configured and built a CPython 3.11 MSVC-ABI extension with `clang-cl`,
+    `lld-link`, `llvm-rc`, `llvm-mt`, xwin CRT/SDK paths, pybind11, and
+    uv-managed Windows Python development artifacts;
+  - checked the `.pyd` with `file` and `objdump -p`;
+  - staged `iso18571`, `iso18571_reference`, `tests`, Windows `uv.exe`, and
+    `run-parity.ps1`/`run-parity.cmd` under the VM payload directory;
+  - created `win10.qcow2` and copied OVMF vars into the VM cache;
+  - launched QEMU/KVM with the Windows ISO, qcow2 disk, user-mode networking,
+    and the payload as a writable USB mass-storage FAT drive.
+- Validation result:
+  - `clang-cl` configured and built `_core.cp311-win_amd64.pyd`;
+  - CMake compiled the expected MSVC dispatch set:
+    `x86-64-v1,x86-64-v3,x86-64-v4`;
+  - `objdump -p` shows dynamic imports for `python311.dll`, `MSVCP140.dll`,
+    `VCRUNTIME140.dll`, and UCRT API DLLs;
+  - the VM is running as QEMU process `14976` with KVM acceleration;
+  - first QEMU launch inherited Snap library variables from VS Code and failed
+    with an incompatible `libpthread`; relaunching with a clean environment
+    fixed the issue.
+- Conclusion:
+  - the Linux-hosted clang-cl MSVC-ABI build path is viable for CPython 3.11;
+  - Windows installation/OOBE is now the blocking step before real parity can
+    run in the VM.
+- Next hypothesis:
+  - after Windows reaches the desktop, run the shared `run-parity.cmd` payload
+    to validate current NumPy/SciPy parity on real Windows.
+
+## 2026-06-17 16:29 KST - clang-cl Windows 10 KVM Parity Result
+
+- Git status: dirty from prior experiment-log entries before appending this
+  follow-up.
+- Hypothesis:
+  - the Linux-built `clang-cl`/xwin MSVC-ABI CPython 3.11 `.pyd` should import
+    and pass full scorer parity under a real Windows 10 KVM guest with current
+    Windows NumPy/SciPy wheels.
+- Files changed:
+  - experiment log only.
+- Commands:
+  - booted the installed Windows 10 KVM guest from
+    `/home/user/.cache/iso18571-win-vm/win10.qcow2`;
+  - replaced the writable QEMU vvfat payload with a read-only generated payload
+    ISO after vvfat crashed while Windows wrote volume metadata;
+  - staged Microsoft VC runtime DLLs next to `iso18571/_core.cp311-win_amd64.pyd`
+    after the first Windows smoke failed with a missing dependent DLL;
+  - changed the Windows runner to capture uv stdout/stderr via `Start-Process`
+    instead of PowerShell native-command redirection;
+  - seeded the official Annex zip into `.pytest_cache/d/iso18571_annex` from the
+    host cache after Windows Python failed certificate verification when
+    fetching it over HTTPS;
+  - ran `run-parity.cmd` from the `ISO18571V4` payload CD inside the guest.
+- Validation result:
+  - `objdump -p` confirms the `.pyd` imports `python311.dll` dynamically, along
+    with `MSVCP140.dll`, `VCRUNTIME140.dll`, and UCRT API DLLs;
+  - Windows `uv` 0.11.21 installed CPython 3.11.15 and current test
+    dependencies in the guest;
+  - smoke imported NumPy and `iso18571`, selected `x86-64-v3`, and scored
+    identical curves as `1.0`;
+  - `backend_info()` reported
+    `compiled_x86_64_levels == "x86-64-v1,x86-64-v3,x86-64-v4"`;
+  - full parity under Windows 10 KVM passed:
+    `4 passed in 36.42s`.
+- Conclusion:
+  - the Linux-hosted `clang-cl` plus xwin build path can produce a usable
+    MSVC-ABI CPython 3.11 `win_amd64` extension;
+  - real Windows KVM validation avoids the Wine/UCRT NumPy limitation and gives
+    a viable local test harness for Windows wheels;
+  - payload transfer should use read-only ISO or another non-vvfat path, and
+    Windows parity runs should seed the Annex data or configure trusted
+    certificates before relying on live HTTPS downloads.
+- Next hypothesis:
+  - repeat the same `clang-cl`/xwin build and Windows KVM validation for CPython
+    3.13, then decide whether to automate the process behind cibuildwheel-style
+    local commands.
+
+## 2026-06-17 16:57 KST - Host-Specific Wheel Builder
+
+- Git status: dirty on `main` from carrying forward experiment-log entries and
+  implementing the build-system follow-up.
+- Hypothesis:
+  - KVM proved that a Linux-built MSVC-ABI Windows `.pyd` can work on Windows,
+    but the durable release workflow should build wheels from the host without
+    treating KVM or Wine as required infrastructure.
+- Files changed:
+  - `CMakeLists.txt`, `pyproject.toml`, `README.md`,
+    `tools/build_wheels.py`, and this experiment log.
+- Commands:
+  - added a host-aware wheel builder that dispatches Linux wheels to
+    `cibuildwheel` and Windows wheels to the Linux-hosted
+    `clang-cl`/`lld-link`/`xwin` cross-build lane;
+  - added a CMake cross-build option for target Python development artifacts
+    without a target interpreter;
+  - added a controlled extension suffix override for cross-built Windows
+    `.pyd` names;
+  - added scikit-build tag overrides selected by
+    `ISO18571_CROSS_WINDOWS_TAG`.
+- Validation result:
+  - normal pytest passed: `4 passed, 32 deselected`;
+  - normal local wheel build passed for the host interpreter;
+  - Linux-hosted Windows cross-build produced
+    `cp312-cp312-win_amd64`, `cp313-cp313-win_amd64`, and
+    `cp314-cp314-win_amd64` wheels;
+  - each Windows wheel contained the expected `_core.cp3xx-win_amd64.pyd`;
+  - `objdump -p` validation confirmed dynamic imports for the matching
+    `python3xx.dll`, `MSVCP140.dll`, and `VCRUNTIME140.dll`;
+  - Linux cibuildwheel produced CPython 3.12/3.13/3.14 manylinux wheels, and
+    `auditwheel repair` retagged them as
+    `manylinux_2_24_x86_64.manylinux_2_28_x86_64`.
+- Conclusion:
+  - `cibuildwheel` remains useful only for the Linux/manylinux lane in this
+    repository's release workflow;
+  - Windows runtime DLLs should remain a user/runtime prerequisite, not wheel
+    payload contents;
+  - KVM remains useful for occasional manual runtime proof, but is out of scope
+    for the normal build and validation flow.
+- Next hypothesis:
+  - use `tools/build_wheels.py --platform all --out-dir dist` as the local
+    release-wheel entrypoint after the remaining style/type/whitespace gates
+    pass.

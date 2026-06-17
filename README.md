@@ -11,8 +11,7 @@ score = ISO18571(reference_curve, comparison_curve, dt=0.0001)
 overall = score.overall_rating()
 ```
 
-Curves are NumPy-compatible arrays with shape `(n, 2)`: time in the first column
-and signal value in the second column.
+Curves are NumPy-compatible arrays with shape `(n, 2)`: time in the first column and signal value in the second column.
 
 The package also exposes a native diagnostic helper:
 
@@ -26,10 +25,14 @@ Native builds need one of these build environments:
 
 - local build tools for editable installs and single-interpreter wheels: a C++17
   compiler, CMake-compatible build tooling, and Python development headers;
-- Docker or Podman for local Linux `cibuildwheel` builds;
-- MSVC Build Tools for local Windows builds.
+- Docker or Podman for Linux manylinux wheels;
+- on Linux hosts, `clang-cl`, `lld-link`, `llvm-rc`, `llvm-mt`, `objdump`, and
+  `xwin` for Windows cross-built wheels.
 
 `uv` creates the Python build and test environments from `pyproject.toml`.
+
+Windows wheel users need the Microsoft Visual C++ Redistributable 2015-2022
+x64 installed at runtime. The wheels link to those runtime DLLs dynamically and do not bundle them.
 
 ## Building
 
@@ -45,50 +48,48 @@ For a wheel targeting the current interpreter and platform:
 uv build --wheel
 ```
 
-The `cibuildwheel` matrix is configured for CPython 3.12, 3.13, and 3.14 on:
+The release wheel matrix targets CPython 3.12, 3.13, and 3.14 on:
 
 - Linux x86_64;
 - Windows AMD64.
 
-For local manylinux wheels through `cibuildwheel`, keep Docker or Podman running:
+Use the project wheel builder as the normal entrypoint from a Linux host. It
+builds Linux wheels with `cibuildwheel` manylinux containers and Windows wheels with `clang-cl` plus `xwin`. From a Windows machine, use WSL2, a Linux VM, or CI for release wheels.
 
-```bash
-uv run --extra build cibuildwheel \
-  --platform linux \
-  --output-dir dist
-```
-
-To build only one CPython version during a quick local check:
-
-```bash
-CIBW_BUILD='cp313-*' uv run --extra build cibuildwheel \
-  --platform linux \
-  --output-dir dist
-```
-
-On Windows with MSVC installed:
-
-```powershell
-uv run --extra build cibuildwheel --platform windows --output-dir dist
-```
-
-For a Linux release build, start with a clean distribution directory and build
-the source distribution plus Linux wheels:
+For a full Linux-hosted release build:
 
 ```bash
 rm -rf dist
-uv build --sdist
-uv run --extra build cibuildwheel \
-  --platform linux \
-  --output-dir dist
+uv build --sdist --out-dir dist
+uv run --extra build python tools/build_wheels.py --platform all --out-dir dist
 ```
 
-For Windows wheels, run the Windows `cibuildwheel` command on a Windows machine
-with MSVC installed, then collect those wheels into the same release `dist/`
-directory before publishing.
+For Windows wheels from a Linux host:
 
-Both `uv build` and `cibuildwheel` write to `dist/`. That is also the default
-input path for `uv publish`.
+```bash
+uv run --extra build python tools/build_wheels.py \
+  --platform windows \
+  --python 3.12 3.13 3.14 \
+  --out-dir dist
+```
+
+If the xwin SDK/CRT cache is missing, the first Windows cross-build must accept Microsoft's SDK redistribution terms explicitly:
+
+```bash
+uv run --extra build python tools/build_wheels.py \
+  --platform windows \
+  --accept-ms-license \
+  --out-dir dist
+```
+
+For Linux wheels only, keep Docker or Podman running:
+
+```bash
+uv run --extra build python tools/build_wheels.py --platform linux --out-dir dist
+```
+
+`uv build` and `tools/build_wheels.py` both write to `dist/` in the examples
+above. That is also the default input path for `uv publish`.
 
 ## Testing
 
@@ -96,8 +97,7 @@ Production scoring is native-only. Python reference scorers live in
 `iso18571_reference` for parity tests and research; they are not installed in
 production wheels.
 
-The official ISO/TS 18571 Annex CSV data is downloaded into the pytest cache on
-first test run. Generated fixed-signal and phase-shift Annex cases are also
+The official ISO/TS 18571 Annex CSV data is downloaded into the pytest cache on first test run. Generated fixed-signal and phase-shift Annex cases are also
 written into the pytest cache so a fresh clone can run the same parity suite.
 
 Run the standard checks:
@@ -125,12 +125,10 @@ The benchmark report separates setup/load behavior from dynamic calculation
 behavior:
 
 - `load_memory` rows measure a fresh spawned Python process importing the
-  backend, generating data, scoring once, and reporting peak process memory and
-  peak swap/pagefile usage.
+  backend, generating data, scoring once, and reporting peak process memory and peak swap/pagefile usage.
 - `runtime` rows measure repeated scoring in a warmed spawned process.
 - Any row with `extra_info.swap_invalidated == true` leaked into swap/pagefile;
-  keep it as a stress outcome, but do not treat its timing as a valid in-memory
-  runtime number.
+  keep it as a stress outcome, but do not treat its timing as a valid in-memory runtime number.
 
 Large reference-backend rows may need substantial swap to complete. On Linux,
 create temporary swap outside the test runner before the full benchmark matrix:
@@ -142,8 +140,7 @@ sudo mkswap /swap_iso18571_bench.img
 sudo swapon /swap_iso18571_bench.img
 ```
 
-After benchmark collection, remove the temporary swap file when it is no longer
-needed:
+After benchmark collection, remove the temporary swap file when it is no longer needed:
 
 ```bash
 sudo swapoff /swap_iso18571_bench.img

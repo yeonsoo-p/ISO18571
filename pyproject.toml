@@ -19,15 +19,24 @@ build-dir = "build/{wheel_tag}"
 cmake.version = ">=3.21"
 wheel.packages = []
 
+[[tool.scikit-build.overrides]]
+if.env.ISO18571_CROSS_WINDOWS_TAG = "cp312-cp312-win_amd64"
+wheel.tags = ["cp312-cp312-win_amd64"]
+
+[[tool.scikit-build.overrides]]
+if.env.ISO18571_CROSS_WINDOWS_TAG = "cp313-cp313-win_amd64"
+wheel.tags = ["cp313-cp313-win_amd64"]
+
+[[tool.scikit-build.overrides]]
+if.env.ISO18571_CROSS_WINDOWS_TAG = "cp314-cp314-win_amd64"
+wheel.tags = ["cp314-cp314-win_amd64"]
+
 [tool.cibuildwheel]
 build = "cp312-* cp313-* cp314-*"
 skip = "*-musllinux_*"
 
 [tool.cibuildwheel.linux]
 archs = ["x86_64"]
-
-[tool.cibuildwheel.windows]
-archs = ["AMD64"]
 
 [tool.mypy]
 python_version = "3.12"

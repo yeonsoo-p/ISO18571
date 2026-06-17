@@ -4,7 +4,12 @@ project(iso18571 LANGUAGES CXX)
 
 include(CheckCXXCompilerFlag)
 
-find_package(Python COMPONENTS Interpreter Development.Module REQUIRED)
+option(ISO18571_CROSS_COMPILE_PYTHON "Use target Python development artifacts without a target interpreter" OFF)
+if(ISO18571_CROSS_COMPILE_PYTHON)
+    find_package(Python COMPONENTS Development.Module REQUIRED)
+else()
+    find_package(Python COMPONENTS Interpreter Development.Module REQUIRED)
+endif()
 find_package(pybind11 CONFIG REQUIRED)
 
 set(ISO18571_SOURCES
@@ -50,6 +55,10 @@ else()
 endif()
 
 pybind11_add_module(_core MODULE ${ISO18571_SOURCES})
+set(ISO18571_EXTENSION_SUFFIX "" CACHE STRING "Override native extension suffix for cross-built wheels")
+if(ISO18571_EXTENSION_SUFFIX)
+    set_target_properties(_core PROPERTIES SUFFIX "${ISO18571_EXTENSION_SUFFIX}")
+endif()
 target_compile_features(_core PRIVATE cxx_std_17)
 target_include_directories(_core PRIVATE src/iso18571)
 target_compile_definitions(_core PRIVATE ${ISO18571_DEFINITIONS})
