@@ -86,33 +86,8 @@ EXPECTED_SCORES: dict[str, dict[int, tuple[float, float, float, float, float]]] 
     },
 }
 
-THEORETICAL_INTEGRITY: dict[str, tuple[bool, str]] = {
-    "local_iso_numpy": (
-        True,
-        "Local implementation uses squared local cost, ISO 10% band, and explicit ISO predecessor tie order.",
-    ),
-    "local_iso_native": (
-        True,
-        "Clean-room native implementation is validated against local_iso_numpy path and Annex scores.",
-    ),
-    "dtwalign": (
-        True,
-        "Pattern order is configured as ISO predecessor order; dtwalign backtracking uses first minimum.",
-    ),
-    "dtaidistance": (
-        True,
-        "Uses dtaidistance accumulated costs and the shared ISO backtracker because native path tie order differs.",
-    ),
-    "dtw_python": (
-        True,
-        "Uses dtw-python accumulated costs and the shared ISO backtracker because native path tie order differs.",
-    ),
-    "tslearn": (
-        False,
-        "Uses native tslearn path generation; tie-breaking is not proven to follow ISO predecessor order.",
-    ),
-    "librosa": (True, "Uses precomputed ISO local costs and step order configured to match ISO predecessor order."),
-}
+GENERATED_LENGTHS = (9, 10, 17, 64, 129, 512, 1430)
+GENERATED_PHASE_LENGTHS = (64, 129, 512, 1430)
 
 
 @dataclass(frozen=True)
@@ -124,27 +99,7 @@ class AnnexCase:
     expected: dict[str, float] | None
 
 
-FIXED_SIGNAL_NORMAL_LENGTHS = (9, 10, 17, 64, 129, 512, 1430)
-FIXED_SIGNAL_STRESS_LENGTHS = (4096, 8192, 16384, 32768, 65536)
-PHASE_SHIFT_NORMAL_LENGTHS = (64, 129, 512, 1430)
-PHASE_SHIFT_STRESS_LENGTHS = (4096, 8192, 16384, 32768, 65536)
-FIXED_SIGNAL_BENCHMARK_SPECS = (
-    ("short_sine_noise", "sine_noise", 129),
-    ("annex_like_sine_amp_offset", "sine_amp_offset", 1430),
-    ("long_smooth_chirp", "chirp", 8192),
-    ("long_noisy_gaussian", "gaussian_noise", 8192),
-    ("long_sparse_spikes", "sparse_spikes", 8192),
-)
-PHASE_SHIFT_BENCHMARK_SPECS = (
-    ("phase_multitone_1430_shift_005", "phase_multitone_shift_005", 1430),
-    ("phase_multitone_8192_shift_020", "phase_multitone_shift_020", 8192),
-    ("phase_chirp_8192_shift_050", "phase_chirp_shift_050", 8192),
-    ("phase_pulses_8192_shift_100", "phase_pulses_shift_100", 8192),
-    ("phase_smooth_step_8192_shift_180", "phase_smooth_step_shift_180", 8192),
-)
-
-
-def load_annex_cases(annex_dir: Path = DEFAULT_ANNEX_DIR) -> list[AnnexCase]:
+def load_downloaded_annex_cases(annex_dir: Path = DEFAULT_ANNEX_DIR) -> list[AnnexCase]:
     cases = []
     for path in sorted(annex_dir.glob("*.csv")):
         match = ANNEX_FILE_RE.match(path.name)
@@ -177,49 +132,30 @@ def load_annex_cases(annex_dir: Path = DEFAULT_ANNEX_DIR) -> list[AnnexCase]:
     return cases
 
 
-def fixed_signal_annex_case(family: str, n: int, *, label: str | None = None) -> AnnexCase:
-    case = signal_case(family, n)
-    name = label or f"fixed_signal__{family}__n{n}"
-    return AnnexCase(
-        name=name,
-        reference_curve=case.reference,
-        comparison_curve=case.comparison,
-        dt=float(np.median(np.diff(case.reference[:, 0]))),
-        expected=None,
-    )
-
-
-def phase_shift_annex_case(family: str, n: int, *, label: str | None = None) -> AnnexCase:
-    case = analytic_phase_signal_case(family, n)
-    name = label or f"phase_shift__{family}__n{n}"
-    return AnnexCase(
-        name=name,
-        reference_curve=case.reference,
-        comparison_curve=case.comparison,
-        dt=float(np.median(np.diff(case.reference[:, 0]))),
-        expected=None,
-    )
-
-
-def load_fixed_signal_annex_cases(
-    lengths: tuple[int, ...] = FIXED_SIGNAL_NORMAL_LENGTHS,
-    families: tuple[str, ...] = SIGNAL_FAMILIES,
-) -> list[AnnexCase]:
-    return [fixed_signal_annex_case(family, n) for n in lengths for family in families]
-
-
-def load_phase_shift_annex_cases(
-    lengths: tuple[int, ...] = PHASE_SHIFT_NORMAL_LENGTHS,
-    families: tuple[str, ...] = PHASE_SHIFT_SIGNAL_FAMILIES,
-) -> list[AnnexCase]:
-    return [phase_shift_annex_case(family, n) for n in lengths for family in families]
-
-
-def load_fixed_signal_benchmark_annex_cases() -> list[AnnexCase]:
-    return [
-        fixed_signal_annex_case(family, n, label=f"fixed_signal_benchmark__{label}__n{n}")
-        for label, family, n in FIXED_SIGNAL_BENCHMARK_SPECS
-    ] + [
-        phase_shift_annex_case(family, n, label=f"phase_shift_benchmark__{label}__n{n}")
-        for label, family, n in PHASE_SHIFT_BENCHMARK_SPECS
-    ]
+def load_generated_annex_cases() -> list[AnnexCase]:
+    cases = []
+    for n in GENERATED_LENGTHS:
+        for family in SIGNAL_FAMILIES:
+            signal = signal_case(family, n)
+            cases.append(
+                AnnexCase(
+                    name=f"generated__{family}__n{n}",
+                    reference_curve=signal.reference,
+                    comparison_curve=signal.comparison,
+                    dt=float(np.median(np.diff(signal.reference[:, 0]))),
+                    expected=None,
+                )
+            )
+    for n in GENERATED_PHASE_LENGTHS:
+        for family in PHASE_SHIFT_SIGNAL_FAMILIES:
+            signal = analytic_phase_signal_case(family, n)
+            cases.append(
+                AnnexCase(
+                    name=f"generated__{family}__n{n}",
+                    reference_curve=signal.reference,
+                    comparison_curve=signal.comparison,
+                    dt=float(np.median(np.diff(signal.reference[:, 0]))),
+                    expected=None,
+                )
+            )
+    return cases

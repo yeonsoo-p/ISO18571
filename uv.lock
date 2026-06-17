@@ -337,26 +337,6 @@ wheels = [
 ]
 
 [[package]]
-name = "dtaidistance"
-version = "2.4.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "numpy" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/cd/01/aa26cc97b64d397ff03b9576b0a04cc79d0e3bae512eb087cfab7d98f4ec/dtaidistance-2.4.0.tar.gz", hash = "sha256:bd4066800254fbd5b620e6462bb759c9d85b79ac2080b354cedc901f446b6c82", size = 1316462, upload-time = "2026-02-12T22:23:56.35Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/87/89/c64eea692eae3b269719ee5173bf5008b5c165280248e3fad1948c765a2b/dtaidistance-2.4.0-cp313-cp313-macosx_10_13_universal2.whl", hash = "sha256:4cf41f3edcc4c1b94ebbc1de029ee9b58da28f33f7bf3af89212cc05e35ec8f1", size = 2117805, upload-time = "2026-02-12T22:23:45.632Z" },
-    { url = "https://files.pythonhosted.org/packages/ed/7f/06ce3d5ce51a959be0534584ad2556e6c8be966ef1218a866c6c3d62e3c5/dtaidistance-2.4.0-cp313-cp313-macosx_15_0_arm64.whl", hash = "sha256:94b841d6575e3ad715b4e213f0f04de25e23c2da3ac21ee9c6775b38f5bdfecf", size = 1738478, upload-time = "2026-02-13T08:14:51.715Z" },
-    { url = "https://files.pythonhosted.org/packages/db/8e/6c8a5c7710f9f5e3805281974ce8fea4ad0334c00a1e0f977977c045a594/dtaidistance-2.4.0-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:b0f2a65628aea82175e7f8c5e96faf5372c933ed40e2e39a84957d8fe305158d", size = 4341606, upload-time = "2026-02-12T22:23:46.977Z" },
-    { url = "https://files.pythonhosted.org/packages/9f/b6/7f77c6773380742660d09f379d43814b448296fc24c3fb1de15a3d813311/dtaidistance-2.4.0-cp313-cp313-win_amd64.whl", hash = "sha256:b8c9ef4c7270d1a192e8f1b481c2e10e63c33c6e7edfc507acac7f3fdc19949f", size = 1441578, upload-time = "2026-02-12T22:23:48.897Z" },
-    { url = "https://files.pythonhosted.org/packages/05/72/ac72a2e196c66c627c1f51684ffa2fd782e9cb042baa29898206f79b0d86/dtaidistance-2.4.0-cp314-cp314-macosx_10_15_universal2.whl", hash = "sha256:bda9849cd22800cd8b3c6abf29574db241458823814cd37302d01df99474175a", size = 2136045, upload-time = "2026-02-12T22:23:50.1Z" },
-    { url = "https://files.pythonhosted.org/packages/30/30/60f941b3fed3d8b94e7315a71b8f87294f2e053c1f3c19e53f7b6cc33689/dtaidistance-2.4.0-cp314-cp314-macosx_26_0_arm64.whl", hash = "sha256:b5aa878c57f779cb9e141c0b4b1bc6b5be9c1721b349d153758112854a1b24cf", size = 1676822, upload-time = "2026-02-13T08:14:56.305Z" },
-    { url = "https://files.pythonhosted.org/packages/b9/82/b805e66d3b05e2cfc4e209b7d7f62ac31fb7e72615c3532c7edb0bf1943a/dtaidistance-2.4.0-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:a2d7d26b9023788f62e5f245db5b78b68aacde67e5aeaa75906ce7ddb251da7f", size = 4328390, upload-time = "2026-02-12T22:23:52.115Z" },
-    { url = "https://files.pythonhosted.org/packages/2c/89/da956340797c0ea022a35b6b0df9a118cc4427401d9a8119dc104d4b48de/dtaidistance-2.4.0-cp314-cp314-win_amd64.whl", hash = "sha256:3a35f2957bbf50b068b0b90f5cc9b442bf9b2a90b855e713811b8badf89a668d", size = 1462169, upload-time = "2026-02-12T22:23:53.598Z" },
-    { url = "https://files.pythonhosted.org/packages/a7/02/16088a7bd17340a4e600f49bf4da16a9741ddbb737202a91363407e993b2/dtaidistance-2.4.0-cp314-cp314t-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:e083a5163c780a5b711d970c190d3eca83ebc0ec86e453e6f56d63b1d6d78139", size = 4332943, upload-time = "2026-02-12T22:23:55.009Z" },
-]
-
-[[package]]
 name = "dtw-python"
 version = "1.7.5"
 source = { registry = "https://pypi.org/simple" }
@@ -409,40 +389,32 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
-bench = [
-    { name = "dtaidistance" },
-    { name = "dtw-python" },
-    { name = "dtwalign" },
-    { name = "librosa" },
-    { name = "scipy" },
-    { name = "tslearn" },
-]
 build = [
     { name = "build" },
     { name = "cibuildwheel" },
 ]
 test = [
+    { name = "dtw-python" },
+    { name = "dtwalign" },
+    { name = "librosa" },
     { name = "pytest" },
-    { name = "pytest-benchmark" },
     { name = "ruff" },
+    { name = "scipy" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "build", marker = "extra == 'build'" },
     { name = "cibuildwheel", marker = "extra == 'build'" },
-    { name = "dtaidistance", marker = "extra == 'bench'" },
-    { name = "dtw-python", marker = "extra == 'bench'" },
-    { name = "dtwalign", marker = "extra == 'bench'" },
-    { name = "librosa", marker = "extra == 'bench'" },
+    { name = "dtw-python", marker = "extra == 'test'" },
+    { name = "dtwalign", marker = "extra == 'test'" },
+    { name = "librosa", marker = "extra == 'test'" },
     { name = "numpy", specifier = ">=2.0" },
     { name = "pytest", marker = "extra == 'test'" },
-    { name = "pytest-benchmark", marker = "extra == 'test'" },
     { name = "ruff", marker = "extra == 'test'" },
-    { name = "scipy", marker = "extra == 'bench'" },
-    { name = "tslearn", marker = "extra == 'bench'" },
+    { name = "scipy", marker = "extra == 'test'" },
 ]
-provides-extras = ["build", "test", "bench"]
+provides-extras = ["build", "test"]
 
 [[package]]
 name = "filelock"
@@ -971,15 +943,6 @@ wheels = [
 ]
 
 [[package]]
-name = "py-cpuinfo"
-version = "9.0.0"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/37/a8/d832f7293ebb21690860d2e01d8115e5ff6f2ae8bbdc953f0eb0fa4bd2c7/py-cpuinfo-9.0.0.tar.gz", hash = "sha256:3cdbbf3fac90dc6f118bfd64384f309edeadd902d7c8fb17f02ffa1fc3f49690", size = 104716, upload-time = "2022-10-25T20:38:06.303Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/e0/a9/023730ba63db1e494a271cb018dcd361bd2c917ba7004c3e49d5daf795a2/py_cpuinfo-9.0.0-py3-none-any.whl", hash = "sha256:859625bc251f64e21f077d099d4162689c762b5d6a4c3c97553d56241c9674d5", size = 22335, upload-time = "2022-10-25T20:38:27.636Z" },
-]
-
-[[package]]
 name = "pycparser"
 version = "3.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1029,19 +992,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/84/0e/b5858858d74958632c49b72cb25a3976ff9f632397626715be71c89d3971/pytest-9.1.0.tar.gz", hash = "sha256:41dd9148c08072446394cefd3d79701701335a9f4cae69ba92e39f6c7f5c061c", size = 1634181, upload-time = "2026-06-13T18:52:45.983Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/8b/5a/ba30a81239b909821b3153e303e7def45178bf353da4f72380e6c5e8793b/pytest-9.1.0-py3-none-any.whl", hash = "sha256:8ebb0e7888bdf2bdfc602ec51f8f62d50200af37356c74e503c79a94f5c81f32", size = 386453, upload-time = "2026-06-13T18:52:44.045Z" },
-]
-
-[[package]]
-name = "pytest-benchmark"
-version = "5.2.3"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "py-cpuinfo" },
-    { name = "pytest" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/24/34/9f732b76456d64faffbef6232f1f9dbec7a7c4999ff46282fa418bd1af66/pytest_benchmark-5.2.3.tar.gz", hash = "sha256:deb7317998a23c650fd4ff76e1230066a76cb45dcece0aca5607143c619e7779", size = 341340, upload-time = "2025-11-09T18:48:43.215Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/33/29/e756e715a48959f1c0045342088d7ca9762a2f509b945f362a316e9412b7/pytest_benchmark-5.2.3-py3-none-any.whl", hash = "sha256:bc839726ad20e99aaa0d11a127445457b4219bdb9e80a1afc4b51da7f96b0803", size = 45255, upload-time = "2025-11-09T18:48:39.765Z" },
 ]
 
 [[package]]
@@ -1286,22 +1236,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/b7/4d/08c89e34946fce2aec4fbb45c9016efd5f4d7f24af8e5d93296e935631d8/threadpoolctl-3.6.0.tar.gz", hash = "sha256:8ab8b4aa3491d812b623328249fab5302a68d2d71745c8a4c719a2fcaba9f44e", size = 21274, upload-time = "2025-03-13T13:49:23.031Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/32/d5/f9a850d79b0851d1d4ef6456097579a9005b31fea68726a4ae5f2d82ddd9/threadpoolctl-3.6.0-py3-none-any.whl", hash = "sha256:43a0b8fd5a2928500110039e43a5eed8480b918967083ea48dc3ab9f13c4a7fb", size = 18638, upload-time = "2025-03-13T13:49:21.846Z" },
-]
-
-[[package]]
-name = "tslearn"
-version = "0.8.1"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "joblib" },
-    { name = "numba" },
-    { name = "numpy" },
-    { name = "scikit-learn" },
-    { name = "scipy" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/cd/08/8447f48fe3547ca92abae6875c63a7374b14b78f3b46518e16de45be640d/tslearn-0.8.1.tar.gz", hash = "sha256:68107857404e9a3869ed452fc3b8f1f0b5fdee61a04438c7ee957ec7e928e594", size = 9602140, upload-time = "2026-03-13T13:38:30.425Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/5c/da/969c0efec60dcf52fb7b9ed9244a4913b2a7f0a266a0be4700cc1141471e/tslearn-0.8.1-py3-none-any.whl", hash = "sha256:2a79e1447df8c0708cfb8b06a65826ecb9b3d62e1b5b98fa26abbc77766f782d", size = 387871, upload-time = "2026-03-13T13:38:28.525Z" },
 ]
 
 [[package]]

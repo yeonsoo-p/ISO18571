@@ -12,8 +12,7 @@ dependencies = ["numpy>=2.0"]
 
 [project.optional-dependencies]
 build = ["build", "cibuildwheel"]
-test = ["pytest", "pytest-benchmark", "ruff"]
-bench = ["dtw-python", "librosa", "dtwalign", "dtaidistance", "tslearn", "scipy"]
+test = ["dtw-python", "dtwalign", "librosa", "pytest", "ruff", "scipy"]
 
 [tool.scikit-build]
 build-dir = "build/{wheel_tag}"

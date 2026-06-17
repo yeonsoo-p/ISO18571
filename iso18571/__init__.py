@@ -1,29 +1,5 @@
 """ISO/TS 18571 scoring package."""
 
-from .rating import (
-    DTW_BACKEND_DTAIDISTANCE,
-    DTW_BACKEND_DTW_PYTHON,
-    DTW_BACKEND_DTWALIGN,
-    DTW_BACKEND_LIBROSA,
-    DTW_BACKEND_LOCAL_ISO,
-    DTW_BACKEND_LOCAL_ISO_NATIVE,
-    DTW_BACKEND_TSLEARN,
-    DTW_BACKENDS,
-    ISO18571,
-    CurveLengthError,
-    DTWBackendError,
-)
+from .rating import ISO18571, CurveLengthError
 
-__all__ = [
-    "CurveLengthError",
-    "DTWBackendError",
-    "DTW_BACKENDS",
-    "DTW_BACKEND_DTAIDISTANCE",
-    "DTW_BACKEND_DTWALIGN",
-    "DTW_BACKEND_DTW_PYTHON",
-    "DTW_BACKEND_LIBROSA",
-    "DTW_BACKEND_LOCAL_ISO",
-    "DTW_BACKEND_LOCAL_ISO_NATIVE",
-    "DTW_BACKEND_TSLEARN",
-    "ISO18571",
-]
+__all__ = ["CurveLengthError", "ISO18571"]

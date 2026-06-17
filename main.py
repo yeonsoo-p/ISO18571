@@ -6,7 +6,7 @@ from pathlib import Path
 
 import numpy as np
 
-from iso18571 import DTW_BACKEND_LOCAL_ISO, ISO18571
+from iso18571 import ISO18571
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -14,7 +14,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("reference", type=Path, help="Reference CSV with two columns: time,value")
     parser.add_argument("comparison", type=Path, help="Comparison CSV with two columns: time,value")
     parser.add_argument("--dt", type=float, default=0.0001, help="Sample period used for slope scoring")
-    parser.add_argument("--backend", default=DTW_BACKEND_LOCAL_ISO, help="DTW backend name")
     parser.add_argument("--delimiter", default=",", help="CSV delimiter")
     return parser.parse_args(argv)
 
@@ -26,8 +25,8 @@ def load_curve(path: Path, delimiter: str) -> np.ndarray:
     return curve
 
 
-def score_curves(reference: np.ndarray, comparison: np.ndarray, dt: float, backend: str) -> dict[str, float]:
-    iso = ISO18571(reference, comparison, dt=dt, dtw_backend=backend)
+def score_curves(reference: np.ndarray, comparison: np.ndarray, dt: float) -> dict[str, float]:
+    iso = ISO18571(reference, comparison, dt=dt)
     return {
         "R": iso.overall_rating(),
         "Z": iso.corridor_rating(),
@@ -43,7 +42,6 @@ def main(argv: list[str] | None = None) -> int:
         load_curve(args.reference, args.delimiter),
         load_curve(args.comparison, args.delimiter),
         args.dt,
-        args.backend,
     )
     print(json.dumps(scores, sort_keys=True))
     return 0

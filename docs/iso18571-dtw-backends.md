@@ -1,214 +1,97 @@
-# ISO/TS 18571 DTW Backends
+# ISO/TS 18571 Native Scorer
 
-This project keeps `local_iso_numpy` as the auditable Python reference backend
-for ISO/TS 18571 magnitude DTW. The native backend target is
-`local_iso_native`, a clean-room compiled implementation that preserves the same
-windowing, recurrence, tie order, and Annex score behavior while improving
-runtime.
+The project now has one production scorer: `iso18571.ISO18571`, backed by
+`iso18571_native.score_components`.
 
-Production recommendation criteria:
+Older package-backend comparison work has been retired from production code.
+The remaining non-native implementations are test-only parity references:
+`original`, `dtw_python`, and `librosa`.
 
-- all 42 Annex CSV cases pass within `0.001` for `R`, `Z`, `EP`, `EM`, and `ES`;
-- first-use Annex pass is faster than `dtw_python`;
-- steady-state Annex-pass median is faster than `librosa`;
-- Linux and Windows wheels can import the module and run at least one Annex case.
+## Production Path
 
-## Benchmark Snapshot
+- Python accepts NumPy `(n, 2)` curves and passes them to the native extension.
+- The C++ scorer owns phase alignment, corridor scoring, magnitude DTW, slope
+  scoring, and weighted final scoring.
+- Public Python no longer exposes backend selection.
+- Public native bindings are intentionally small:
+  - `backend_info()`
+  - `warp_path(x, y, window_size)`
+  - `magnitude_ratio(x, y, window_size)`
+  - `score_components(reference_curve, comparison_curve, params)`
 
-Measured on 2026-06-16 using `tests/test_iso18571_benchmarks.py`, fresh pytest
-process per backend, `--benchmark-min-rounds=5`, `--benchmark-max-time=5`,
-and benchmark warmup disabled.
+## Preserved DTW Behavior
 
-| Backend | First-use pass | Inferred prep | Steady median pass | Steady rounds |
-|---|---:|---:|---:|---:|
-| `dtw_python` | 0.4457s | 0.1839s | 0.2618s | 20 |
-| `librosa` | 0.9754s | 0.7229s | 0.2526s | 20 |
-| `local_iso_native` | 0.0111s | 0.0007s | 0.0104s | 477 |
+The native scorer keeps the ISO behavior used by the previous audited local
+reference:
 
-Current native backend status: correctness validated for the Annex suite and
-both performance targets beaten on Linux. The `local_iso_native` path now ports
-the full scorer into native code for NumPy-fed curves; other backends still
-share the Python scorer and only replace the magnitude-DTW step.
+- squared local cost;
+- Sakoe-Chiba radius `max(1, ceil(window_size*n))`;
+- valid cells where `abs(i-j) < radius`;
+- predecessor tie priority vertical, horizontal, diagonal;
+- official Annex `R`, `Z`, `EP`, `EM`, and `ES` within `0.001`.
 
-Generated fixed-signal Annex benchmark for `local_iso_native`, using the same
-Annex pass harness over five representative generated cases in
-`tests/test_iso18571_benchmarks.py`:
+## x86-64 Dispatch
 
-| Annex pass | Median |
-|---|---:|
-| Official 42 CSV cases | 10.3895 ms |
-| Generated fixed-signal cases | 149.4609 ms |
+The C++ source remains scalar. The build creates several compiler-optimized
+source variants:
 
-The generated fixed-signal cases are Annex-shaped fixtures, not official ISO CSV
-files. They cover short sine/noise, Annex-like amplitude/offset sine, long
-chirp, long Gaussian noise, and long sparse-spike families through the same
-scorer path used for the official Annex benchmarks.
+- `x86-64-v1` baseline, always built;
+- `x86-64-v2`, `x86-64-v3`, and `x86-64-v4` when the compiler accepts the
+  corresponding flag.
 
-## Command Reference
+At module initialization, C++ detects the running CPU and operating-system save
+support, then stores direct function pointers for the highest
+compiled-and-supported level. Python neither exposes nor configures this choice.
 
-Build editable native extension:
+Use `iso18571_native.backend_info()` to inspect the compiled levels and the
+selected level for the current process.
+
+## Validation
+
+Install the editable package:
 
 ```bash
 uv pip install -e .
 ```
 
-Validate the reference and native backends:
+Run style checks:
 
 ```bash
-uv run --with pytest --with pytest-benchmark \
-  python -m pytest -q tests/test_iso18571_backends.py \
-  --iso18571-backends local_iso_numpy,local_iso_native
+uv run --extra test ruff check --fix .
+uv run --extra test ruff format .
+uv run --extra test ruff check .
+uv run --extra test ruff format --check .
+git diff --check
 ```
 
-Validate generated Annex parity across `rating_original`, `local_iso_native`,
-`dtw_python`, and `librosa`:
+Run parity tests:
 
 ```bash
-uv run --with pytest --with pytest-benchmark \
-  --with dtwalign --with scipy --with dtw-python --with librosa \
-  python -m pytest -q tests/test_rating_original_parity.py \
-  -o addopts= -m oracle
+uv run --extra test python -m pytest -q
 ```
 
-Run long generated fixed-signal Annex stress cases:
-
-```bash
-uv run --with pytest --with pytest-benchmark \
-  python -m pytest -q tests/test_rating_original_parity.py \
-  -o addopts= -m stress
-```
-
-Validate all production-eligible backends:
-
-```bash
-uv run --with pytest --with pytest-benchmark \
-  --with dtwalign --with dtaidistance --with dtw-python --with librosa --with scipy \
-  python -m pytest -q tests/test_iso18571_backends.py \
-  --iso18571-backends local_iso_numpy,local_iso_native,dtwalign,dtaidistance,dtw_python,librosa
-```
-
-Benchmark in fresh pytest processes:
-
-```bash
-uv run --with pytest --with pytest-benchmark --with dtw-python --with librosa --with scipy \
-  python tools/iso18571/run_backend_benchmarks.py \
-  --output-dir .benchmarks/iso18571 \
-  --backends local_iso_native dtw_python librosa \
-  --max-time 5 --min-rounds 5
-
-uv run python tools/iso18571/summarize_benchmarks.py .benchmarks/iso18571/*.json
-```
-
-Benchmark official and generated fixed-signal Annex cases:
-
-```bash
-uv run --with pytest --with pytest-benchmark \
-  python -m pytest -q tests/test_iso18571_benchmarks.py \
-  -o addopts= -m benchmark \
-  --benchmark-warmup off \
-  --benchmark-min-rounds 3 \
-  --benchmark-max-time 3
-```
-
-Run the native DTW layout and parallelization threshold benchmark categories:
-
-```bash
-uv run --with pytest --with pytest-benchmark \
-  python -m pytest -q tests/test_iso18571_threshold_benchmarks.py \
-  -o addopts= -m "benchmark and not threshold" \
-  --benchmark-warmup off \
-  --benchmark-min-rounds 3 \
-  --benchmark-max-time 3
-
-uv run --with pytest --with pytest-benchmark \
-  python -m pytest -q tests/test_iso18571_threshold_benchmarks.py \
-  -o addopts= -m threshold \
-  --benchmark-warmup off \
-  --benchmark-min-rounds 1 \
-  --benchmark-max-time 0.1 \
-  --benchmark-json .benchmarks/iso18571-threshold/threshold.json
-
-uv run python tools/iso18571/analyze_parallel_threshold.py \
-  .benchmarks/iso18571-threshold/threshold.json
-```
-
-Run the native full-scorer performance-regime atlas:
-
-```bash
-uv run --with pytest --with pytest-benchmark \
-  python -m pytest -q tests/test_iso18571_regime_benchmarks.py \
-  -o addopts= -m regime \
-  --benchmark-warmup off \
-  --benchmark-min-rounds 1 \
-  --benchmark-max-time 0.1 \
-  --benchmark-json .benchmarks/iso18571-regime/regime.json
-
-uv run python tools/iso18571/analyze_variant_regimes.py \
-  .benchmarks/iso18571-regime/regime.json
-```
-
-The regime atlas reports each variant by `effective_n`, DTW cell count, signal
-family, thread count, median runtime, IQR, speed ratio to current serial native,
-and a per-regime class. It is intentionally not a universal ranking.
-
-SIMD experiments are an additional enum-based atlas axis. Benchmark environment
-variables remain readable strings, but tests map them to native `DtwLayout`,
-`ReductionMode`, `ParallelMode`, `SimdLevel`, and `SimdTargetMode` values before
-calling C++.
-Supported SIMD levels are `scalar`, `sse2`, `avx2`, `avx2_fma`, and `auto`;
-AVX-512 is intentionally excluded. `auto` is runtime dispatch behavior for
-smoke/parity checks, not a regime benchmark axis.
-Supported SIMD target modes are `gradient_only`, `phase_products`,
-`dtw_local_cost`, `slope_smoothing`, `magnitude_path`, and `all`. The default is
-`gradient_only`; set `ISO18571_REGIME_SIMD_TARGETS` explicitly for hotspot
-target experiments.
-
-Focused atlas runs can be filtered with environment variables:
-
-```bash
-ISO18571_REGIME_FAMILIES=chirp,gaussian_noise,phase_chirp_shift_050 \
-ISO18571_REGIME_LENGTHS=8192,16384,32768,65536 \
-ISO18571_REGIME_THREADS=1,2,4,8,12,16,24 \
-ISO18571_REGIME_VARIANTS=dtw_current+reduce_none+parallel_none,dtw_current+all_reductions+blocked128 \
-ISO18571_REGIME_SIMD_LEVELS=scalar,sse2,avx2,avx2_fma \
-ISO18571_REGIME_SIMD_TARGETS=gradient_only,phase_products,dtw_local_cost,slope_smoothing,magnitude_path \
-uv run --with pytest --with pytest-benchmark \
-  python -m pytest -q tests/test_iso18571_regime_benchmarks.py \
-  -o addopts= -m regime \
-  --benchmark-warmup off \
-  --benchmark-min-rounds 1 \
-  --benchmark-max-time 0.05 \
-  --benchmark-json .benchmarks/iso18571-regime/focused.json
-```
-
-Emit and inspect native SIMD assembly without changing source:
-
-```bash
-uv run python tools/iso18571/emit_native_assembly.py \
-  --output-dir .benchmarks/iso18571-asm
-uv run python tools/iso18571/report_assembly_wrinkles.py \
-  .benchmarks/iso18571-asm
-```
-
-Latest no-auto thread-ceiling atlas result: for nominal lengths `4096, 8192,
-12288, 16384, 32768, 65536` across chirp, Gaussian noise, sparse spikes, and
-analytic phase families, all 1296 enum/SIMD rows passed parity checks.
-`dtw_current+all_reductions+blocked128` beat the scalar serial baseline in every
-tested family, but the best thread count was size dependent: 8 threads was
-strong around input length 8192, 12 threads around 12288-16384, and 16/24
-threads around 32768-65536. The analyzer produced candidate thresholds, but
-this remains an atlas result rather than a production dispatch policy.
-
-Latest SIMD-target smoke result: for nominal lengths `4096, 8192` across chirp,
-Gaussian noise, sparse spikes, and analytic phase families, all 540 target-mode
-rows passed parity checks. The analyzer's first candidate in this small slice
-was `dtw_current+all_reductions+blocked128+simd_avx2+target_phase_products` with
-8 threads at `effective_n >= 7782`; this is a smoke result, not a production
-dispatch policy. The next broad atlas should focus `phase_products` before
-pairing targets.
-
-Build a Linux wheel:
+Build and smoke-test a wheel:
 
 ```bash
 uv build --wheel
+uv run --with dist/euroncap-0.1.0-*.whl python tools/iso18571/wheel_smoke.py
 ```
+
+## Parity Scope
+
+The test suite uses two Annex sources:
+
+- downloaded official Annex CSV files, checked against official expected scores;
+- one generated Annex set combining fixed signal families and analytic
+  phase-shift families at practical lengths.
+
+Generated cases compare all four test-only scorer labels (`native`, `original`,
+`dtw_python`, and `librosa`) for:
+
+- `n_eps`;
+- `rho_e`;
+- unrounded `Z`, `EP`, `EM`, `ES`, and `R`;
+- rounded three-decimal score outputs.
+
+Degenerate generated cases pass only when all scorers produce matching numeric
+results with `equal_nan=True` or matching exception types.

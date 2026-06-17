@@ -950,3 +950,60 @@
 - Next hypothesis:
   - remove the avoidable AVX2+FMA non-dot wrapper jumps, then rerun the
     `phase_products` atlas at larger lengths before combining targets.
+
+## 2026-06-17 09:46 KST - Great Chop To Native-Only x86-64 Dispatch
+
+- Git status: dirty at start of batch with atlas-era native experiments still in
+  source.
+- Hypothesis:
+  - the project is easier to maintain if production has one native scorer path;
+  - previous atlas winners can be hard-coded as scalar-source C++ choices:
+    index-incremental DTW layout plus all reduction/workspace optimizations;
+  - x86-64 v1-v4 compiler variants can preserve wheel portability while letting
+    the compiler optimize for newer CPU levels where available.
+- Files changed:
+  - replaced the public Python scorer with native-only `iso18571.ISO18571`;
+  - removed public backend selection and optional backend loaders;
+  - replaced the native module with a small binding surface:
+    `backend_info`, `warp_path`, `magnitude_ratio`, and `score_components`;
+  - deleted explicit SIMD intrinsic sources, parallel/variant APIs, benchmark
+    tests, atlas analyzers, assembly tools, and backend-validation scripts;
+  - added scalar-source C++ scorer variants for x86-64 v1/v2/v3/v4 plus
+    internal runtime dispatch through direct function pointers;
+  - rebuilt tests as parity-only comparisons over downloaded Annex cases and one
+    generated Annex set across `native`, `original`, `dtw_python`, and
+    `librosa`;
+  - rewrote `AGENTS.md` and `docs/iso18571-dtw-backends.md` around the
+    native-only workflow.
+- Commands:
+  - `uv run --extra test ruff check --fix .`
+  - `uv run --extra test ruff format .`
+  - `uv run --extra test ruff check .`
+  - `uv run --extra test ruff format --check .`
+  - `git diff --check`
+  - `uv pip install -e .`
+  - `uv run --extra test python -m pytest -q`
+  - `uv build --wheel`
+  - `uv run --with dist/euroncap-0.1.0-cp313-cp313-linux_x86_64.whl python tools/iso18571/wheel_smoke.py`
+- Validation result:
+  - Ruff check/format passed;
+  - whitespace diff check passed;
+  - editable CMake build passed;
+  - default parity suite passed: `3 passed`;
+  - Linux wheel build passed and compiled x86-64 v1, v2, v3, and v4 variants;
+  - wheel smoke passed;
+  - focused cleanup scans found no live ISO18571 source/tool/doc references to
+    the removed experimental API terms.
+- Runtime metadata:
+  - `backend_info()` reports `name=iso18571_native`,
+    `dtw_layout=index_incremental`, `reduction_mode=all`,
+    `parallelism=none`, and compiled levels
+    `x86-64-v1,x86-64-v2,x86-64-v3,x86-64-v4`.
+- Conclusion:
+  - atlas optimization is retired from production source and tooling;
+  - production is now native-only with internal x86-64 level dispatch;
+  - comparison scorers remain only inside tests for parity.
+- Next hypothesis:
+  - with the surface area reduced, the next useful work is either broader parity
+    case design or targeted scalar-source C++ profiling inside the single
+    production scorer.
