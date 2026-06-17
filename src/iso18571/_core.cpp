@@ -4,6 +4,7 @@
 #include "scorer.hpp"
 #include "validation.hpp"
 
+#include <limits>
 #include <stdexcept>
 #include <string>
 
@@ -16,29 +17,58 @@ using iso18571::Index;
 using iso18571::ScoreParams;
 using iso18571::ScoreResult;
 
-template <typename T>
-T get_param(const py::dict& params, const char* name, T default_value) {
-    if (params.contains(name)) {
-        return py::cast<T>(params[py::str(name)]);
+py::handle require_param(const py::dict& params, const char* name) {
+    const py::str key(name);
+    if (!params.contains(key)) {
+        throw std::invalid_argument(std::string("Missing required score parameter: ") + name);
     }
-    return default_value;
+    return params[key];
+}
+
+double get_required_double_param(const py::dict& params, const char* name) {
+    try {
+        return py::cast<double>(require_param(params, name));
+    } catch (const py::cast_error&) {
+        throw std::invalid_argument(std::string(name) + " must be numeric");
+    }
+}
+
+int get_required_score_exponent(const py::dict& params, const char* name) {
+    const py::handle value = require_param(params, name);
+    if (PyNumber_Check(value.ptr()) == 0) {
+        return iso18571::score_exponent_from_double(
+            std::numeric_limits<double>::quiet_NaN(),
+            name
+        );
+    }
+
+    py::object number = py::reinterpret_steal<py::object>(PyNumber_Float(value.ptr()));
+    if (!number) {
+        PyErr_Clear();
+        return iso18571::score_exponent_from_double(
+            std::numeric_limits<double>::quiet_NaN(),
+            name
+        );
+    }
+
+    return iso18571::score_exponent_from_double(py::cast<double>(number), name);
 }
 
 ScoreParams score_params_from_dict(const py::dict& params) {
     ScoreParams out;
-    out.k_z = get_param<int>(params, "k_z", out.k_z);
-    out.k_p = get_param<int>(params, "k_p", out.k_p);
-    out.k_m = get_param<int>(params, "k_m", out.k_m);
-    out.eps_m = get_param<double>(params, "eps_m", out.eps_m);
-    out.e_s = get_param<double>(params, "e_s", out.e_s);
-    out.init_min = get_param<double>(params, "init_min", out.init_min);
-    out.a_0 = get_param<double>(params, "a_0", out.a_0);
-    out.b_0 = get_param<double>(params, "b_0", out.b_0);
-    out.w_z = get_param<double>(params, "w_z", out.w_z);
-    out.w_p = get_param<double>(params, "w_p", out.w_p);
-    out.w_m = get_param<double>(params, "w_m", out.w_m);
-    out.w_s = get_param<double>(params, "w_s", out.w_s);
-    out.dt = get_param<double>(params, "dt", out.dt);
+    out.k_z = get_required_score_exponent(params, "k_z");
+    out.k_p = get_required_score_exponent(params, "k_p");
+    out.k_m = get_required_score_exponent(params, "k_m");
+    out.eps_m = get_required_double_param(params, "eps_m");
+    out.e_s = get_required_double_param(params, "e_s");
+    out.init_min = get_required_double_param(params, "init_min");
+    out.a_0 = get_required_double_param(params, "a_0");
+    out.b_0 = get_required_double_param(params, "b_0");
+    out.w_z = get_required_double_param(params, "w_z");
+    out.w_p = get_required_double_param(params, "w_p");
+    out.w_m = get_required_double_param(params, "w_m");
+    out.w_s = get_required_double_param(params, "w_s");
+    out.dt = get_required_double_param(params, "dt");
 
     iso18571::validate_score_params(out);
     return out;
@@ -125,6 +155,6 @@ PYBIND11_MODULE(_core, m) {
         &score_components,
         py::arg("reference_curve"),
         py::arg("comparison_curve"),
-        py::arg("params") = py::dict()
+        py::arg("params")
     );
 }

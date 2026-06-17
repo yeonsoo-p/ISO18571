@@ -1,12 +1,19 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import cast
+
 import numpy as np
 import numpy.typing as npt
 
-from ._core import _score_components
+from . import _core
 
 ScoreComponents = dict[str, float | int]
 ScoreParams = dict[str, float | int]
+ScoreComponentsFn = Callable[
+    [npt.ArrayLike, npt.ArrayLike, ScoreParams], ScoreComponents
+]
+_score_components = cast(ScoreComponentsFn, getattr(_core, "_score_components"))
 
 
 class ISO18571:
@@ -14,9 +21,9 @@ class ISO18571:
         self,
         reference_curve: npt.ArrayLike,
         comparison_curve: npt.ArrayLike,
-        k_z: int = 2,
-        k_p: int = 1,
-        k_m: int = 1,
+        k_z: int | float = 2,
+        k_p: int | float = 1,
+        k_m: int | float = 1,
         eps_m: float = 0.50,
         e_s: float = 2.0,
         init_min: float = 0.8,

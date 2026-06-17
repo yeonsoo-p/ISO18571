@@ -1742,3 +1742,45 @@
 - Next hypothesis:
   - push `main` with both the host-specific wheel builder and v1.0.2 polish
     commits.
+
+## 2026-06-17 18:28 KST - Float Exponent Native Param Parsing
+
+- Git status: clean before changes.
+- Hypothesis:
+  - native scoring can accept integral float exponent parameters such as
+    `k_z=2.0` without widening the ISO exponent domain or exposing the private
+    `_score_components` worker as installed typed API.
+- Files changed:
+  - `iso18571/rating.py`, `iso18571/_core.pyi`, native binding/validation
+    sources, and Annex parity tests/helpers.
+- Commands:
+  - widen public `ISO18571` annotations for `k_z`, `k_p`, and `k_m` to
+    `int | float`;
+  - make `rating.py` resolve `_score_components` as an internal native hook
+    instead of advertising it in `_core.pyi`;
+  - require an explicit native params dict at the pybind boundary;
+  - move score-exponent domain coercion into `validation.cpp`;
+  - exercise integral float exponents through the native Annex parity backend.
+- Validation result:
+  - `uv pip install -e .` passed;
+  - `uv run --extra test python -m pytest -q tests/test_iso18571_parity.py`
+    passed: `4 passed`;
+  - `uv run --extra test python -m pytest -q` passed:
+    `4 passed, 32 deselected`;
+  - `uv run --extra test ruff check --fix .` passed;
+  - `uv run --extra test ruff format .` passed;
+  - `uv run --extra test ruff check .` passed;
+  - `uv run --extra test ruff format --check .` passed;
+  - `uv run --extra test mypy iso18571 iso18571_reference tests` passed;
+  - `git diff --check` passed;
+  - `uv build --wheel` produced
+    `dist/iso18571-1.0.2-cp314-cp314-linux_x86_64.whl`.
+- Conclusion:
+  - public callers can pass integral float exponent values through the normal
+    `ISO18571` path; invalid exponent-domain decisions remain centralized in
+    validation; `_score_components` remains an underscored implementation hook
+    rather than an installed typed surface.
+- Next hypothesis:
+  - commit the param-boundary cleanup and keep any future `_core` changes
+    exercised through public scorer parity unless a private native regression
+    cannot be observed through `ISO18571`.

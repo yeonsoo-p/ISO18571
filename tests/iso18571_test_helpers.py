@@ -62,7 +62,14 @@ def with_expected_numeric_warnings(fn: Callable[[], T], context: str) -> T:
 def scores_for_case(case: AnnexCase, backend: str) -> ScoreDict:
     iso: Scorer
     if backend == "native":
-        iso = iso18571.ISO18571(case.reference_curve, case.comparison_curve, dt=case.dt)
+        iso = iso18571.ISO18571(
+            case.reference_curve,
+            case.comparison_curve,
+            k_z=2.0,
+            k_p=1.0,
+            k_m=1.0,
+            dt=case.dt,
+        )
     elif backend == "dtwalign":
         iso = rating_dtwalign.ISO18571(
             case.reference_curve, case.comparison_curve, dt=case.dt

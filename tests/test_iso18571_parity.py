@@ -8,7 +8,6 @@ import numpy as np
 import iso18571
 import iso18571._core as native_core
 from iso18571 import ISO18571, backend_info
-from iso18571._core import _score_components
 from tests.iso18571_annex import AnnexCase
 from tests.iso18571_test_helpers import (
     assert_downloaded_expected_scores,
@@ -66,9 +65,7 @@ def test_native_surface_is_small_and_accepts_numpy_arrays(
     case = next(
         case for case in generated_annex_cases if "sine_amp_offset" in case.name
     )
-    scores = _score_components(
-        case.reference_curve, case.comparison_curve, {"dt": case.dt}
-    )
+    scores = ISO18571(case.reference_curve, case.comparison_curve, dt=case.dt).scores
     assert set(scores) == {
         "Z",
         "EP",
@@ -81,10 +78,6 @@ def test_native_surface_is_small_and_accepts_numpy_arrays(
         "comparison_start",
         "shift_length",
     }
-    assert (
-        ISO18571(case.reference_curve, case.comparison_curve, dt=case.dt).scores
-        == scores
-    )
     assert iso18571.__all__ == ["ISO18571", "backend_info"]
     assert not hasattr(iso18571, "score_components")
     assert not hasattr(iso18571, "magnitude_ratio")
@@ -109,7 +102,7 @@ def test_native_short_curves_fail_clearly() -> None:
         (np.arange(8, dtype=np.float64), np.ones(8, dtype=np.float64))
     )
     try:
-        _score_components(curve, curve, {})
+        ISO18571(curve, curve)
     except ValueError as exc:
         assert "at least 9 samples" in str(exc)
         return

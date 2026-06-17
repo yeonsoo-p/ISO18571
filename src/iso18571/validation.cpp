@@ -7,6 +7,10 @@
 namespace iso18571 {
 namespace {
 
+[[noreturn]] void throw_score_exponent_error(const char* name) {
+    throw std::invalid_argument(std::string(name) + " has to be 1, 2, or 3");
+}
+
 void require_finite(double value, const char* name) {
     if (!std::isfinite(value)) {
         throw std::invalid_argument(std::string(name) + " must be finite");
@@ -29,7 +33,7 @@ void require_non_negative(double value, const char* name) {
 
 void require_score_exponent(int value, const char* name) {
     if (value < kScoreExponentMinimum || value > kScoreExponentMaximum) {
-        throw std::invalid_argument(std::string(name) + " has to be 1, 2, or 3");
+        throw_score_exponent_error(name);
     }
 }
 
@@ -48,6 +52,22 @@ void require_closed_interval(
 }
 
 }  // namespace
+
+int score_exponent_from_double(double value, const char* name) {
+    if (!std::isfinite(value)) {
+        throw_score_exponent_error(name);
+    }
+    if (value == 1.0) {
+        return 1;
+    }
+    if (value == 2.0) {
+        return 2;
+    }
+    if (value == 3.0) {
+        return 3;
+    }
+    throw_score_exponent_error(name);
+}
 
 void validate_score_params(const ScoreParams& params) {
     require_score_exponent(params.k_z, "k_z");
