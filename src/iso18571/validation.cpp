@@ -48,21 +48,14 @@ void require_positive_integer(int value, const char* name) {
     }
 }
 
-void require_closed_interval(
-    double value,
-    const char* name,
-    double minimum,
-    double maximum
-) {
+void require_closed_interval(double value, const char* name, double minimum, double maximum) {
     require_finite(value, name);
     if (value < minimum || value > maximum) {
-        throw std::invalid_argument(
-            std::string(name) + " must satisfy 0 <= " + name + " <= 1"
-        );
+        throw std::invalid_argument(std::string(name) + " must satisfy 0 <= " + name + " <= 1");
     }
 }
 
-}  // namespace
+} // namespace
 
 int score_exponent_from_double(double value, const char* name) {
     if (!std::isfinite(value)) {
@@ -81,11 +74,8 @@ int score_exponent_from_double(double value, const char* name) {
 }
 
 int positive_integer_from_double(double value, const char* name) {
-    if (
-        !std::isfinite(value) || value < 1.0 ||
-        value > static_cast<double>(std::numeric_limits<int>::max()) ||
-        std::floor(value) != value
-    ) {
+    if (!std::isfinite(value) || value < 1.0 || value > static_cast<double>(std::numeric_limits<int>::max()) ||
+        std::floor(value) != value) {
         throw_positive_integer_error(name);
     }
     return static_cast<int>(value);
@@ -116,14 +106,9 @@ void validate_score_params(const ScoreParams& params) {
     require_positive(params.dt, "dt");
 
     const double weights_sum = params.w_z + params.w_m + params.w_p + params.w_s;
-    if (
-        std::fabs(weights_sum - kExpectedWeightSum)
-        > kWeightSumAbsoluteTolerance
-    ) {
-        throw std::invalid_argument(
-            "Sum of weighting factors (w_z, w_m, w_p, w_s) must be within tolerance of 1"
-        );
+    if (std::fabs(weights_sum - kExpectedWeightSum) > kWeightSumAbsoluteTolerance) {
+        throw std::invalid_argument("Sum of weighting factors (w_z, w_m, w_p, w_s) must be within tolerance of 1");
     }
 }
 
-}  // namespace iso18571
+} // namespace iso18571
