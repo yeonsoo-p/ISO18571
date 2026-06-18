@@ -447,6 +447,10 @@ template <typename Series>
 PhaseResult compute_phase_alignment(const Series& reference, const Series& comparison, const ScoreParams& params) {
     const double max_shift = std::round((1.0 - params.init_min) * 100.0) / 100.0;
     PhaseResult result = phase_candidate_for_shift(reference, comparison, 0, 0, reference.n, 0, max_shift);
+    if (result.correlation.rho_e == 1.0) {
+        return result;
+    }
+
     const Index window_size = static_cast<Index>(std::floor(static_cast<double>(comparison.n) * max_shift) + 1.0);
     const Index bounded_window_size = std::min(window_size, reference.n);
     const PhaseCache cache = build_phase_cache(reference, comparison);

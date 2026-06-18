@@ -2368,3 +2368,78 @@
 - Next hypothesis:
   - after one final diff review, commit the implementation with the version bump
     deferred.
+
+## 2026-06-18 11:48 KST - Exact Perfect Phase Early Return
+
+- Git status:
+  - clean before the phase early-return edit.
+- Hypothesis:
+  - if the unshifted phase candidate has exact `rho_e == 1.0`, the remaining
+    shifted phase scan cannot improve the selected alignment because phase
+    replacement uses strict `>` and correlations are clamped to at most `1.0`.
+- Files changed:
+  - `src/iso18571/scorer_impl.hpp`;
+  - this experiment log.
+- Commands:
+  - added an exact `result.correlation.rho_e == 1.0` return immediately after
+    the unshifted phase candidate is computed and before phase-cache
+    construction;
+  - intentionally did not add tests, did not add a full-score fast path, did
+    not use tolerance, and did not bump the package version;
+  - ran the requested validation gate.
+- Validation result:
+  - `uv pip install -e .` passed and installed `iso18571==1.0.4`;
+  - `uv run --extra test python -m pytest -q` passed:
+    `14 passed, 32 deselected`;
+  - `uv run --extra test ruff check --fix .` passed;
+  - `uv run --extra test ruff format .` passed with `21 files left unchanged`;
+  - `uv run --extra test ruff check .` passed;
+  - `uv run --extra test ruff format --check .` passed;
+  - `uv run --extra test mypy iso18571 iso18571_reference tests` passed:
+    `16 source files`;
+  - `uv build --wheel` passed and produced
+    `dist/iso18571-1.0.4-cp314-cp314-linux_x86_64.whl`.
+- Conclusion:
+  - exact perfect unshifted phase matches now skip phase-cache construction and
+    shifted phase scanning while preserving the selected unshifted result and
+    downstream scoring path.
+- Next hypothesis:
+  - run benchmarks only if this micro-optimization needs a quantified runtime
+    snapshot.
+
+## 2026-06-18 11:51 KST - v1.0.5 Release Bump
+
+- Git status:
+  - dirty from the exact perfect phase early return and version bump.
+- Hypothesis:
+  - the phase early-return optimization and robustness/parity cleanup can ship
+    as `1.0.5` after the normal validation gate.
+- Files changed:
+  - `pyproject.toml`;
+  - `README.md`;
+  - `examples/quickstart.ipynb`;
+  - `src/iso18571/scorer_impl.hpp`;
+  - this experiment log.
+- Commands:
+  - bumped package metadata and user-facing version examples from `1.0.4` to
+    `1.0.5`;
+  - refreshed the quickstart notebook after reinstalling the editable package;
+  - reran the requested validation gate before committing.
+- Validation result:
+  - `uv pip install -e .` passed and installed `iso18571==1.0.5`;
+  - `uv run --extra examples jupyter nbconvert --to notebook --execute --inplace examples/quickstart.ipynb`
+    passed;
+  - `uv run --extra test python -m pytest -q` passed:
+    `14 passed, 32 deselected`;
+  - `uv run --extra test ruff check --fix .` passed;
+  - `uv run --extra test ruff format .` passed with `21 files left unchanged`;
+  - `uv run --extra test ruff check .` passed;
+  - `uv run --extra test ruff format --check .` passed;
+  - `uv run --extra test mypy iso18571 iso18571_reference tests` passed:
+    `16 source files`;
+  - `uv build --wheel` passed and produced
+    `dist/iso18571-1.0.5-cp314-cp314-linux_x86_64.whl`.
+- Conclusion:
+  - local validation is green for `1.0.5`.
+- Next hypothesis:
+  - commit and push `main`.
