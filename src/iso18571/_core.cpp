@@ -293,14 +293,14 @@ void add_score_fields (py::dict& out, const ScoreResult& result) {
 py::dict score_components (py::array reference_curve, py::array comparison_curve, py::dict params) {
     const ValidatedCurves curves       = validate_curves(reference_curve, comparison_curve);
     ScoreParams           score_params = score_params_from_dict(params);
-    score_params.dt                    = curves.dt;
     iso18571::validate_score_params(score_params);
 
     ScoreResult result;
     {
         py::gil_scoped_release release;
         result =
-            iso18571::dispatch_table().score_components(curves.reference.view, curves.comparison.view, score_params);
+            iso18571::dispatch_table().score_components(curves.reference.view, curves.comparison.view, score_params,
+                                                        curves.dt);
     }
 
     emit_score_warnings(result);

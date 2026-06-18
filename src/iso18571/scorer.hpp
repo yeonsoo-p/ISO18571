@@ -45,19 +45,18 @@ struct CurveView {
 };
 
 struct ScoreParams {
-    int    k_z      = 2;
-    int    k_p      = 1;
-    int    k_m      = 1;
-    double eps_m    = 0.50;
-    double e_s      = 2.0;
-    double init_min = 0.8;
-    double a_0      = 0.05;
-    double b_0      = 0.5;
-    double w_z      = 0.4;
-    double w_p      = 0.2;
-    double w_m      = 0.2;
-    double w_s      = 0.2;
-    double dt       = 0.0001;
+    int    k_z;
+    int    k_p;
+    int    k_m;
+    double eps_m;
+    double e_s;
+    double init_min;
+    double a_0;
+    double b_0;
+    double w_z;
+    double w_p;
+    double w_m;
+    double w_s;
 };
 
 struct PhaseAlignment {
@@ -126,25 +125,29 @@ struct ScoreResult {
     double          overall = 0.0;
 };
 
-using ScoreComponentsFn = ScoreResult (*)(const CurveView&, const CurveView&, const ScoreParams&);
+using ScoreComponentsFn = ScoreResult (*)(const CurveView&, const CurveView&, const ScoreParams&, double);
 
 struct DispatchTable {
     ScoreComponentsFn score_components = nullptr;
     const char*       level            = "x86-64-v1";
 };
 
-ScoreResult score_components_v1 (const CurveView& reference, const CurveView& comparison, const ScoreParams& params);
+ScoreResult score_components_v1 (const CurveView& reference, const CurveView& comparison, const ScoreParams& params,
+                                 double dt);
 
 #if defined(ISO18571_COMPILED_X86_64_V2)
-ScoreResult score_components_v2 (const CurveView& reference, const CurveView& comparison, const ScoreParams& params);
+ScoreResult score_components_v2 (const CurveView& reference, const CurveView& comparison, const ScoreParams& params,
+                                 double dt);
 #endif
 
 #if defined(ISO18571_COMPILED_X86_64_V3)
-ScoreResult score_components_v3 (const CurveView& reference, const CurveView& comparison, const ScoreParams& params);
+ScoreResult score_components_v3 (const CurveView& reference, const CurveView& comparison, const ScoreParams& params,
+                                 double dt);
 #endif
 
 #if defined(ISO18571_COMPILED_X86_64_V4)
-ScoreResult score_components_v4 (const CurveView& reference, const CurveView& comparison, const ScoreParams& params);
+ScoreResult score_components_v4 (const CurveView& reference, const CurveView& comparison, const ScoreParams& params,
+                                 double dt);
 #endif
 
 const DispatchTable& dispatch_table ();

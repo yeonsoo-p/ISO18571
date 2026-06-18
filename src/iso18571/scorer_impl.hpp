@@ -521,15 +521,15 @@ double smoothed_slope_at (const std::vector<double>& gradient, Index idx) {
 }
 
 SlopeResult fused_slope_score_from_values (const ArrayView& reference_values, const ArrayView& comparison_values,
-                                           const ScoreParams& params) {
+                                           const ScoreParams& params, double dt) {
     if (reference_values.n < 9) {
         throw std::invalid_argument("Shifted curves must have at least 9 samples for slope rating");
     }
 
     std::vector<double> comparison_gradient;
     std::vector<double> reference_gradient;
-    gradient_values(comparison_values, params.dt, comparison_gradient);
-    gradient_values(reference_values, params.dt, reference_gradient);
+    gradient_values(comparison_values, dt, comparison_gradient);
+    gradient_values(reference_values, dt, reference_gradient);
 
     double numerator   = 0.0;
     double denominator = 0.0;
@@ -557,7 +557,8 @@ SlopeResult fused_slope_score_from_values (const ArrayView& reference_values, co
     return {(params.e_s - e_slope) / params.e_s, {}};
 }
 
-ScoreResult score_components_impl (const CurveView& reference, const CurveView& comparison, const ScoreParams& params) {
+ScoreResult score_components_impl (const CurveView& reference, const CurveView& comparison, const ScoreParams& params,
+                                   double dt) {
     ScoreResult result;
     result.phase          = compute_phase_alignment(reference, comparison, params);
     result.corridor.score = corridor_score(reference, comparison, params);
@@ -571,7 +572,7 @@ ScoreResult score_components_impl (const CurveView& reference, const CurveView& 
     const ArrayView           contiguous_reference_view  = view_from_vector(contiguous_reference);
 
     result.magnitude = magnitude_score_from_values(contiguous_reference_view, contiguous_comparison_view, params);
-    result.slope     = fused_slope_score_from_values(contiguous_reference_view, contiguous_comparison_view, params);
+    result.slope     = fused_slope_score_from_values(contiguous_reference_view, contiguous_comparison_view, params, dt);
     result.overall   = params.w_z * result.corridor.score + params.w_p * result.phase.score +
                        params.w_m * result.magnitude.score + params.w_s * result.slope.score;
     return result;
@@ -582,8 +583,8 @@ ScoreResult score_components_impl (const CurveView& reference, const CurveView& 
 namespace iso18571 {
 
 ScoreResult ISO18571_VARIANT (score_components)(const CurveView& reference, const CurveView& comparison,
-                                                const ScoreParams& params) {
-    return score_components_impl(reference, comparison, params);
+                                                const ScoreParams& params, double dt) {
+    return score_components_impl(reference, comparison, params, dt);
 }
 
 } // namespace iso18571

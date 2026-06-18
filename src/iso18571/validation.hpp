@@ -12,11 +12,9 @@ inline constexpr double kInitMinExclusiveMaximum = 1.0;
 
 inline constexpr double kA0Minimum = 0.0;
 inline constexpr double kA0Maximum = 1.0;
-inline constexpr double kA0Default = 0.05;
 
 inline constexpr double kB0Minimum = 0.0;
 inline constexpr double kB0Maximum = 1.0;
-inline constexpr double kB0Default = 0.5;
 
 inline constexpr double kWeightMinimum              = 0.0;
 inline constexpr double kExpectedWeightSum          = 1.0;

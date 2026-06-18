@@ -103,7 +103,6 @@ void validate_score_params (const ScoreParams& params) {
     require_non_negative(params.w_p, "w_p");
     require_non_negative(params.w_m, "w_m");
     require_non_negative(params.w_s, "w_s");
-    require_positive(params.dt, "dt");
 
     const double weights_sum = params.w_z + params.w_m + params.w_p + params.w_s;
     if (std::fabs(weights_sum - kExpectedWeightSum) > kWeightSumAbsoluteTolerance) {

@@ -2485,3 +2485,45 @@
 - Next hypothesis:
   - commit the public score-component typing cleanup after the final diff
     whitespace check.
+
+## 2026-06-18 19:23 KST - Native Score Parameter Defaults Cleanup
+
+- Git status:
+  - dirty with native scorer parameter-carrier cleanup.
+- Hypothesis:
+  - keeping public defaults only in `ISO18571.__init__` and removing native
+    `ScoreParams` defaults eliminates duplicate production defaults without
+    changing scoring behavior.
+- Files changed:
+  - `src/iso18571/_core.cpp`;
+  - `src/iso18571/scorer.hpp`;
+  - `src/iso18571/scorer_impl.hpp`;
+  - `src/iso18571/validation.cpp`;
+  - `src/iso18571/validation.hpp`;
+  - this experiment log.
+- Commands:
+  - removed default member initializers from native `ScoreParams`;
+  - removed unused native `a_0` and `b_0` default constants;
+  - kept Python constructor defaults inline as the public API owner;
+  - kept `dt` out of `ScoreParams` and passed the validated time interval
+    separately to native slope scoring.
+- Validation result:
+  - `uv pip install -e .` passed and installed `iso18571==1.0.5`;
+  - `uv run --extra test python -m pytest -q tests/test_iso18571_robustness.py`
+    passed: `14 passed`;
+  - `uv run --extra test ruff check --fix .` passed;
+  - `uv run --extra test ruff format .` passed with
+    `21 files left unchanged`;
+  - `uv run --extra test ruff check .` passed;
+  - `uv run --extra test ruff format --check .` passed with
+    `21 files already formatted`;
+  - `uv run --extra test mypy iso18571 iso18571_reference tests` passed:
+    `16 source files`;
+  - `uv run --extra test python -m pytest -q` passed:
+    `17 passed, 32 deselected`;
+  - `git diff --check` passed.
+- Conclusion:
+  - duplicate native scoring defaults are removed, `dt` remains derived from
+    validated curve time columns, and existing validation is green.
+- Next hypothesis:
+  - commit this native cleanup after final review.
