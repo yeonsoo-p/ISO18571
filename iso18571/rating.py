@@ -10,10 +10,20 @@ from . import _core
 
 ScoreComponents = dict[str, float | int]
 ScoreParams = dict[str, float | int]
+NativeCurveArray = npt.NDArray[np.float32] | npt.NDArray[np.float64]
 ScoreComponentsFn = Callable[
     [npt.ArrayLike, npt.ArrayLike, ScoreParams], ScoreComponents
 ]
 _score_components = cast(ScoreComponentsFn, getattr(_core, "_score_components"))
+
+
+def _native_curve_array(curve: npt.ArrayLike) -> NativeCurveArray:
+    array = np.asarray(curve)
+    if array.dtype == np.float32:
+        return cast(npt.NDArray[np.float32], array)
+    if array.dtype == np.float64:
+        return cast(npt.NDArray[np.float64], array)
+    return np.asarray(array, dtype=np.float64)
 
 
 class ISO18571:
@@ -34,8 +44,10 @@ class ISO18571:
         w_m: float = 0.2,
         w_s: float = 0.2,
     ) -> None:
-        self.reference_curve = np.asarray(reference_curve, dtype=np.float64)
-        self.comparison_curve = np.asarray(comparison_curve, dtype=np.float64)
+        native_reference_curve = _native_curve_array(reference_curve)
+        native_comparison_curve = _native_curve_array(comparison_curve)
+        self.reference_curve = np.asarray(native_reference_curve, dtype=np.float64)
+        self.comparison_curve = np.asarray(native_comparison_curve, dtype=np.float64)
         if self.reference_curve.shape != self.comparison_curve.shape:
             raise ValueError("Curves are not equal in size/dimension")
 
@@ -54,8 +66,8 @@ class ISO18571:
             "w_s": w_s,
         }
         self._scores: ScoreComponents = _score_components(
-            self.reference_curve,
-            self.comparison_curve,
+            native_reference_curve,
+            native_comparison_curve,
             params,
         )
 

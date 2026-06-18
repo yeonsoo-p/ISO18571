@@ -4,6 +4,7 @@ import math
 import warnings
 from collections.abc import Sequence
 from importlib.metadata import version
+from typing import cast
 
 import numpy as np
 import numpy.typing as npt
@@ -28,6 +29,16 @@ ROBUSTNESS_EDGE_LENGTHS = (9, 10, 17, 64, 129, 512, 1430)
 def curve_from_values(values: FloatArray, dt: float = 0.0001) -> FloatArray:
     time = np.arange(values.shape[0], dtype=np.float64) * dt
     return np.column_stack((time, values)).astype(np.float64, copy=False)
+
+
+def float32_curve_from_values(
+    values: FloatArray, dt: float = 0.0001
+) -> npt.NDArray[np.float32]:
+    time = np.arange(values.shape[0], dtype=np.float32) * np.float32(dt)
+    curve = np.column_stack((time, values.astype(np.float32))).astype(
+        np.float32, copy=False
+    )
+    return cast(npt.NDArray[np.float32], curve)
 
 
 def sine_values(n: int) -> FloatArray:
@@ -68,8 +79,8 @@ def sparse_spikes_pair(n: int) -> tuple[FloatArray, FloatArray]:
 
 
 def score_with_warnings(
-    reference_curve: FloatArray,
-    comparison_curve: FloatArray,
+    reference_curve: npt.ArrayLike,
+    comparison_curve: npt.ArrayLike,
 ) -> tuple[ISO18571, list[str]]:
     with warnings.catch_warnings(record=True) as records:
         warnings.simplefilter("always", RuntimeWarning)
@@ -257,21 +268,75 @@ def test_nonfinite_signal_values_fail_clearly_before_dtw() -> None:
     raise AssertionError("nonfinite signal values were accepted")
 
 
-def test_periodic_identical_sine_oracle_limit_is_hard_coded() -> None:
+def test_periodic_identical_sine_prefers_unshifted_native_alignment() -> None:
     curve = curve_from_values(sine_values(65))
     iso, messages = score_with_warnings(curve, curve.copy())
 
     assert messages == []
     assert_scores_close(
         iso,
-        {"Z": 1.0, "EP": 0.0, "EM": 1.0, "ES": 1.0, "R": 0.8},
+        {"Z": 1.0, "EP": 1.0, "EM": 1.0, "ES": 1.0, "R": 1.0},
         "periodic sine identical",
     )
-    assert iso.n_eps == 13
-    assert iso.rho_e == 1.0
+    assert iso.n_eps == 0
+    np.testing.assert_allclose(iso.rho_e, 1.0, atol=1e-12)
     assert iso.reference_start == 0
-    assert iso.comparison_start == 13
-    assert iso.shift_length == 52
+    assert iso.comparison_start == 0
+    assert iso.shift_length == 65
+
+
+def test_float32_uniform_time_grid_is_accepted_by_native_validation() -> None:
+    curve = float32_curve_from_values(np.linspace(-1.0, 1.0, 32, dtype=np.float64))
+    iso, messages = score_with_warnings(curve, curve.copy())
+
+    assert messages == []
+    assert_scores_close(
+        iso,
+        {"Z": 1.0, "EP": 1.0, "EM": 1.0, "ES": 1.0, "R": 1.0},
+        "float32 uniform grid",
+    )
+    assert iso.reference_curve.dtype == np.float64
+    assert iso.shifted_reference_curve.dtype == np.float64
+
+
+def test_mixed_float32_float64_time_grids_are_accepted() -> None:
+    values = np.linspace(-1.0, 1.0, 32, dtype=np.float64)
+    curve32 = float32_curve_from_values(values)
+    curve64 = curve_from_values(values)
+
+    for context, reference, comparison in (
+        ("float32 reference float64 comparison", curve32, curve64),
+        ("float64 reference float32 comparison", curve64, curve32),
+    ):
+        iso, messages = score_with_warnings(reference, comparison)
+
+        assert messages == []
+        assert_scores_close(
+            iso,
+            {"Z": 1.0, "EP": 1.0, "EM": 1.0, "ES": 1.0, "R": 1.0},
+            context,
+        )
+        assert iso.reference_start == 0
+        assert iso.comparison_start == 0
+        assert iso.shift_length == 32
+
+
+def test_visibly_nonuniform_float32_time_grid_still_fails() -> None:
+    reference = float32_curve_from_values(np.linspace(-1.0, 1.0, 32, dtype=np.float64))
+    comparison = reference.copy()
+    reference[5, 0] += np.float32(1.0e-5)
+
+    with warnings.catch_warnings(record=True) as records:
+        warnings.simplefilter("always", RuntimeWarning)
+        try:
+            ISO18571(reference, comparison)
+        except ValueError as exc:
+            assert "reference_curve time values must have a constant interval" in str(
+                exc
+            )
+            assert records == []
+            return
+    raise AssertionError("visibly nonuniform float32 time grid was accepted")
 
 
 def test_aliased_sine_scaling_oracle_limit_is_hard_coded() -> None:

@@ -7,6 +7,11 @@ namespace iso18571 {
 
 using Index = std::ptrdiff_t;
 
+enum class CurveDType {
+    Float32,
+    Float64,
+};
+
 struct ArrayView {
     const char* data   = nullptr;
     Index       stride = 0;
@@ -20,12 +25,23 @@ struct CurveView {
     Index       row_stride    = 0;
     Index       column_stride = 0;
     Index       n             = 0;
+    CurveDType  dtype         = CurveDType::Float64;
 
     double value (Index index) const {
-        return *reinterpret_cast<const double*>(data + index * row_stride + column_stride);
+        const char* ptr = data + index * row_stride + column_stride;
+        if (dtype == CurveDType::Float32) {
+            return static_cast<double>(*reinterpret_cast<const float*>(ptr));
+        }
+        return *reinterpret_cast<const double*>(ptr);
     }
 
-    double time (Index index) const { return *reinterpret_cast<const double*>(data + index * row_stride); }
+    double time (Index index) const {
+        const char* ptr = data + index * row_stride;
+        if (dtype == CurveDType::Float32) {
+            return static_cast<double>(*reinterpret_cast<const float*>(ptr));
+        }
+        return *reinterpret_cast<const double*>(ptr);
+    }
 };
 
 struct ScoreParams {

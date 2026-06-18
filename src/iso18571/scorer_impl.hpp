@@ -36,6 +36,7 @@ constexpr std::uint8_t DIR_NONE       = 0;
 constexpr std::uint8_t DIR_VERTICAL   = 1;
 constexpr std::uint8_t DIR_HORIZONTAL = 2;
 constexpr std::uint8_t DIR_DIAGONAL   = 3;
+constexpr double       CORRELATION_TIE_TOLERANCE = 1.0e-12;
 
 struct DtwState {
     Index                     n          = 0;
@@ -177,14 +178,6 @@ std::pair<double, double> magnitude_error_impl (const ArrayView& x, const ArrayV
     return magnitude_error_from_state(x, y, state);
 }
 
-std::vector<double> copy_values (const ArrayView& values) {
-    std::vector<double> out(static_cast<std::size_t>(values.n));
-    for (Index idx = 0; idx < values.n; ++idx) {
-        out[static_cast<std::size_t>(idx)] = values.value(idx);
-    }
-    return out;
-}
-
 ArrayView view_from_vector (const std::vector<double>& values) {
     return {
         reinterpret_cast<const char*>(values.data()),
@@ -193,8 +186,12 @@ ArrayView view_from_vector (const std::vector<double>& values) {
     };
 }
 
-ArrayView value_view_from_curve (const CurveView& curve, Index start, Index length) {
-    return {curve.data + start * curve.row_stride + curve.column_stride, curve.row_stride, length};
+std::vector<double> copy_curve_values (const CurveView& curve, Index start, Index length) {
+    std::vector<double> out(static_cast<std::size_t>(length));
+    for (Index idx = 0; idx < length; ++idx) {
+        out[static_cast<std::size_t>(idx)] = curve.value(start + idx);
+    }
+    return out;
 }
 
 template<typename Series> PhaseCache build_phase_cache (const Series& reference, const Series& comparison) {
@@ -393,13 +390,13 @@ PhaseResult compute_phase_alignment (const Series& reference, const Series& comp
         const Index length     = reference.n - idx;
         const auto  candidates = dual_phase_candidates_for_shift(reference, comparison, cache, idx, length, max_shift);
         const PhaseResult left_candidate = candidates.first;
-        if (left_candidate.correlation.rho_e > ccr_max) {
+        if (left_candidate.correlation.rho_e > ccr_max + CORRELATION_TIE_TOLERANCE) {
             ccr_max = left_candidate.correlation.rho_e;
             result  = left_candidate;
         }
 
         const PhaseResult right_candidate = candidates.second;
-        if (right_candidate.correlation.rho_e > ccr_max) {
+        if (right_candidate.correlation.rho_e > ccr_max + CORRELATION_TIE_TOLERANCE) {
             ccr_max = right_candidate.correlation.rho_e;
             result  = right_candidate;
         }
@@ -566,12 +563,10 @@ ScoreResult score_components_impl (const CurveView& reference, const CurveView& 
     result.corridor.score = corridor_score(reference, comparison, params);
     result.phase.score    = phase_score(reference, params, result.phase.alignment);
 
-    const ArrayView comparison_values =
-        value_view_from_curve(comparison, result.phase.alignment.comparison_start, result.phase.alignment.length);
-    const ArrayView reference_values =
-        value_view_from_curve(reference, result.phase.alignment.reference_start, result.phase.alignment.length);
-    const std::vector<double> contiguous_comparison      = copy_values(comparison_values);
-    const std::vector<double> contiguous_reference       = copy_values(reference_values);
+    const std::vector<double> contiguous_comparison =
+        copy_curve_values(comparison, result.phase.alignment.comparison_start, result.phase.alignment.length);
+    const std::vector<double> contiguous_reference =
+        copy_curve_values(reference, result.phase.alignment.reference_start, result.phase.alignment.length);
     const ArrayView           contiguous_comparison_view = view_from_vector(contiguous_comparison);
     const ArrayView           contiguous_reference_view  = view_from_vector(contiguous_reference);
 
