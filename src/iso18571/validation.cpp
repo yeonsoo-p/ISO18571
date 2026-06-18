@@ -8,47 +8,47 @@
 namespace iso18571 {
 namespace {
 
-[[noreturn]] void throw_score_exponent_error(const char* name) {
+[[noreturn]] void throw_score_exponent_error (const char* name) {
     throw std::invalid_argument(std::string(name) + " has to be 1, 2, or 3");
 }
 
-[[noreturn]] void throw_positive_integer_error(const char* name) {
+[[noreturn]] void throw_positive_integer_error (const char* name) {
     throw std::invalid_argument(std::string(name) + " must be a positive integer");
 }
 
-void require_finite(double value, const char* name) {
+void require_finite (double value, const char* name) {
     if (!std::isfinite(value)) {
         throw std::invalid_argument(std::string(name) + " must be finite");
     }
 }
 
-void require_positive(double value, const char* name) {
+void require_positive (double value, const char* name) {
     require_finite(value, name);
     if (value <= 0.0) {
         throw std::invalid_argument(std::string(name) + " must be positive");
     }
 }
 
-void require_non_negative(double value, const char* name) {
+void require_non_negative (double value, const char* name) {
     require_finite(value, name);
     if (value < kWeightMinimum) {
         throw std::invalid_argument(std::string(name) + " must be non-negative");
     }
 }
 
-void require_score_exponent(int value, const char* name) {
+void require_score_exponent (int value, const char* name) {
     if (value < kScoreExponentMinimum || value > kScoreExponentMaximum) {
         throw_score_exponent_error(name);
     }
 }
 
-void require_positive_integer(int value, const char* name) {
+void require_positive_integer (int value, const char* name) {
     if (value < 1) {
         throw_positive_integer_error(name);
     }
 }
 
-void require_closed_interval(double value, const char* name, double minimum, double maximum) {
+void require_closed_interval (double value, const char* name, double minimum, double maximum) {
     require_finite(value, name);
     if (value < minimum || value > maximum) {
         throw std::invalid_argument(std::string(name) + " must satisfy 0 <= " + name + " <= 1");
@@ -57,7 +57,7 @@ void require_closed_interval(double value, const char* name, double minimum, dou
 
 } // namespace
 
-int score_exponent_from_double(double value, const char* name) {
+int score_exponent_from_double (double value, const char* name) {
     if (!std::isfinite(value)) {
         throw_score_exponent_error(name);
     }
@@ -73,7 +73,7 @@ int score_exponent_from_double(double value, const char* name) {
     throw_score_exponent_error(name);
 }
 
-int positive_integer_from_double(double value, const char* name) {
+int positive_integer_from_double (double value, const char* name) {
     if (!std::isfinite(value) || value < 1.0 || value > static_cast<double>(std::numeric_limits<int>::max()) ||
         std::floor(value) != value) {
         throw_positive_integer_error(name);
@@ -81,7 +81,7 @@ int positive_integer_from_double(double value, const char* name) {
     return static_cast<int>(value);
 }
 
-void validate_score_params(const ScoreParams& params) {
+void validate_score_params (const ScoreParams& params) {
     require_positive_integer(params.k_z, "k_z");
     require_score_exponent(params.k_p, "k_p");
     require_score_exponent(params.k_m, "k_m");

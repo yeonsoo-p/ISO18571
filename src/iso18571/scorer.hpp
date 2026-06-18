@@ -12,7 +12,7 @@ struct ArrayView {
     Index       stride = 0;
     Index       n      = 0;
 
-    double value(Index index) const { return *reinterpret_cast<const double*>(data + index * stride); }
+    double value (Index index) const { return *reinterpret_cast<const double*>(data + index * stride); }
 };
 
 struct CurveView {
@@ -21,11 +21,11 @@ struct CurveView {
     Index       column_stride = 0;
     Index       n             = 0;
 
-    double value(Index index) const {
+    double value (Index index) const {
         return *reinterpret_cast<const double*>(data + index * row_stride + column_stride);
     }
 
-    double time(Index index) const { return *reinterpret_cast<const double*>(data + index * row_stride); }
+    double time (Index index) const { return *reinterpret_cast<const double*>(data + index * row_stride); }
 };
 
 struct ScoreParams {
@@ -117,21 +117,21 @@ struct DispatchTable {
     const char*       level            = "x86-64-v1";
 };
 
-ScoreResult score_components_v1(const CurveView& reference, const CurveView& comparison, const ScoreParams& params);
+ScoreResult score_components_v1 (const CurveView& reference, const CurveView& comparison, const ScoreParams& params);
 
 #if defined(ISO18571_COMPILED_X86_64_V2)
-ScoreResult score_components_v2(const CurveView& reference, const CurveView& comparison, const ScoreParams& params);
+ScoreResult score_components_v2 (const CurveView& reference, const CurveView& comparison, const ScoreParams& params);
 #endif
 
 #if defined(ISO18571_COMPILED_X86_64_V3)
-ScoreResult score_components_v3(const CurveView& reference, const CurveView& comparison, const ScoreParams& params);
+ScoreResult score_components_v3 (const CurveView& reference, const CurveView& comparison, const ScoreParams& params);
 #endif
 
 #if defined(ISO18571_COMPILED_X86_64_V4)
-ScoreResult score_components_v4(const CurveView& reference, const CurveView& comparison, const ScoreParams& params);
+ScoreResult score_components_v4 (const CurveView& reference, const CurveView& comparison, const ScoreParams& params);
 #endif
 
-const DispatchTable& dispatch_table();
-const char*          compiled_x86_64_levels();
+const DispatchTable& dispatch_table ();
+const char*          compiled_x86_64_levels ();
 
 } // namespace iso18571

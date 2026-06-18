@@ -51,11 +51,11 @@ struct PhaseCache {
     std::vector<double> comparison_square_sum;
 };
 
-void append_warning(std::vector<Diagnostic>& diagnostics, DiagnosticComponent component, DiagnosticCode code) {
+void append_warning (std::vector<Diagnostic>& diagnostics, DiagnosticComponent component, DiagnosticCode code) {
     diagnostics.push_back({DiagnosticSeverity::Warning, component, code});
 }
 
-Index window_radius(Index n, double window_size) {
+Index window_radius (Index n, double window_size) {
     if (n <= 0) {
         throw std::invalid_argument("DTW input arrays must not be empty");
     }
@@ -69,12 +69,12 @@ Index window_radius(Index n, double window_size) {
     return std::min<Index>(n, std::max<Index>(1, raw));
 }
 
-Index direction_index(Index i, Index j, Index radius, Index band_width) {
+Index direction_index (Index i, Index j, Index radius, Index band_width) {
     const Index row_start = i - radius + 1;
     return i * band_width + (j - row_start);
 }
 
-DtwState compute_directions_index_incremental(const ArrayView& x, const ArrayView& y, double window_size) {
+DtwState compute_directions_index_incremental (const ArrayView& x, const ArrayView& y, double window_size) {
     DtwState state;
     state.n          = x.n;
     state.radius     = window_radius(x.n, window_size);
@@ -143,7 +143,7 @@ DtwState compute_directions_index_incremental(const ArrayView& x, const ArrayVie
     return state;
 }
 
-std::pair<double, double> magnitude_error_from_state(const ArrayView& x, const ArrayView& y, const DtwState& state) {
+std::pair<double, double> magnitude_error_from_state (const ArrayView& x, const ArrayView& y, const DtwState& state) {
     double numerator   = 0.0;
     double denominator = 0.0;
     Index  i           = state.n - 1;
@@ -172,12 +172,12 @@ std::pair<double, double> magnitude_error_from_state(const ArrayView& x, const A
     return {numerator, denominator};
 }
 
-std::pair<double, double> magnitude_error_impl(const ArrayView& x, const ArrayView& y, double window_size) {
+std::pair<double, double> magnitude_error_impl (const ArrayView& x, const ArrayView& y, double window_size) {
     const DtwState state = compute_directions_index_incremental(x, y, window_size);
     return magnitude_error_from_state(x, y, state);
 }
 
-std::vector<double> copy_values(const ArrayView& values) {
+std::vector<double> copy_values (const ArrayView& values) {
     std::vector<double> out(static_cast<std::size_t>(values.n));
     for (Index idx = 0; idx < values.n; ++idx) {
         out[static_cast<std::size_t>(idx)] = values.value(idx);
@@ -185,7 +185,7 @@ std::vector<double> copy_values(const ArrayView& values) {
     return out;
 }
 
-ArrayView view_from_vector(const std::vector<double>& values) {
+ArrayView view_from_vector (const std::vector<double>& values) {
     return {
         reinterpret_cast<const char*>(values.data()),
         static_cast<Index>(sizeof(double)),
@@ -193,11 +193,11 @@ ArrayView view_from_vector(const std::vector<double>& values) {
     };
 }
 
-ArrayView value_view_from_curve(const CurveView& curve, Index start, Index length) {
+ArrayView value_view_from_curve (const CurveView& curve, Index start, Index length) {
     return {curve.data + start * curve.row_stride + curve.column_stride, curve.row_stride, length};
 }
 
-template<typename Series> PhaseCache build_phase_cache(const Series& reference, const Series& comparison) {
+template<typename Series> PhaseCache build_phase_cache (const Series& reference, const Series& comparison) {
     PhaseCache        cache;
     const std::size_t size = static_cast<std::size_t>(reference.n + 1);
     cache.reference_sum.assign(size, 0.0);
@@ -218,13 +218,13 @@ template<typename Series> PhaseCache build_phase_cache(const Series& reference, 
     return cache;
 }
 
-double prefix_range(const std::vector<double>& values, Index start, Index length) {
+double prefix_range (const std::vector<double>& values, Index start, Index length) {
     return values[static_cast<std::size_t>(start + length)] - values[static_cast<std::size_t>(start)];
 }
 
 template<typename Series>
-bool values_equal_for_shift(const Series& reference, const Series& comparison, Index reference_start,
-                            Index comparison_start, Index length) {
+bool values_equal_for_shift (const Series& reference, const Series& comparison, Index reference_start,
+                             Index comparison_start, Index length) {
     for (Index idx = 0; idx < length; ++idx) {
         if (reference.value(reference_start + idx) != comparison.value(comparison_start + idx)) {
             return false;
@@ -234,8 +234,8 @@ bool values_equal_for_shift(const Series& reference, const Series& comparison, I
 }
 
 template<typename Series>
-double correlation_for_shift(const Series& reference, const Series& comparison, Index reference_start,
-                             Index comparison_start, Index length, std::vector<Diagnostic>& diagnostics) {
+double correlation_for_shift (const Series& reference, const Series& comparison, Index reference_start,
+                              Index comparison_start, Index length, std::vector<Diagnostic>& diagnostics) {
     double reference_sum  = 0.0;
     double comparison_sum = 0.0;
     for (Index idx = 0; idx < length; ++idx) {
@@ -283,8 +283,8 @@ double correlation_for_shift(const Series& reference, const Series& comparison, 
 }
 
 template<typename Series>
-double product_sum_for_shift(const Series& reference, const Series& comparison, Index reference_start,
-                             Index comparison_start, Index length) {
+double product_sum_for_shift (const Series& reference, const Series& comparison, Index reference_start,
+                              Index comparison_start, Index length) {
     double out = 0.0;
     for (Index idx = 0; idx < length; ++idx) {
         out += reference.value(reference_start + idx) * comparison.value(comparison_start + idx);
@@ -292,8 +292,8 @@ double product_sum_for_shift(const Series& reference, const Series& comparison, 
     return out;
 }
 
-double correlation_from_cached_product(const PhaseCache& cache, Index reference_start, Index comparison_start,
-                                       Index length, double product_sum) {
+double correlation_from_cached_product (const PhaseCache& cache, Index reference_start, Index comparison_start,
+                                        Index length, double product_sum) {
     const double n                     = static_cast<double>(length);
     const double reference_sum         = prefix_range(cache.reference_sum, reference_start, length);
     const double comparison_sum        = prefix_range(cache.comparison_sum, comparison_start, length);
@@ -321,8 +321,8 @@ double correlation_from_cached_product(const PhaseCache& cache, Index reference_
 }
 
 template<typename Series>
-PhaseResult phase_candidate_for_shift(const Series& reference, const Series& comparison, Index reference_start,
-                                      Index comparison_start, Index length, Index n_eps, double max_shift) {
+PhaseResult phase_candidate_for_shift (const Series& reference, const Series& comparison, Index reference_start,
+                                       Index comparison_start, Index length, Index n_eps, double max_shift) {
     PhaseResult result;
     result.alignment.reference_start  = reference_start;
     result.alignment.comparison_start = comparison_start;
@@ -334,8 +334,8 @@ PhaseResult phase_candidate_for_shift(const Series& reference, const Series& com
     return result;
 }
 
-PhaseResult phase_candidate_from_correlation(Index reference_start, Index comparison_start, Index length, Index n_eps,
-                                             double max_shift, double rho_e) {
+PhaseResult phase_candidate_from_correlation (Index reference_start, Index comparison_start, Index length, Index n_eps,
+                                              double max_shift, double rho_e) {
     PhaseResult result;
     result.alignment.reference_start  = reference_start;
     result.alignment.comparison_start = comparison_start;
@@ -347,9 +347,9 @@ PhaseResult phase_candidate_from_correlation(Index reference_start, Index compar
 }
 
 template<typename Series>
-std::pair<PhaseResult, PhaseResult> dual_phase_candidates_for_shift(const Series& reference, const Series& comparison,
-                                                                    const PhaseCache& cache, Index shift, Index length,
-                                                                    double max_shift) {
+std::pair<PhaseResult, PhaseResult> dual_phase_candidates_for_shift (const Series& reference, const Series& comparison,
+                                                                     const PhaseCache& cache, Index shift, Index length,
+                                                                     double max_shift) {
     if (length < 32) {
         return {
             phase_candidate_for_shift(reference, comparison, 0, shift, length, shift, max_shift),
@@ -377,7 +377,7 @@ std::pair<PhaseResult, PhaseResult> dual_phase_candidates_for_shift(const Series
 }
 
 template<typename Series>
-PhaseResult compute_phase_alignment(const Series& reference, const Series& comparison, const ScoreParams& params) {
+PhaseResult compute_phase_alignment (const Series& reference, const Series& comparison, const ScoreParams& params) {
     const double max_shift = std::round((1.0 - params.init_min) * 100.0) / 100.0;
     PhaseResult  result    = phase_candidate_for_shift(reference, comparison, 0, 0, reference.n, 0, max_shift);
     if (result.correlation.rho_e == 1.0) {
@@ -413,7 +413,7 @@ PhaseResult compute_phase_alignment(const Series& reference, const Series& compa
     return result;
 }
 
-double corridor_score(const CurveView& reference, const CurveView& comparison, const ScoreParams& params) {
+double corridor_score (const CurveView& reference, const CurveView& comparison, const ScoreParams& params) {
     double t_norm = 0.0;
     for (Index idx = 0; idx < reference.n; ++idx) {
         t_norm = std::max(t_norm, std::abs(reference.value(idx)));
@@ -447,7 +447,7 @@ double corridor_score(const CurveView& reference, const CurveView& comparison, c
     return sum / static_cast<double>(reference.n);
 }
 
-double phase_score(const CurveView& reference, const ScoreParams& params, const PhaseAlignment& alignment) {
+double phase_score (const CurveView& reference, const ScoreParams& params, const PhaseAlignment& alignment) {
     const double max_allowable_time_shift_threshold = static_cast<double>(reference.n) * alignment.max_shift;
     if (alignment.n_eps == 0) {
         return 1.0;
@@ -460,8 +460,8 @@ double phase_score(const CurveView& reference, const ScoreParams& params, const 
                     static_cast<double>(params.k_p));
 }
 
-MagnitudeResult magnitude_score_from_values(const ArrayView& reference_values, const ArrayView& comparison_values,
-                                            const ScoreParams& params) {
+MagnitudeResult magnitude_score_from_values (const ArrayView& reference_values, const ArrayView& comparison_values,
+                                             const ScoreParams& params) {
     const auto [numerator, denominator] = magnitude_error_impl(comparison_values, reference_values, 0.1);
     if (denominator == 0.0) {
         MagnitudeResult result;
@@ -484,7 +484,7 @@ MagnitudeResult magnitude_score_from_values(const ArrayView& reference_values, c
     };
 }
 
-void gradient_values(const ArrayView& values, double dt, std::vector<double>& gradient) {
+void gradient_values (const ArrayView& values, double dt, std::vector<double>& gradient) {
     const Index n = values.n;
     gradient.assign(static_cast<std::size_t>(n), 0.0);
     gradient[0] = (values.value(1) - values.value(0)) / dt;
@@ -494,7 +494,7 @@ void gradient_values(const ArrayView& values, double dt, std::vector<double>& gr
     gradient[static_cast<std::size_t>(n - 1)] = (values.value(n - 1) - values.value(n - 2)) / dt;
 }
 
-double smoothed_slope_at(const std::vector<double>& gradient, Index idx) {
+double smoothed_slope_at (const std::vector<double>& gradient, Index idx) {
     const Index n = static_cast<Index>(gradient.size());
     if (idx < 4) {
         const Index windows[4] = {1, 3, 5, 7};
@@ -523,8 +523,8 @@ double smoothed_slope_at(const std::vector<double>& gradient, Index idx) {
     return sum / 9.0;
 }
 
-SlopeResult fused_slope_score_from_values(const ArrayView& reference_values, const ArrayView& comparison_values,
-                                          const ScoreParams& params) {
+SlopeResult fused_slope_score_from_values (const ArrayView& reference_values, const ArrayView& comparison_values,
+                                           const ScoreParams& params) {
     if (reference_values.n < 9) {
         throw std::invalid_argument("Shifted curves must have at least 9 samples for slope rating");
     }
@@ -560,7 +560,7 @@ SlopeResult fused_slope_score_from_values(const ArrayView& reference_values, con
     return {(params.e_s - e_slope) / params.e_s, {}};
 }
 
-ScoreResult score_components_impl(const CurveView& reference, const CurveView& comparison, const ScoreParams& params) {
+ScoreResult score_components_impl (const CurveView& reference, const CurveView& comparison, const ScoreParams& params) {
     ScoreResult result;
     result.phase          = compute_phase_alignment(reference, comparison, params);
     result.corridor.score = corridor_score(reference, comparison, params);
@@ -586,8 +586,8 @@ ScoreResult score_components_impl(const CurveView& reference, const CurveView& c
 
 namespace iso18571 {
 
-ScoreResult ISO18571_VARIANT(score_components)(const CurveView& reference, const CurveView& comparison,
-                                               const ScoreParams& params) {
+ScoreResult ISO18571_VARIANT (score_components)(const CurveView& reference, const CurveView& comparison,
+                                                const ScoreParams& params) {
     return score_components_impl(reference, comparison, params);
 }
 

@@ -16,59 +16,59 @@ namespace iso18571 {
 namespace {
 
 #if defined(__GNUC__) && (defined(__x86_64__) || defined(__i386__))
-void cpuid(unsigned int leaf, unsigned int subleaf, unsigned int (&registers)[4]) {
+void cpuid (unsigned int leaf, unsigned int subleaf, unsigned int (&registers)[4]) {
     __cpuid_count(leaf, subleaf, registers[0], registers[1], registers[2], registers[3]);
 }
 
-unsigned int max_basic_leaf() { return __get_cpuid_max(0U, nullptr); }
+unsigned int max_basic_leaf () { return __get_cpuid_max(0U, nullptr); }
 
-unsigned int max_extended_leaf() { return __get_cpuid_max(0x80000000U, nullptr); }
+unsigned int max_extended_leaf () { return __get_cpuid_max(0x80000000U, nullptr); }
 
-std::uint64_t xgetbv(unsigned int index) {
+std::uint64_t xgetbv (unsigned int index) {
     unsigned int eax = 0;
     unsigned int edx = 0;
     __asm__ volatile("xgetbv" : "=a"(eax), "=d"(edx) : "c"(index));
     return (static_cast<std::uint64_t>(edx) << 32U) | eax;
 }
 
-bool os_supports_avx() {
+bool os_supports_avx () {
     const std::uint64_t mask = xgetbv(0);
     return (mask & 0x6U) == 0x6U;
 }
 
-bool os_supports_avx512() {
+bool os_supports_avx512 () {
     const std::uint64_t mask = xgetbv(0);
     return (mask & 0xE6U) == 0xE6U;
 }
 #endif
 
 #if defined(_MSC_VER) && (defined(_M_X64) || defined(_M_AMD64))
-void cpuid(int leaf, int subleaf, int (&registers)[4]) { __cpuidex(registers, leaf, subleaf); }
+void cpuid (int leaf, int subleaf, int (&registers)[4]) { __cpuidex(registers, leaf, subleaf); }
 
-unsigned int max_basic_leaf() {
+unsigned int max_basic_leaf () {
     int registers[4] = {};
     cpuid(0, 0, registers);
     return static_cast<unsigned int>(registers[0]);
 }
 
-unsigned int max_extended_leaf() {
+unsigned int max_extended_leaf () {
     int registers[4] = {};
     cpuid(static_cast<int>(0x80000000U), 0, registers);
     return static_cast<unsigned int>(registers[0]);
 }
 
-bool os_supports_avx() {
+bool os_supports_avx () {
     const unsigned long long mask = _xgetbv(0);
     return (mask & 0x6) == 0x6;
 }
 
-bool os_supports_avx512() {
+bool os_supports_avx512 () {
     const unsigned long long mask = _xgetbv(0);
     return (mask & 0xE6) == 0xE6;
 }
 #endif
 
-bool supports_v2() {
+bool supports_v2 () {
 #if defined(__GNUC__) && (defined(__x86_64__) || defined(__i386__))
     if (max_basic_leaf() < 1U) {
         return false;
@@ -110,7 +110,7 @@ bool supports_v2() {
 #endif
 }
 
-bool supports_v3() {
+bool supports_v3 () {
 #if defined(__GNUC__) && (defined(__x86_64__) || defined(__i386__))
     if (max_basic_leaf() < 7U) {
         return false;
@@ -158,7 +158,7 @@ bool supports_v3() {
 #endif
 }
 
-bool supports_v4() {
+bool supports_v4 () {
 #if defined(__GNUC__) && (defined(__x86_64__) || defined(__i386__))
     if (max_basic_leaf() < 7U) {
         return false;
@@ -188,7 +188,7 @@ bool supports_v4() {
 #endif
 }
 
-DispatchTable make_dispatch_table() {
+DispatchTable make_dispatch_table () {
 #if defined(ISO18571_COMPILED_X86_64_V4)
     if (supports_v4()) {
         return {score_components_v4, "x86-64-v4"};
@@ -209,12 +209,12 @@ DispatchTable make_dispatch_table() {
 
 } // namespace
 
-const DispatchTable& dispatch_table() {
+const DispatchTable& dispatch_table () {
     static const DispatchTable table = make_dispatch_table();
     return table;
 }
 
-const char* compiled_x86_64_levels() {
+const char* compiled_x86_64_levels () {
     static const std::string levels = [] {
         std::string out = "x86-64-v1";
 #if defined(ISO18571_COMPILED_X86_64_V2)

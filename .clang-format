@@ -18,4 +18,10 @@ SpaceBeforeCpp11BracedList: true
 SpaceBeforeCtorInitializerColon: false
 SpaceBeforeEnumUnderlyingTypeColon: false
 SpaceBeforeInheritanceColon: false
-SpaceBeforeParens: ControlStatementsExceptControlMacros
+SpaceBeforeParens: Custom
+SpaceBeforeParensOptions:
+  AfterControlStatements: true
+  AfterForeachMacros: false
+  AfterFunctionDeclarationName: true
+  AfterFunctionDefinitionName: true
+  AfterIfMacros: false
