@@ -1,17 +1,23 @@
 from __future__ import annotations
 
-from collections.abc import Callable
-from typing import cast
-
+from typing import TypedDict
 import numpy as np
-from numpy.typing import NDArray, ArrayLike
+from numpy.typing import NDArray
 
-from . import _core
+from ._core import _score_components
 
-ScoreComponents = dict[str, float | int]
-ScoreParams = dict[str, float | int]
-ScoreComponentsFn = Callable[[ArrayLike, ArrayLike, ScoreParams], ScoreComponents]
-_score_components = cast(ScoreComponentsFn, getattr(_core, "_score_components"))
+
+class ScoreComponents(TypedDict):
+    Z: float
+    EP: float
+    EM: float
+    ES: float
+    R: float
+    n_eps: int
+    rho_e: float
+    reference_start: int
+    comparison_start: int
+    shift_length: int
 
 
 class ISO18571:
@@ -35,24 +41,23 @@ class ISO18571:
         if reference_curve.shape != comparison_curve.shape:
             raise ValueError("Curves are not equal in size/dimension")
 
-        params: ScoreParams = {
-            "k_z": k_z,
-            "k_p": k_p,
-            "k_m": k_m,
-            "eps_m": eps_m,
-            "e_s": e_s,
-            "init_min": init_min,
-            "a_0": a_0,
-            "b_0": b_0,
-            "w_z": w_z,
-            "w_p": w_p,
-            "w_m": w_m,
-            "w_s": w_s,
-        }
         self._scores: ScoreComponents = _score_components(
             reference_curve,
             comparison_curve,
-            params,
+            {
+                "k_z": k_z,
+                "k_p": k_p,
+                "k_m": k_m,
+                "eps_m": eps_m,
+                "e_s": e_s,
+                "init_min": init_min,
+                "a_0": a_0,
+                "b_0": b_0,
+                "w_z": w_z,
+                "w_p": w_p,
+                "w_m": w_m,
+                "w_s": w_s,
+            },
         )
 
         reference_start = int(self._scores["reference_start"])
@@ -69,7 +74,7 @@ class ISO18571:
 
     @property
     def scores(self) -> ScoreComponents:
-        return dict(self._scores)
+        return self._scores.copy()
 
     @property
     def n_eps(self) -> int:

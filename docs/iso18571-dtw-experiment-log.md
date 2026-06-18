@@ -2443,3 +2443,45 @@
   - local validation is green for `1.0.5`.
 - Next hypothesis:
   - commit and push `main`.
+
+## 2026-06-18 19:11 KST - Public ScoreComponents Typing
+
+- Git status:
+  - dirty with public API typing edits in `iso18571/` and updated robustness
+    tests before this log entry.
+- Hypothesis:
+  - exposing `ScoreComponents` as a public typed score result while typing the
+    private native `_score_components` hook in `_core.pyi` can remove the
+    dynamic cast from `rating.py` and keep tests strict under mypy.
+- Files changed:
+  - `iso18571/rating.py`;
+  - `iso18571/__init__.py`;
+  - `iso18571/_core.pyi`;
+  - `tests/test_iso18571_robustness.py`;
+  - this experiment log.
+- Commands:
+  - added `ScoreComponents` as a public `TypedDict` export;
+  - typed `_score_components` in the native extension stub;
+  - imported `_score_components` directly in `rating.py` and returned a copied
+    typed score result from `.scores`;
+  - updated robustness tests for the new public export and current float32
+    shifted-curve dtype behavior;
+  - marked robustness score-key iteration as `Final` so mypy treats keys as
+    typed-dict literals.
+- Validation result:
+  - `uv run --extra test ruff check --fix .` passed;
+  - `uv run --extra test ruff format .` passed with
+    `21 files left unchanged`;
+  - `uv run --extra test ruff check .` passed;
+  - `uv run --extra test ruff format --check .` passed;
+  - `uv run --extra test mypy iso18571 iso18571_reference tests` passed:
+    `16 source files`;
+  - `uv pip install -e .` passed and installed `iso18571==1.0.5`;
+  - `uv run --extra test python -m pytest -q` passed:
+    `17 passed, 32 deselected`.
+- Conclusion:
+  - package typing, the native stub, and robustness tests agree on the public
+    `ScoreComponents` surface.
+- Next hypothesis:
+  - commit the public score-component typing cleanup after the final diff
+    whitespace check.

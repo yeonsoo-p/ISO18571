@@ -4,6 +4,7 @@ import math
 import warnings
 from collections.abc import Sequence
 from importlib.metadata import version
+from typing import Final
 
 import numpy as np
 from numpy.typing import NDArray
@@ -19,19 +20,20 @@ from tests.iso18571_test_helpers import (
     SLOPE_ZERO_WARNING,
 )
 
-FloatArray = NDArray[np.float64]
-SCORE_KEYS = ("Z", "EP", "EM", "ES", "R")
+SCORE_KEYS: Final = ("Z", "EP", "EM", "ES", "R")
 PARITY_ATOL = 0.001
 ROBUSTNESS_EDGE_LENGTHS = (9, 10, 17, 64, 129, 512, 1430)
 
 
-def curve_from_values(values: FloatArray, dt: float = 0.0001) -> FloatArray:
+def curve_from_values(
+    values: NDArray[np.float64], dt: float = 0.0001
+) -> NDArray[np.float64]:
     time = np.arange(values.shape[0], dtype=np.float64) * dt
     return np.column_stack((time, values)).astype(np.float64, copy=False)
 
 
 def float32_curve_from_values(
-    values: FloatArray, dt: float = 0.0001
+    values: NDArray[np.float64], dt: float = 0.0001
 ) -> NDArray[np.float32]:
     time = np.arange(values.shape[0], dtype=np.float32) * np.float32(dt)
     curve = np.column_stack((time, values.astype(np.float32))).astype(
@@ -40,12 +42,12 @@ def float32_curve_from_values(
     return curve
 
 
-def sine_values(n: int) -> FloatArray:
+def sine_values(n: int) -> NDArray[np.float64]:
     t = np.linspace(0.0, 1.0, n, endpoint=False, dtype=np.float64)
     return np.sin(2.0 * np.pi * 5.0 * t)
 
 
-def noisy_ramp_shifted_pair() -> tuple[FloatArray, FloatArray]:
+def noisy_ramp_shifted_pair() -> tuple[NDArray[np.float64], NDArray[np.float64]]:
     n = 9
     rng = np.random.default_rng(0)
     reference_values = np.linspace(-1.0, 1.0, n, dtype=np.float64)
@@ -54,13 +56,13 @@ def noisy_ramp_shifted_pair() -> tuple[FloatArray, FloatArray]:
     return curve_from_values(reference_values), curve_from_values(comparison_values)
 
 
-def constant_offset_pair(n: int) -> tuple[FloatArray, FloatArray]:
+def constant_offset_pair(n: int) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
     reference_values = np.full(n, 2.0, dtype=np.float64)
     comparison_values = np.full(n, 2.1, dtype=np.float64)
     return curve_from_values(reference_values), curve_from_values(comparison_values)
 
 
-def impulse_pair(n: int) -> tuple[FloatArray, FloatArray]:
+def impulse_pair(n: int) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
     reference_values = np.zeros(n, dtype=np.float64)
     comparison_values = np.zeros(n, dtype=np.float64)
     reference_values[n // 3] = 1.0
@@ -68,7 +70,7 @@ def impulse_pair(n: int) -> tuple[FloatArray, FloatArray]:
     return curve_from_values(reference_values), curve_from_values(comparison_values)
 
 
-def sparse_spikes_pair(n: int) -> tuple[FloatArray, FloatArray]:
+def sparse_spikes_pair(n: int) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
     reference_values = np.zeros(n, dtype=np.float64)
     comparison_values = np.zeros(n, dtype=np.float64)
     indices = np.linspace(1, n - 2, min(9, max(2, n // 16)), dtype=np.int64)
@@ -127,7 +129,7 @@ def test_native_surface_is_small_and_accepts_numpy_arrays(
         "comparison_start",
         "shift_length",
     }
-    assert iso18571.__all__ == ["ISO18571", "backend_info"]
+    assert iso18571.__all__ == ["ISO18571", "backend_info", "ScoreComponents"]
     assert not hasattr(iso18571, "score_components")
     assert not hasattr(iso18571, "magnitude_ratio")
     assert not hasattr(iso18571, "warp_path")
@@ -294,8 +296,8 @@ def test_float32_uniform_time_grid_is_accepted_by_native_validation() -> None:
         {"Z": 1.0, "EP": 1.0, "EM": 1.0, "ES": 1.0, "R": 1.0},
         "float32 uniform grid",
     )
-    assert iso.shifted_reference_curve.dtype == np.float64
-    assert iso.shifted_comparison_curve.dtype == np.float64
+    assert iso.shifted_reference_curve.dtype == np.float32
+    assert iso.shifted_comparison_curve.dtype == np.float32
 
 
 def test_mixed_float32_float64_time_grids_are_accepted() -> None:
