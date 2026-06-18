@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Protocol, TypeVar
 
 import numpy as np
-import numpy.typing as npt
+from numpy.typing import NDArray
 
 import iso18571
 from iso18571_reference import rating_dtwalign, rating_dtw_python, rating_librosa
@@ -37,21 +37,19 @@ EXPECTED_NUMERIC_WARNING_PATTERNS = (
 )
 SCORE_KEYS = ("Z", "EP", "EM", "ES", "R")
 ROUND_SCORE_KEYS = tuple(f"{key}_round" for key in SCORE_KEYS)
-FloatArray = npt.NDArray[np.float64]
-ScoreDict = dict[str, float]
 T = TypeVar("T")
 
 
 @dataclass(frozen=True)
 class AnnexParityResult:
-    scores: ScoreDict
+    scores: dict[str, float]
     n_eps: int
     rho_e: float
     reference_start: int
     comparison_start: int
     shift_length: int
-    shifted_reference_curve: FloatArray
-    shifted_comparison_curve: FloatArray
+    shifted_reference_curve: NDArray[np.float32 | np.float64]
+    shifted_comparison_curve: NDArray[np.float32 | np.float64]
 
 
 class Scorer(Protocol):
@@ -71,10 +69,10 @@ class Scorer(Protocol):
     def shift_length(self) -> int: ...
 
     @property
-    def shifted_reference_curve(self) -> FloatArray: ...
+    def shifted_reference_curve(self) -> NDArray[np.float32 | np.float64]: ...
 
     @property
-    def shifted_comparison_curve(self) -> FloatArray: ...
+    def shifted_comparison_curve(self) -> NDArray[np.float32 | np.float64]: ...
 
     def corridor_rating(self, ndigits: int = 3) -> float: ...
 

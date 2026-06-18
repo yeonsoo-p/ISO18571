@@ -4,33 +4,21 @@ from collections.abc import Callable
 from typing import cast
 
 import numpy as np
-import numpy.typing as npt
+from numpy.typing import NDArray, ArrayLike
 
 from . import _core
 
 ScoreComponents = dict[str, float | int]
 ScoreParams = dict[str, float | int]
-NativeCurveArray = npt.NDArray[np.float32] | npt.NDArray[np.float64]
-ScoreComponentsFn = Callable[
-    [npt.ArrayLike, npt.ArrayLike, ScoreParams], ScoreComponents
-]
+ScoreComponentsFn = Callable[[ArrayLike, ArrayLike, ScoreParams], ScoreComponents]
 _score_components = cast(ScoreComponentsFn, getattr(_core, "_score_components"))
-
-
-def _native_curve_array(curve: npt.ArrayLike) -> NativeCurveArray:
-    array = np.asarray(curve)
-    if array.dtype == np.float32:
-        return cast(npt.NDArray[np.float32], array)
-    if array.dtype == np.float64:
-        return cast(npt.NDArray[np.float64], array)
-    return np.asarray(array, dtype=np.float64)
 
 
 class ISO18571:
     def __init__(
         self,
-        reference_curve: npt.ArrayLike,
-        comparison_curve: npt.ArrayLike,
+        reference_curve: NDArray[np.float32 | np.float64],
+        comparison_curve: NDArray[np.float32 | np.float64],
         k_z: int | float = 2,
         k_p: int | float = 1,
         k_m: int | float = 1,
@@ -44,11 +32,7 @@ class ISO18571:
         w_m: float = 0.2,
         w_s: float = 0.2,
     ) -> None:
-        native_reference_curve = _native_curve_array(reference_curve)
-        native_comparison_curve = _native_curve_array(comparison_curve)
-        self.reference_curve = np.asarray(native_reference_curve, dtype=np.float64)
-        self.comparison_curve = np.asarray(native_comparison_curve, dtype=np.float64)
-        if self.reference_curve.shape != self.comparison_curve.shape:
+        if reference_curve.shape != comparison_curve.shape:
             raise ValueError("Curves are not equal in size/dimension")
 
         params: ScoreParams = {
@@ -66,18 +50,18 @@ class ISO18571:
             "w_s": w_s,
         }
         self._scores: ScoreComponents = _score_components(
-            native_reference_curve,
-            native_comparison_curve,
+            reference_curve,
+            comparison_curve,
             params,
         )
 
         reference_start = int(self._scores["reference_start"])
         comparison_start = int(self._scores["comparison_start"])
         shift_length = int(self._scores["shift_length"])
-        self._t_ts = self.reference_curve[
+        self._t_ts = reference_curve[
             reference_start : reference_start + shift_length, :
         ].copy()
-        self._cae_ts = self.comparison_curve[
+        self._cae_ts = comparison_curve[
             comparison_start : comparison_start + shift_length, :
         ].copy()
         self._n_eps = int(self._scores["n_eps"])
@@ -96,11 +80,11 @@ class ISO18571:
         return self._rho_e
 
     @property
-    def shifted_reference_curve(self) -> npt.NDArray[np.float64]:
+    def shifted_reference_curve(self) -> NDArray[np.float32 | np.float64]:
         return self._t_ts.copy()
 
     @property
-    def shifted_comparison_curve(self) -> npt.NDArray[np.float64]:
+    def shifted_comparison_curve(self) -> NDArray[np.float32 | np.float64]:
         return self._cae_ts.copy()
 
     @property

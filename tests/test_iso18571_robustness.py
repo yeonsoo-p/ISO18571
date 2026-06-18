@@ -4,10 +4,9 @@ import math
 import warnings
 from collections.abc import Sequence
 from importlib.metadata import version
-from typing import cast
 
 import numpy as np
-import numpy.typing as npt
+from numpy.typing import NDArray
 
 import iso18571
 import iso18571._core as native_core
@@ -20,7 +19,7 @@ from tests.iso18571_test_helpers import (
     SLOPE_ZERO_WARNING,
 )
 
-FloatArray = npt.NDArray[np.float64]
+FloatArray = NDArray[np.float64]
 SCORE_KEYS = ("Z", "EP", "EM", "ES", "R")
 PARITY_ATOL = 0.001
 ROBUSTNESS_EDGE_LENGTHS = (9, 10, 17, 64, 129, 512, 1430)
@@ -33,12 +32,12 @@ def curve_from_values(values: FloatArray, dt: float = 0.0001) -> FloatArray:
 
 def float32_curve_from_values(
     values: FloatArray, dt: float = 0.0001
-) -> npt.NDArray[np.float32]:
+) -> NDArray[np.float32]:
     time = np.arange(values.shape[0], dtype=np.float32) * np.float32(dt)
     curve = np.column_stack((time, values.astype(np.float32))).astype(
         np.float32, copy=False
     )
-    return cast(npt.NDArray[np.float32], curve)
+    return curve
 
 
 def sine_values(n: int) -> FloatArray:
@@ -79,8 +78,8 @@ def sparse_spikes_pair(n: int) -> tuple[FloatArray, FloatArray]:
 
 
 def score_with_warnings(
-    reference_curve: npt.ArrayLike,
-    comparison_curve: npt.ArrayLike,
+    reference_curve: NDArray[np.float32 | np.float64],
+    comparison_curve: NDArray[np.float32 | np.float64],
 ) -> tuple[ISO18571, list[str]]:
     with warnings.catch_warnings(record=True) as records:
         warnings.simplefilter("always", RuntimeWarning)
@@ -295,8 +294,8 @@ def test_float32_uniform_time_grid_is_accepted_by_native_validation() -> None:
         {"Z": 1.0, "EP": 1.0, "EM": 1.0, "ES": 1.0, "R": 1.0},
         "float32 uniform grid",
     )
-    assert iso.reference_curve.dtype == np.float64
     assert iso.shifted_reference_curve.dtype == np.float64
+    assert iso.shifted_comparison_curve.dtype == np.float64
 
 
 def test_mixed_float32_float64_time_grids_are_accepted() -> None:
