@@ -9,12 +9,16 @@
 #include <limits>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 namespace py = pybind11;
 
 namespace {
 
 using iso18571::CurveView;
+using iso18571::Diagnostic;
+using iso18571::DiagnosticCode;
+using iso18571::DiagnosticSeverity;
 using iso18571::Index;
 using iso18571::ScoreParams;
 using iso18571::ScoreResult;
@@ -184,6 +188,14 @@ double validate_time_grids(const CurveView& reference, const CurveView& comparis
     return reference_dt;
 }
 
+void validate_signal_values(const CurveView& curve, const char* name) {
+    for (Index idx = 0; idx < curve.n; ++idx) {
+        if (!std::isfinite(curve.value(idx))) {
+            throw std::invalid_argument(std::string(name) + " signal values must be finite");
+        }
+    }
+}
+
 ValidatedCurves validate_curves(
     const py::array_t<double, py::array::forcecast>& reference_curve,
     const py::array_t<double, py::array::forcecast>& comparison_curve
@@ -193,20 +205,59 @@ ValidatedCurves validate_curves(
     if (reference.n != comparison.n) {
         throw std::invalid_argument("Curves are not equal in size/dimension");
     }
-    return {reference, comparison, validate_time_grids(reference, comparison)};
+    const double dt = validate_time_grids(reference, comparison);
+    validate_signal_values(reference, "reference_curve");
+    validate_signal_values(comparison, "comparison_curve");
+    return {reference, comparison, dt};
 }
 
-void add_score_fields(py::dict& out, const ScoreResult& score) {
-    out["Z"] = score.z;
-    out["EP"] = score.ep;
-    out["EM"] = score.em;
-    out["ES"] = score.es;
-    out["R"] = score.r;
-    out["n_eps"] = score.shift.n_eps;
-    out["rho_e"] = score.shift.rho_e;
-    out["reference_start"] = score.shift.reference_start;
-    out["comparison_start"] = score.shift.comparison_start;
-    out["shift_length"] = score.shift.length;
+void emit_runtime_warning(const char* message) {
+    if (PyErr_WarnEx(PyExc_RuntimeWarning, message, 1) != 0) {
+        throw py::error_already_set();
+    }
+}
+
+const char* warning_message_for_code(DiagnosticCode code) {
+    switch (code) {
+        case DiagnosticCode::PhaseUndefinedCorrelation:
+            return "ISO18571 phase correlation is undefined; using finite fallback rho_e";
+        case DiagnosticCode::PhaseShiftClampedToUnshifted:
+            return "ISO18571 phase alignment left fewer than 9 samples; using unshifted alignment";
+        case DiagnosticCode::MagnitudeZeroReferenceDenominator:
+            return "ISO18571 magnitude reference denominator is zero; using fallback magnitude score";
+        case DiagnosticCode::SlopeZeroReferenceDenominator:
+            return "ISO18571 slope reference denominator is zero; using fallback slope score";
+    }
+    throw std::runtime_error("Unknown ISO18571 native diagnostic code");
+}
+
+void emit_component_warnings(const std::vector<Diagnostic>& diagnostics) {
+    for (const Diagnostic& diagnostic : diagnostics) {
+        if (diagnostic.severity != DiagnosticSeverity::Warning) {
+            throw std::runtime_error("Unsupported ISO18571 native diagnostic severity");
+        }
+        emit_runtime_warning(warning_message_for_code(diagnostic.code));
+    }
+}
+
+void emit_score_warnings(const ScoreResult& result) {
+    emit_component_warnings(result.corridor.diagnostics);
+    emit_component_warnings(result.phase.diagnostics);
+    emit_component_warnings(result.magnitude.diagnostics);
+    emit_component_warnings(result.slope.diagnostics);
+}
+
+void add_score_fields(py::dict& out, const ScoreResult& result) {
+    out["Z"] = result.corridor.score;
+    out["EP"] = result.phase.score;
+    out["EM"] = result.magnitude.score;
+    out["ES"] = result.slope.score;
+    out["R"] = result.overall;
+    out["n_eps"] = result.phase.alignment.n_eps;
+    out["rho_e"] = result.phase.correlation.rho_e;
+    out["reference_start"] = result.phase.alignment.reference_start;
+    out["comparison_start"] = result.phase.alignment.comparison_start;
+    out["shift_length"] = result.phase.alignment.length;
 }
 
 py::dict score_components(
@@ -219,18 +270,20 @@ py::dict score_components(
     score_params.dt = curves.dt;
     iso18571::validate_score_params(score_params);
 
-    ScoreResult score;
+    ScoreResult result;
     {
         py::gil_scoped_release release;
-        score = iso18571::dispatch_table().score_components(
+        result = iso18571::dispatch_table().score_components(
             curves.reference,
             curves.comparison,
             score_params
         );
     }
 
+    emit_score_warnings(result);
+
     py::dict out;
-    add_score_fields(out, score);
+    add_score_fields(out, result);
     return out;
 }
 

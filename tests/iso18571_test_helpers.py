@@ -12,9 +12,28 @@ import iso18571
 from iso18571_reference import rating_dtwalign, rating_dtw_python, rating_librosa
 from tests.iso18571_annex import SCORE_NAMES, AnnexCase
 
+PHASE_UNDEFINED_WARNING = (
+    "ISO18571 phase correlation is undefined; using finite fallback rho_e"
+)
+PHASE_CLAMP_WARNING = (
+    "ISO18571 phase alignment left fewer than 9 samples; using unshifted alignment"
+)
+MAGNITUDE_ZERO_WARNING = (
+    "ISO18571 magnitude reference denominator is zero; using fallback magnitude score"
+)
+SLOPE_ZERO_WARNING = (
+    "ISO18571 slope reference denominator is zero; using fallback slope score"
+)
+EXPECTED_NATIVE_RUNTIME_WARNING_MESSAGES = (
+    PHASE_UNDEFINED_WARNING,
+    PHASE_CLAMP_WARNING,
+    MAGNITUDE_ZERO_WARNING,
+    SLOPE_ZERO_WARNING,
+)
 EXPECTED_NUMERIC_WARNING_PATTERNS = (
     "invalid value encountered in divide",
     "invalid value encountered in scalar divide",
+    *EXPECTED_NATIVE_RUNTIME_WARNING_MESSAGES,
 )
 SCORE_KEYS = ("Z", "EP", "EM", "ES", "R")
 ROUND_SCORE_KEYS = tuple(f"{key}_round" for key in SCORE_KEYS)
@@ -89,6 +108,17 @@ def with_expected_numeric_warnings(fn: Callable[[], T], context: str) -> T:
     return value
 
 
+def without_warnings(fn: Callable[[], T], context: str) -> T:
+    with warnings.catch_warnings(record=True) as records:
+        warnings.simplefilter("always")
+        value = fn()
+    assert not records, (
+        f"{context}: unexpected warnings "
+        f"{[(record.category.__name__, str(record.message)) for record in records]}"
+    )
+    return value
+
+
 def scores_for_case(case: AnnexCase, backend: str) -> AnnexParityResult:
     iso: Scorer
     if backend == "native":
@@ -133,19 +163,6 @@ def scores_for_case(case: AnnexCase, backend: str) -> AnnexParityResult:
         shifted_reference_curve=iso.shifted_reference_curve,
         shifted_comparison_curve=iso.shifted_comparison_curve,
     )
-
-
-def score_result(
-    case: AnnexCase, backend: str
-) -> AnnexParityResult | type[BaseException]:
-    try:
-        return with_expected_numeric_warnings(
-            lambda: scores_for_case(case, backend), f"{case.name} {backend}"
-        )
-    except AssertionError:
-        raise
-    except Exception as exc:
-        return type(exc)
 
 
 def assert_scores_close(

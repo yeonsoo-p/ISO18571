@@ -2047,3 +2047,324 @@
 - Next hypothesis:
   - no scorer follow-up is needed unless the project later adopts a central
     license-file convention for non-production reference modules.
+
+## 2026-06-18 10:05 KST - Temporary Native Fuzz Discovery Suite
+
+- Git status: dirty from fuzz dependency/marker/profile additions and a new
+  optional fuzz discovery test module.
+- Hypothesis:
+  - a temporary Hypothesis suite can find native robustness anomalies without
+    using historical reference scorers as the oracle, while keeping default
+    pytest focused on established parity behavior.
+- Files changed:
+  - `pyproject.toml`;
+  - `pytest.ini`;
+  - `tests/conftest.py`;
+  - `tests/test_iso18571_fuzz_discovery.py`;
+  - this experiment log.
+- Commands:
+  - added `hypothesis` to the test extra;
+  - added a `fuzz` marker and excluded it from default pytest;
+  - registered a `discovery` Hypothesis profile with `max_examples=200`;
+  - implemented fuzz discovery around valid finite curves, equivalent input
+    representations, parameter boundaries, invalid inputs, and larger smoke
+    lengths;
+  - saved the full fuzz run output to `/tmp/iso18571_fuzz_discovery.log`;
+  - programmatically scanned that log for repeated anomaly categories and then
+    manually inspected each failure section by line number.
+- Validation result:
+  - `uv pip install -e .` passed;
+  - `uv run --extra test python -m pytest -q -m fuzz --hypothesis-profile
+    discovery --hypothesis-show-statistics` failed as an exploratory result:
+    `6 failed, 23 passed, 36 deselected`;
+  - scripted log scan grouped the failures as:
+    - zero-reference magnitude `NaN`;
+    - zero-slope/constant-reference slope `NaN`;
+    - valid finite curves whose selected shifted length is below the slope
+      scorer minimum;
+    - nonfinite signal values raising `RuntimeError` instead of `ValueError`;
+    - two metamorphic-oracle cases involving periodic or numerically
+      near-degenerate sine inputs;
+  - manual log inspection confirmed the minimized examples:
+    - zero identical `n=9` has `EM=NaN`;
+    - shifted/noisy `n=9` cases can raise `Shifted curves must have at least 9
+      samples for slope rating`;
+    - `nan_signal` reaches DTW and raises `No valid ISO DTW path found`;
+    - `sine/identical/n65` picks a 13-sample phase shift with `EP=0`;
+    - `sine/offset/n10` scaling changes `ES` only because the sampled sine is
+      effectively a near-zero signal;
+  - `uv run --extra test python -m pytest -q` passed:
+    `4 passed, 61 deselected`;
+  - `uv run --extra test ruff check --fix .` passed;
+  - `uv run --extra test ruff format .` passed and reformatted the new fuzz
+    test module;
+  - `uv run --extra test ruff check .` passed;
+  - `uv run --extra test ruff format --check .` passed;
+  - `uv run --extra test mypy iso18571 iso18571_reference tests` passed;
+  - `uv build --wheel` passed and produced
+    `dist/iso18571-1.0.4-cp314-cp314-linux_x86_64.whl`;
+  - `git diff --check` passed.
+- Conclusion:
+  - the optional fuzz suite is in place and excluded from default runs;
+  - source robustness gaps to fix next are finite-signal denominator handling
+    for magnitude/slope, shift selection that can leave too few samples for
+    slope scoring, and signal-column finiteness validation before scoring;
+  - expected/discovery-oracle findings are the periodic identical-sine phase
+    ambiguity and the aliased `n=10` sine scaling case, both of which should
+    refine future fuzz generators rather than drive source-code changes.
+- Next hypothesis:
+  - fix source robustness for degenerate denominators, post-shift slope-window
+    viability, and signal-value validation, then rerun this fuzz suite to see
+    which anomalies remain before promoting minimized cases into permanent
+    regressions.
+
+## 2026-06-18 10:37 KST - Native Fuzz Discovery Robustness Fixes
+
+- Git status: dirty from native robustness changes, fuzz discovery tests,
+  deterministic regression tests, and generated-parity edge-policy updates.
+- Hypothesis:
+  - package-defined behavior for undocumented ISO edge cases can keep finite
+    valid inputs user-friendly without changing the public API or official
+    Annex parity.
+- Files changed:
+  - `src/iso18571/_core.cpp`;
+  - `src/iso18571/scorer.hpp`;
+  - `src/iso18571/scorer_impl.hpp`;
+  - `tests/test_iso18571_robustness.py`;
+  - `tests/test_iso18571_fuzz_discovery.py`;
+  - `tests/test_iso18571_parity.py`;
+  - `tests/iso18571_test_helpers.py`;
+  - fuzz setup files and this experiment log.
+- Commands:
+  - added native signal-column finiteness validation before scoring;
+  - added finite phase, magnitude, and slope fallbacks for undefined
+    correlations and zero reference denominators;
+  - added a phase clamp to unshifted alignment when the best shift leaves fewer
+    than 9 samples for slope scoring;
+  - emitted component-level `RuntimeWarning`s from the Python extension boundary
+    after native scoring returns;
+  - added deterministic regression tests for zero, constant, short-shift,
+    nonfinite-signal, periodic-sine, and aliased-sine fuzz discoveries;
+  - updated optional fuzz discovery to accept only expected fallback warnings
+    and to exclude the hard-coded periodic/aliased oracle traps from strict
+    metamorphic properties;
+  - kept ordinary generated parity on the four-backend path and added a narrow
+    native edge-policy carve-out for generated zero/constant and two generated
+    n=9 short-shift cases.
+- Validation result:
+  - `uv pip install -e .` passed;
+  - `uv run --extra test python -m pytest -q -m fuzz --hypothesis-profile
+    discovery --hypothesis-show-statistics` passed:
+    `29 passed, 43 deselected`;
+  - `uv run --extra test python -m pytest -q` passed:
+    `11 passed, 61 deselected`;
+  - `uv run --extra test ruff check --fix .` passed;
+  - `uv run --extra test ruff format .` passed and reformatted one test file;
+  - `uv run --extra test ruff check .` passed;
+  - `uv run --extra test ruff format --check .` passed;
+  - `uv run --extra test mypy iso18571 iso18571_reference tests` passed:
+    `17 source files`;
+  - `uv build --wheel` passed and produced
+    `dist/iso18571-1.0.4-cp314-cp314-linux_x86_64.whl`;
+  - `git diff --check` passed.
+- Conclusion:
+  - native scoring now returns finite public scores for the discovered finite
+    degenerate inputs, warns on implementation fallbacks, rejects nonfinite
+    signal values clearly, and no longer raises for the discovered short-shift
+    valid inputs;
+  - fuzz discovery is now a clean optional guard instead of an expected failure
+    harness.
+- Next hypothesis:
+  - run the same fuzz/default validation on Windows wheels before treating the
+    warning/fallback edge policy as release-ready across supported platforms.
+
+## 2026-06-18 10:56 KST - Native Vector Diagnostics Refactor
+
+- Git status: dirty from native diagnostic hierarchy changes, robustness
+  regressions, parity edge-policy updates, and documentation.
+- Hypothesis:
+  - native fallback warnings should be carried as structured engine diagnostics
+    instead of flat booleans on the score result, while Python remains only an
+    adapter that renders diagnostics as `RuntimeWarning`s.
+- Files changed:
+  - `src/iso18571/scorer.hpp`;
+  - `src/iso18571/scorer_impl.hpp`;
+  - `src/iso18571/_core.cpp`;
+  - `tests/iso18571_test_helpers.py`;
+  - `tests/test_iso18571_robustness.py`;
+  - `docs/iso18571-dtw-backends.md`;
+  - this experiment log.
+- Commands:
+  - replaced fallback booleans on `ScoreResult` with enum-based
+    component-local diagnostics;
+  - reshaped `ScoreResult` around ISO components: corridor, phase, magnitude,
+    slope, and top-level overall `R`;
+  - split phase metadata into `PhaseAlignment` for window geometry and
+    `PhaseCorrelation` for `rho_e`;
+  - removed the intermediate internal `CorrelationState`/`CorrelationResult`
+    pair and let selected phase candidates carry their own diagnostics;
+  - mapped diagnostic enum codes to the existing Python `RuntimeWarning`
+    messages at the `_core.cpp` boundary by iterating component diagnostics in
+    ISO order;
+  - centralized warning-message constants in the test helper and kept warning
+    behavior in deterministic robustness regressions;
+  - removed the temporary fuzz discovery module, Hypothesis dependency, fuzz
+    marker, and Hypothesis profile because the discoveries are now promoted to
+    permanent robustness behavior.
+- Validation result:
+  - `uv pip install -e .` passed;
+  - the fuzz discovery profile was run once before removal and passed:
+    `29 passed, 43 deselected`;
+  - after removing fuzz/Hypothesis, `uv run --extra test python -m pytest -q`
+    passed: `11 passed, 32 deselected`;
+  - `uv run --extra test ruff check --fix .` passed;
+  - `uv run --extra test ruff format .` passed with `21 files left
+    unchanged`;
+  - `uv run --extra test ruff check .` passed;
+  - `uv run --extra test ruff format --check .` passed;
+  - `uv run --extra test mypy iso18571 iso18571_reference tests` passed:
+    `16 source files`;
+  - `uv build --wheel` passed and produced
+    `dist/iso18571-1.0.4-cp314-cp314-linux_x86_64.whl`;
+  - `git diff --check` passed.
+- Conclusion:
+  - native result hierarchy now mirrors the ISO component structure while
+    preserving the public Python API and warning messages;
+  - warning behavior is covered by the deterministic robustness suite rather
+    than a temporary fuzz suite.
+- Next hypothesis:
+  - if non-Python consumers become concrete, move curve validation and scoring
+    into a separate reusable native target without changing the Python adapter
+    contract.
+
+## 2026-06-18 11:15 KST - Native-Only Benchmark Refresh
+
+- Git status: dirty from the component-first diagnostics refactor, robustness
+  regressions, docs, and README benchmark table updates.
+- Hypothesis:
+  - the native-only benchmark can refresh README native rows without rerunning
+    the memory-heavy reference backend matrix.
+- Files changed:
+  - `README.md`;
+  - this experiment log.
+- Commands:
+  - ran `uv run --extra test python -m pytest -q -m benchmark -k native
+    --benchmark-json .benchmarks/iso18571-native-only/benchmarks.json`;
+  - extracted load/runtime medians and peak RSS from the benchmark JSON;
+  - updated only the README `native` rows, leaving reference backend rows from
+    the previous full matrix untouched.
+- Validation result:
+  - native-only benchmark passed: `8 passed, 35 deselected`;
+  - refreshed native load time, ms: `124.52`, `133.15`, `164.68`, `734.03`;
+  - refreshed native peak RSS, MiB: `47.87`, `48.74`, `61.00`, `253.88`;
+  - refreshed native runtime, ms: `0.23`, `2.37`, `36.02`, `612.62`.
+- Conclusion:
+  - the component-first diagnostics refactor preserves native benchmark scale;
+    README now reflects the current native-only snapshot for this machine.
+- Next hypothesis:
+  - rerun the full benchmark matrix only when reference-backend rows need a
+    fresh comparison snapshot.
+
+## 2026-06-18 11:17 KST - Native Robustness Release Readiness
+
+- Git status: dirty from component-first diagnostics, robustness regressions,
+  README native benchmark refresh, documentation, and release-readiness checks.
+- Hypothesis:
+  - the component-first diagnostics refactor and deterministic robustness suite
+    are ready for the next release after the normal validation gate, with the
+    version bump handled separately.
+- Files changed:
+  - `README.md`;
+  - native scorer/binding sources;
+  - robustness/parity tests;
+  - documentation and this experiment log.
+- Commands:
+  - split generated Annex fixtures into parity cases and robustness edge cases;
+  - tightened generated parity so non-edge generated cases must score and match
+    across all four implementations, with exceptions treated as failures;
+  - moved native surface and short-curve behavior checks from parity into
+    robustness;
+  - prepared to rerun editable install, pytest, ruff, mypy, wheel build, and
+    whitespace validation before committing.
+- Validation result:
+  - targeted downloaded Annex parity passed: `1 passed`;
+  - targeted generated non-edge score-and-match parity passed: `1 passed`;
+  - targeted robustness suite passed: `11 passed`;
+  - `uv pip install -e .` passed and installed `iso18571==1.0.4`;
+  - `uv run --extra test python -m pytest -q` passed:
+    `13 passed, 32 deselected`;
+  - `uv run --extra test ruff check --fix .` passed;
+  - `uv run --extra test ruff format .` passed;
+  - `uv run --extra test ruff check .` passed;
+  - `uv run --extra test ruff format --check .` passed;
+  - `uv run --extra test mypy iso18571 iso18571_reference tests` passed:
+    `16 source files`;
+  - `uv build --wheel` passed and produced
+    `dist/iso18571-1.0.4-cp314-cp314-linux_x86_64.whl`;
+  - `git diff --check` passed.
+- Conclusion:
+  - component-first diagnostics, robustness regressions, parity/robustness test
+    separation, and native benchmark refresh are validated.
+- Next hypothesis:
+  - commit the implementation once validation is green; defer the version bump.
+
+## 2026-06-18 11:40 KST - Generated Parity Corpus Cleanup
+
+- Git status:
+  - dirty from native diagnostics/robustness work, README benchmark
+    refresh, generated parity corpus cleanup, notebook refresh, and docs.
+- Hypothesis:
+  - generated Annex data should be parity data by construction: every generated
+    case should score successfully without warnings and match across all four
+    backends; native edge behavior should live in explicit robustness tests.
+- Files changed:
+  - `tools/example_data.py`;
+  - `tests/test_iso18571_parity.py`;
+  - `tests/test_iso18571_robustness.py`;
+  - `tests/iso18571_test_helpers.py`;
+  - `examples/quickstart.ipynb`;
+  - `docs/iso18571-dtw-backends.md`;
+  - this experiment log.
+- Commands:
+  - removed zero/constant generated families and excluded `impulse`/`sparse_spikes`
+    at `n=9` from generated Annex materialization;
+  - bumped the generated cache version to `generated-v2`;
+  - changed generated parity to use all generated cases directly and fail on
+    warnings or exceptions;
+  - moved former generated edge coverage into direct native robustness fixtures;
+  - ran targeted downloaded Annex parity:
+    `uv run --extra test python -m pytest -q tests/test_iso18571_parity.py::test_downloaded_annex_scores_match_official_and_parity`;
+  - ran targeted generated parity:
+    `uv run --extra test python -m pytest -q tests/test_iso18571_parity.py::test_generated_annex_scores_match_together tests/test_iso18571_parity.py::test_generated_annex_cases_are_parity_corpus`;
+  - ran targeted robustness:
+    `uv run --extra test python -m pytest -q tests/test_iso18571_robustness.py`;
+  - refreshed generated example data:
+    `uv run python tools/example_data.py --generate-annex`;
+  - refreshed the notebook:
+    `uv run --extra examples jupyter nbconvert --to notebook --execute --inplace examples/quickstart.ipynb`;
+  - reran the full gate through editable install, full pytest, ruff, mypy,
+    wheel build, and `git diff --check`.
+- Validation result:
+  - generated Annex count is now `102`;
+  - targeted downloaded Annex parity passed: `1 passed`;
+  - targeted generated parity passed: `2 passed`;
+  - targeted robustness passed: `11 passed`;
+  - `uv pip install -e .` passed and installed `iso18571==1.0.4`;
+  - `uv run --extra test python -m pytest -q` passed:
+    `14 passed, 32 deselected`;
+  - `uv run --extra test ruff check --fix .` passed;
+  - `uv run --extra test ruff format .` passed and reformatted one file;
+  - `uv run --extra test ruff check .` passed;
+  - `uv run --extra test ruff format --check .` passed;
+  - `uv run --extra test mypy iso18571 iso18571_reference tests` passed:
+    `16 source files`;
+  - `uv build --wheel` passed and produced
+    `dist/iso18571-1.0.4-cp314-cp314-linux_x86_64.whl`;
+  - `git diff --check` passed.
+- Conclusion:
+  - generated Annex now means parity-safe no-warning/no-exception cases only;
+    native robustness edge behavior is covered directly and no generated-case
+    filtering remains in tests.
+- Next hypothesis:
+  - after one final diff review, commit the implementation with the version bump
+    deferred.

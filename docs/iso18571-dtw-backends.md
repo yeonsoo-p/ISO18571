@@ -12,6 +12,11 @@ production wheels.
 - Python accepts NumPy `(n, 2)` curves and passes them to the native extension.
 - The C++ scorer owns phase alignment, corridor scoring, magnitude DTW, slope
   scoring, and weighted final scoring.
+- Recoverable native fallback behavior is carried as structured native
+  diagnostics on the component result that produced it. The Python extension
+  boundary maps those diagnostics to `RuntimeWarning`s.
+- Invalid inputs and impossible scoring states remain exceptions; they are not
+  mixed into diagnostic metadata.
 - Public package exports are intentionally small:
   - `ISO18571`
   - `backend_info()`
@@ -61,15 +66,17 @@ Parity covers:
 
 - official Annex CSV files downloaded into the pytest cache and checked against
   official expected scores;
-- one generated Annex set combining fixed signal families and analytic
-  phase-shift families, also written into the pytest cache;
+- one parity-safe generated Annex set combining fixed signal families and
+  analytic phase-shift families, also written into the pytest cache;
 - `n_eps`, `rho_e`, phase start/length fields, shifted curves, unrounded `Z`,
   `EP`, `EM`, `ES`, and `R`;
 - rounded three-decimal score outputs;
 - official Annex phase-shifted columns within `0.001`.
 
-Degenerate generated cases pass only when all scorers produce matching numeric
-results with `equal_nan=True` or matching exception types.
+Generated Annex cases pass only when all scorers return matching numeric
+results without warnings or exceptions. Native-defined behavior for
+undocumented degenerate edge cases is built directly in the robustness suite,
+not generated as parity data.
 
 ## Validation
 

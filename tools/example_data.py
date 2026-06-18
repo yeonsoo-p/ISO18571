@@ -26,7 +26,7 @@ ANNEX_ZIP_URL = (
 ANNEX_ZIP_NAME = "ISO_TS_18571_ed2_Annex_data_csv_files.zip"
 ANNEX_ZIP_SHA256 = "cbc8c5a1ea5677ece8aa097387f9d9d2e6fe7a2a5bb2ce5d17ecf84fe52271d7"
 OFFICIAL_CACHE_VERSION = "official-v2"
-GENERATED_CACHE_VERSION = "generated-v1"
+GENERATED_CACHE_VERSION = "generated-v2"
 ANNEX_FILE_RE = re.compile(r"annex_c_(\d+_\d+)__.*__cae(\d+)\.csv")
 GENERATED_FILE_RE = re.compile(r"generated__(.+)__n(\d+)\.csv")
 
@@ -36,8 +36,6 @@ DEFAULT_OFFICIAL_ANNEX_DIR = DEFAULT_ANNEX_ROOT / "official"
 DEFAULT_GENERATED_ANNEX_DIR = DEFAULT_ANNEX_ROOT / "generated"
 
 SIGNAL_FAMILIES = (
-    "zero",
-    "constant",
     "ramp",
     "piecewise_ramp",
     "impulse",
@@ -50,6 +48,12 @@ SIGNAL_FAMILIES = (
     "sine_noise",
     "ramp_impulses",
     "piecewise_discontinuous",
+)
+GENERATED_SIGNAL_EXCLUDED_CASES = frozenset(
+    {
+        ("impulse", 9),
+        ("sparse_spikes", 9),
+    }
 )
 PHASE_SHIFT_SIGNAL_FAMILIES = (
     "phase_multitone_shift_005",
@@ -251,15 +255,22 @@ def analytic_phase_signal_case(family: str, n: int) -> CurvePair:
 
 
 def generated_annex_case_count() -> int:
-    return len(GENERATED_LENGTHS) * len(SIGNAL_FAMILIES) + len(
-        GENERATED_PHASE_LENGTHS
-    ) * len(PHASE_SHIFT_SIGNAL_FAMILIES)
+    signal_count = sum(
+        (family, n) not in GENERATED_SIGNAL_EXCLUDED_CASES
+        for n in GENERATED_LENGTHS
+        for family in SIGNAL_FAMILIES
+    )
+    return signal_count + len(GENERATED_PHASE_LENGTHS) * len(
+        PHASE_SHIFT_SIGNAL_FAMILIES
+    )
 
 
 def generated_annex_cases() -> list[CurvePair]:
     cases: list[CurvePair] = []
     for n in GENERATED_LENGTHS:
         for family in SIGNAL_FAMILIES:
+            if (family, n) in GENERATED_SIGNAL_EXCLUDED_CASES:
+                continue
             signal = signal_case(family, n)
             cases.append(
                 CurvePair(
@@ -289,6 +300,10 @@ def generated_annex_manifest() -> str:
             ",".join(str(length) for length in GENERATED_PHASE_LENGTHS),
             ",".join(SIGNAL_FAMILIES),
             ",".join(PHASE_SHIFT_SIGNAL_FAMILIES),
+            ",".join(
+                f"{family}:n{length}"
+                for family, length in sorted(GENERATED_SIGNAL_EXCLUDED_CASES)
+            ),
             "",
         )
     )

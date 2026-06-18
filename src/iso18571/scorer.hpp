@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <vector>
 
 namespace iso18571 {
 
@@ -47,22 +48,70 @@ struct ScoreParams {
     double dt = 0.0001;
 };
 
-struct ShiftResult {
+struct PhaseAlignment {
     Index reference_start = 0;
     Index comparison_start = 0;
     Index length = 0;
     Index n_eps = 0;
-    double rho_e = 0.0;
     double max_shift = 0.2;
 };
 
+struct PhaseCorrelation {
+    double rho_e = 0.0;
+};
+
+enum class DiagnosticSeverity {
+    Warning,
+};
+
+enum class DiagnosticComponent {
+    Corridor,
+    Phase,
+    Magnitude,
+    Slope,
+};
+
+enum class DiagnosticCode {
+    PhaseUndefinedCorrelation,
+    PhaseShiftClampedToUnshifted,
+    MagnitudeZeroReferenceDenominator,
+    SlopeZeroReferenceDenominator,
+};
+
+struct Diagnostic {
+    DiagnosticSeverity severity;
+    DiagnosticComponent component;
+    DiagnosticCode code;
+};
+
+struct CorridorResult {
+    double score = 0.0;
+    std::vector<Diagnostic> diagnostics;
+};
+
+struct PhaseResult {
+    double score = 0.0;
+    PhaseAlignment alignment;
+    PhaseCorrelation correlation;
+    std::vector<Diagnostic> diagnostics;
+};
+
+struct MagnitudeResult {
+    double score = 0.0;
+    std::vector<Diagnostic> diagnostics;
+};
+
+struct SlopeResult {
+    double score = 0.0;
+    std::vector<Diagnostic> diagnostics;
+};
+
 struct ScoreResult {
-    double z = 0.0;
-    double ep = 0.0;
-    double em = 0.0;
-    double es = 0.0;
-    double r = 0.0;
-    ShiftResult shift;
+    CorridorResult corridor;
+    PhaseResult phase;
+    MagnitudeResult magnitude;
+    SlopeResult slope;
+    double overall = 0.0;
 };
 
 using ScoreComponentsFn = ScoreResult (*)(const CurveView&, const CurveView&, const ScoreParams&);
