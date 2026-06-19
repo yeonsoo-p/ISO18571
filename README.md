@@ -45,7 +45,7 @@ The package also exposes a native diagnostic helper:
 from iso18571 import backend_info
 
 print(backend_info())
-# {'name': 'iso18571', 'implementation': 'C++17', 'version': '1.0.5', 'optimization': 'x86-64-v3'}
+# {'name': 'iso18571', 'implementation': 'C++20', 'version': '1.0.5', 'optimization': 'x86-64-v3'}
 ```
 
 ## Prerequisites
@@ -54,7 +54,7 @@ Install `uv` first; all project commands below assume it is available on `PATH`.
 
 Native builds need one of these build environments:
 
-- local build tools for editable installs and single-interpreter wheels: a C++17 compiler, CMake-compatible build tooling, and Python development headers;
+- local build tools for editable installs and single-interpreter wheels: a C++20 compiler, CMake-compatible build tooling, and Python development headers;
 - Docker or Podman for Linux manylinux wheels, including Docker Desktop when building Linux wheels from a Windows host;
 - on Linux hosts, `clang-cl`, `lld-link`, `llvm-rc`, `llvm-mt`, `objdump`, and `xwin` for Windows cross-built wheels;
 - on Windows hosts, Visual Studio Build Tools with MSVC for native Windows wheels.

@@ -139,11 +139,11 @@ def test_native_surface_is_small_and_accepts_numpy_arrays(
     info = iso18571.backend_info()
     assert set(info) == {"name", "implementation", "version", "optimization"}
     assert info["name"] == "iso18571"
-    assert info["implementation"] == "C++17"
+    assert info["implementation"] == "C++20"
     assert info["version"] == version("iso18571")
     assert info["optimization"].startswith("x86-64-v")
     assert native_core.backend_info() == {
-        "implementation": "C++17",
+        "implementation": "C++20",
         "optimization": info["optimization"],
     }
 

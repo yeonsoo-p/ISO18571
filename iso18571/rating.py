@@ -41,7 +41,8 @@ class ISO18571:
         if reference_curve.shape != comparison_curve.shape:
             raise ValueError("Curves are not equal in size/dimension")
 
-        self._scores: ScoreComponents = _score_components(
+        self._scores: ScoreComponents
+        self._scores, self._t_ts, self._cae_ts = _score_components(
             reference_curve,
             comparison_curve,
             {
@@ -60,15 +61,6 @@ class ISO18571:
             },
         )
 
-        reference_start = int(self._scores["reference_start"])
-        comparison_start = int(self._scores["comparison_start"])
-        shift_length = int(self._scores["shift_length"])
-        self._t_ts = reference_curve[
-            reference_start : reference_start + shift_length, :
-        ].copy()
-        self._cae_ts = comparison_curve[
-            comparison_start : comparison_start + shift_length, :
-        ].copy()
         self._n_eps = int(self._scores["n_eps"])
         self._rho_e = float(self._scores["rho_e"])
 

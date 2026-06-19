@@ -19,7 +19,6 @@
 namespace {
 
 using iso18571::ArrayView;
-using iso18571::CurveView;
 using iso18571::Diagnostic;
 using iso18571::DiagnosticCode;
 using iso18571::DiagnosticComponent;
@@ -30,6 +29,7 @@ using iso18571::PhaseAlignment;
 using iso18571::PhaseResult;
 using iso18571::ScoreParams;
 using iso18571::ScoreResult;
+using iso18571::SignalView;
 using iso18571::SlopeResult;
 
 constexpr std::uint8_t DIR_NONE                  = 0;
@@ -176,22 +176,6 @@ std::pair<double, double> magnitude_error_from_state (const ArrayView& x, const 
 std::pair<double, double> magnitude_error_impl (const ArrayView& x, const ArrayView& y, double window_size) {
     const DtwState state = compute_directions_index_incremental(x, y, window_size);
     return magnitude_error_from_state(x, y, state);
-}
-
-ArrayView view_from_vector (const std::vector<double>& values) {
-    return {
-        reinterpret_cast<const char*>(values.data()),
-        static_cast<Index>(sizeof(double)),
-        static_cast<Index>(values.size()),
-    };
-}
-
-std::vector<double> copy_curve_values (const CurveView& curve, Index start, Index length) {
-    std::vector<double> out(static_cast<std::size_t>(length));
-    for (Index idx = 0; idx < length; ++idx) {
-        out[static_cast<std::size_t>(idx)] = curve.value(start + idx);
-    }
-    return out;
 }
 
 template<typename Series>
@@ -411,7 +395,7 @@ PhaseResult compute_phase_alignment (const Series& reference, const Series& comp
     return result;
 }
 
-double corridor_score (const CurveView& reference, const CurveView& comparison, const ScoreParams& params) {
+double corridor_score (const SignalView& reference, const SignalView& comparison, const ScoreParams& params) {
     double t_norm = 0.0;
     for (Index idx = 0; idx < reference.n; ++idx) {
         t_norm = std::max(t_norm, std::abs(reference.value(idx)));
@@ -445,7 +429,7 @@ double corridor_score (const CurveView& reference, const CurveView& comparison, 
     return sum / static_cast<double>(reference.n);
 }
 
-double phase_score (const CurveView& reference, const ScoreParams& params, const PhaseAlignment& alignment) {
+double phase_score (const SignalView& reference, const ScoreParams& params, const PhaseAlignment& alignment) {
     const double max_allowable_time_shift_threshold = static_cast<double>(reference.n) * alignment.max_shift;
     if (alignment.n_eps == 0) {
         return 1.0;
@@ -558,22 +542,20 @@ SlopeResult fused_slope_score_from_values (const ArrayView& reference_values, co
     return {(params.e_s - e_slope) / params.e_s, {}};
 }
 
-ScoreResult score_components_impl (const CurveView& reference, const CurveView& comparison, const ScoreParams& params,
+ScoreResult score_components_impl (const SignalView& reference, const SignalView& comparison, const ScoreParams& params,
                                    double dt) {
     ScoreResult result;
     result.phase          = compute_phase_alignment(reference, comparison, params);
     result.corridor.score = corridor_score(reference, comparison, params);
     result.phase.score    = phase_score(reference, params, result.phase.alignment);
 
-    const std::vector<double> contiguous_comparison =
-        copy_curve_values(comparison, result.phase.alignment.comparison_start, result.phase.alignment.length);
-    const std::vector<double> contiguous_reference =
-        copy_curve_values(reference, result.phase.alignment.reference_start, result.phase.alignment.length);
-    const ArrayView contiguous_comparison_view = view_from_vector(contiguous_comparison);
-    const ArrayView contiguous_reference_view  = view_from_vector(contiguous_reference);
+    const ArrayView aligned_comparison =
+        comparison.value_slice(result.phase.alignment.comparison_start, result.phase.alignment.length);
+    const ArrayView aligned_reference =
+        reference.value_slice(result.phase.alignment.reference_start, result.phase.alignment.length);
 
-    result.magnitude = magnitude_score_from_values(contiguous_reference_view, contiguous_comparison_view, params);
-    result.slope     = fused_slope_score_from_values(contiguous_reference_view, contiguous_comparison_view, params, dt);
+    result.magnitude = magnitude_score_from_values(aligned_reference, aligned_comparison, params);
+    result.slope     = fused_slope_score_from_values(aligned_reference, aligned_comparison, params, dt);
     result.overall   = params.w_z * result.corridor.score + params.w_p * result.phase.score +
                        params.w_m * result.magnitude.score + params.w_s * result.slope.score;
     return result;
@@ -583,7 +565,7 @@ ScoreResult score_components_impl (const CurveView& reference, const CurveView& 
 
 namespace iso18571 {
 
-ScoreResult ISO18571_VARIANT (score_components)(const CurveView& reference, const CurveView& comparison,
+ScoreResult ISO18571_VARIANT (score_components)(const SignalView& reference, const SignalView& comparison,
                                                 const ScoreParams& params, double dt) {
     return score_components_impl(reference, comparison, params, dt);
 }

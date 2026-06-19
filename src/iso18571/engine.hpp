@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <span>
 #include <vector>
 
 namespace iso18571 {
@@ -13,11 +14,10 @@ enum class CurveDType {
 };
 
 struct ArrayView {
-    const char* data   = nullptr;
-    Index       stride = 0;
-    Index       n      = 0;
+    std::span<const double> values;
+    Index                   n = 0;
 
-    double value (Index index) const { return *reinterpret_cast<const double*>(data + index * stride); }
+    double value (Index index) const { return values[static_cast<std::size_t>(index)]; }
 };
 
 struct CurveView {
@@ -41,6 +41,23 @@ struct CurveView {
             return static_cast<double>(*reinterpret_cast<const float*>(ptr));
         }
         return *reinterpret_cast<const double*>(ptr);
+    }
+};
+
+struct SignalView {
+    std::span<const double> time_values;
+    std::span<const double> signal_values;
+    Index                   n = 0;
+
+    double value (Index index) const { return signal_values[static_cast<std::size_t>(index)]; }
+
+    double time (Index index) const { return time_values[static_cast<std::size_t>(index)]; }
+
+    ArrayView value_slice (Index start, Index length) const {
+        return {
+            signal_values.subspan(static_cast<std::size_t>(start), static_cast<std::size_t>(length)),
+            length,
+        };
     }
 };
 
@@ -125,28 +142,28 @@ struct ScoreResult {
     double          overall = 0.0;
 };
 
-using ScoreComponentsFn = ScoreResult (*)(const CurveView&, const CurveView&, const ScoreParams&, double);
+using ScoreComponentsFn = ScoreResult (*)(const SignalView&, const SignalView&, const ScoreParams&, double);
 
 struct DispatchTable {
     ScoreComponentsFn score_components = nullptr;
     const char*       level            = "x86-64-v1";
 };
 
-ScoreResult score_components_v1 (const CurveView& reference, const CurveView& comparison, const ScoreParams& params,
+ScoreResult score_components_v1 (const SignalView& reference, const SignalView& comparison, const ScoreParams& params,
                                  double dt);
 
 #if defined(ISO18571_COMPILED_X86_64_V2)
-ScoreResult score_components_v2 (const CurveView& reference, const CurveView& comparison, const ScoreParams& params,
+ScoreResult score_components_v2 (const SignalView& reference, const SignalView& comparison, const ScoreParams& params,
                                  double dt);
 #endif
 
 #if defined(ISO18571_COMPILED_X86_64_V3)
-ScoreResult score_components_v3 (const CurveView& reference, const CurveView& comparison, const ScoreParams& params,
+ScoreResult score_components_v3 (const SignalView& reference, const SignalView& comparison, const ScoreParams& params,
                                  double dt);
 #endif
 
 #if defined(ISO18571_COMPILED_X86_64_V4)
-ScoreResult score_components_v4 (const CurveView& reference, const CurveView& comparison, const ScoreParams& params,
+ScoreResult score_components_v4 (const SignalView& reference, const SignalView& comparison, const ScoreParams& params,
                                  double dt);
 #endif
 

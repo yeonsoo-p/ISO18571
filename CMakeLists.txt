@@ -3,6 +3,23 @@ cmake_minimum_required(VERSION 3.21)
 project(iso18571 LANGUAGES CXX)
 
 include(CheckCXXCompilerFlag)
+include(CheckCXXSourceCompiles)
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+check_cxx_source_compiles([=[
+    #include <span>
+    int main() {
+        double values[2] = {1.0, 2.0};
+        std::span<double> view(values);
+        return view.size() == 2 ? 0 : 1;
+    }
+]=] ISO18571_HAS_STD_SPAN)
+if(NOT ISO18571_HAS_STD_SPAN)
+    message(FATAL_ERROR "iso18571 requires a C++20 compiler and standard library with std::span")
+endif()
 
 option(ISO18571_CROSS_COMPILE_PYTHON "Use target Python development artifacts without a target interpreter" OFF)
 if(ISO18571_CROSS_COMPILE_PYTHON)
@@ -59,7 +76,7 @@ set(ISO18571_EXTENSION_SUFFIX "" CACHE STRING "Override native extension suffix 
 if(ISO18571_EXTENSION_SUFFIX)
     set_target_properties(_core PROPERTIES SUFFIX "${ISO18571_EXTENSION_SUFFIX}")
 endif()
-target_compile_features(_core PRIVATE cxx_std_17)
+target_compile_features(_core PRIVATE cxx_std_20)
 target_include_directories(_core PRIVATE src/iso18571)
 target_compile_definitions(_core PRIVATE ${ISO18571_DEFINITIONS})
 

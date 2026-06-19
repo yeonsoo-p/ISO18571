@@ -2577,3 +2577,50 @@
     and preserves the benchmarked native path.
 - Next hypothesis:
   - commit the rename after the final whitespace and staged diff checks.
+
+## 2026-06-19 11:19 KST - Native Snapshot Before GIL Release
+
+- Git status:
+  - dirty with CMake, README, Python shim/stub, native engine/binding, and
+    backend-string expectation updates.
+- Hypothesis:
+  - copying validated NumPy curves into C++-owned split `time`/`value` vectors
+    before releasing the GIL can make native scoring independent from
+    Python-owned buffer mutation while letting scoring use `std::span` slices.
+- Files changed:
+  - `CMakeLists.txt`;
+  - `README.md`;
+  - `iso18571/_core.pyi`;
+  - `iso18571/rating.py`;
+  - `src/iso18571/_core.cpp`;
+  - `src/iso18571/engine.hpp`;
+  - `src/iso18571/engine_impl.hpp`;
+  - `tests/test_iso18571_robustness.py`;
+  - this experiment log.
+- Commands:
+  - refactored scoring interfaces from raw strided curve/value views to
+    span-backed `SignalView` and `ArrayView`;
+  - added native split-vector curve snapshots at the pybind boundary before
+    `py::gil_scoped_release`;
+  - moved shifted-curve output construction into the native snapshot path;
+  - bumped the extension from C++17 to C++20 and added a configure-time
+    `std::span` check.
+- Validation result:
+  - `uv pip install -e .` passed and installed `iso18571==1.0.5`;
+  - `uv run --extra test python -m pytest -q` passed:
+    `17 passed, 32 deselected`;
+  - initial native benchmark command failed before collection because
+    `.benchmarks/iso18571-native/` did not exist;
+  - after `mkdir -p .benchmarks/iso18571-native`,
+    `uv run --extra test python -m pytest -q -m benchmark -k native tests/test_iso18571_benchmarks.py --benchmark-json .benchmarks/iso18571-native/benchmarks.json`
+    passed: `8 passed, 24 deselected`;
+  - `uv run --extra test mypy iso18571 iso18571_reference tests` passed:
+    `16 source files`;
+  - `git diff --check` passed.
+- Conclusion:
+  - scoring now runs from C++-owned split vectors after GIL release, shifted
+    outputs come from the same snapshot, and current tests/native benchmarks are
+    green.
+- Next hypothesis:
+  - compare native benchmark memory rows against the previous run to quantify
+    the expected full-curve snapshot overhead.
