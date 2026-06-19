@@ -3623,3 +3623,38 @@
 - Next hypothesis:
   - investigate `static inline` or `restrict` only with paired before/after
     benchmark runs, not as part of the namespace cleanup.
+
+## 2026-06-19 18:01 KST - Validation Parameter Name String View Cleanup
+
+- Git status:
+  - clean at start from commit `8a004aa`;
+  - implementation changed native engine validation declarations and
+    definitions;
+  - this experiment log was appended.
+- Hypothesis:
+  - engine validation APIs only borrow parameter names from literals/callers, so
+    `std::string_view` expresses the contract better than `const char*` without
+    forcing allocations on valid paths.
+- Files changed:
+  - `src/iso18571/engine.h`;
+  - `src/iso18571/engine_validation.cpp`;
+  - this experiment log.
+- Commands:
+  - `uv pip install -e .`;
+  - `uv run --extra test python -m pytest -q`;
+  - `uv run --extra test clang-format --dry-run -Werror
+    src/iso18571/engine.h src/iso18571/engine_validation.cpp`;
+  - `git diff --check`.
+- Validation result:
+  - no tests were added;
+  - editable native rebuild passed and installed `iso18571==1.0.6`;
+  - full pytest passed: `19 passed, 32 deselected`;
+  - clang-format dry-run passed for touched C++ files;
+  - `git diff --check` passed.
+- Conclusion:
+  - public Python behavior is unchanged;
+  - engine validation parameter-name APIs now use `std::string_view`;
+  - pybind-local `const char*` helpers were left unchanged.
+- Next hypothesis:
+  - if validation cleanup continues, consider moving private validation helpers
+    into an anonymous namespace separately from the string type cleanup.

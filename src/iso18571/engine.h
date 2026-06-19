@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <span>
+#include <string_view>
 #include <vector>
 
 namespace engine {
@@ -39,8 +40,8 @@ struct ScoreParams {
     double w_s;
 };
 
-int  score_exponent_from_double (double value, const char* name);
-int  positive_integer_from_double (double value, const char* name);
+int  score_exponent_from_double (double value, std::string_view name);
+int  positive_integer_from_double (double value, std::string_view name);
 void validate_score_params (const ScoreParams& params);
 
 struct PhaseAlignment {
