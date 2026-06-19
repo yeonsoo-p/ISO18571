@@ -35,10 +35,15 @@ set(ISO18571_SOURCES
     src/iso18571/engine_dispatch.cpp
     src/iso18571/engine_v1.cpp
     src/iso18571/engine_validation.cpp
+    src/iso18571/fft_dispatch.cpp
+    src/iso18571/fft_v1.cpp
 )
-set(ISO18571_DEFINITIONS ISO18571_COMPILED_X86_64_V1=1)
+set(ISO18571_DEFINITIONS
+    ISO18571_COMPILED_X86_64_V1=1
+    ISO18571_FFT_COMPILED_X86_64_V1=1
+)
 
-function(iso18571_try_add_level level source flag definition)
+function(iso18571_try_add_level_source level source flag definition)
     if("${flag}" STREQUAL "")
         list(APPEND ISO18571_SOURCES "${source}")
         list(APPEND ISO18571_DEFINITIONS "${definition}=1")
@@ -47,7 +52,7 @@ function(iso18571_try_add_level level source flag definition)
         return()
     endif()
 
-    string(MAKE_C_IDENTIFIER "ISO18571_HAS_${level}_${flag}" check_name)
+    string(MAKE_C_IDENTIFIER "ISO18571_HAS_${level}_${source}_${flag}" check_name)
     check_cxx_compiler_flag("${flag}" "${check_name}")
     if(${check_name})
         list(APPEND ISO18571_SOURCES "${source}")
@@ -64,12 +69,17 @@ if(NOT ISO18571_PROCESSOR MATCHES "x86_64|amd64|x64")
 endif()
 
 if(MSVC)
-    iso18571_try_add_level("X86_64_V3" "src/iso18571/engine_v3.cpp" "/arch:AVX2" "ISO18571_COMPILED_X86_64_V3")
-    iso18571_try_add_level("X86_64_V4" "src/iso18571/engine_v4.cpp" "/arch:AVX512" "ISO18571_COMPILED_X86_64_V4")
+    iso18571_try_add_level_source("ENGINE_X86_64_V3" "src/iso18571/engine_v3.cpp" "/arch:AVX2" "ISO18571_COMPILED_X86_64_V3")
+    iso18571_try_add_level_source("FFT_X86_64_V3" "src/iso18571/fft_v3.cpp" "/arch:AVX2" "ISO18571_FFT_COMPILED_X86_64_V3")
+    iso18571_try_add_level_source("ENGINE_X86_64_V4" "src/iso18571/engine_v4.cpp" "/arch:AVX512" "ISO18571_COMPILED_X86_64_V4")
+    iso18571_try_add_level_source("FFT_X86_64_V4" "src/iso18571/fft_v4.cpp" "/arch:AVX512" "ISO18571_FFT_COMPILED_X86_64_V4")
 else()
-    iso18571_try_add_level("X86_64_V2" "src/iso18571/engine_v2.cpp" "-march=x86-64-v2" "ISO18571_COMPILED_X86_64_V2")
-    iso18571_try_add_level("X86_64_V3" "src/iso18571/engine_v3.cpp" "-march=x86-64-v3" "ISO18571_COMPILED_X86_64_V3")
-    iso18571_try_add_level("X86_64_V4" "src/iso18571/engine_v4.cpp" "-march=x86-64-v4" "ISO18571_COMPILED_X86_64_V4")
+    iso18571_try_add_level_source("ENGINE_X86_64_V2" "src/iso18571/engine_v2.cpp" "-march=x86-64-v2" "ISO18571_COMPILED_X86_64_V2")
+    iso18571_try_add_level_source("FFT_X86_64_V2" "src/iso18571/fft_v2.cpp" "-march=x86-64-v2" "ISO18571_FFT_COMPILED_X86_64_V2")
+    iso18571_try_add_level_source("ENGINE_X86_64_V3" "src/iso18571/engine_v3.cpp" "-march=x86-64-v3" "ISO18571_COMPILED_X86_64_V3")
+    iso18571_try_add_level_source("FFT_X86_64_V3" "src/iso18571/fft_v3.cpp" "-march=x86-64-v3" "ISO18571_FFT_COMPILED_X86_64_V3")
+    iso18571_try_add_level_source("ENGINE_X86_64_V4" "src/iso18571/engine_v4.cpp" "-march=x86-64-v4" "ISO18571_COMPILED_X86_64_V4")
+    iso18571_try_add_level_source("FFT_X86_64_V4" "src/iso18571/fft_v4.cpp" "-march=x86-64-v4" "ISO18571_FFT_COMPILED_X86_64_V4")
 endif()
 
 pybind11_add_module(_core MODULE ${ISO18571_SOURCES})

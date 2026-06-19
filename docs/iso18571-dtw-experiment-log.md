@@ -3624,6 +3624,70 @@
   - investigate `static inline` or `restrict` only with paired before/after
     benchmark runs, not as part of the namespace cleanup.
 
+## 2026-06-19 18:22 KST - Independent FFT Variant Dispatch Split
+
+- Git status:
+  - clean at start;
+  - implementation changed `CMakeLists.txt` and `src/iso18571/fft.h`;
+  - added `src/iso18571/fft.cpp`, `src/iso18571/fft_dispatch.cpp`, and
+    `src/iso18571/fft_v1.cpp` through `src/iso18571/fft_v4.cpp`;
+  - benchmark JSON was written under `.benchmarks/iso18571-fft-dispatch/`.
+- Hypothesis:
+  - moving the phase FFT from header-only code into independently dispatched
+    v1/v2/v3/v4 translation units should preserve behavior while decoupling FFT
+    compiled-level macros and runtime selection from engine dispatch.
+- Files changed:
+  - `CMakeLists.txt`;
+  - `src/iso18571/fft.h`;
+  - `src/iso18571/fft.cpp`;
+  - `src/iso18571/fft_dispatch.cpp`;
+  - `src/iso18571/fft_v1.cpp`, `src/iso18571/fft_v2.cpp`,
+    `src/iso18571/fft_v3.cpp`, `src/iso18571/fft_v4.cpp`;
+  - this experiment log.
+- Commands:
+  - split `fft.h` into declarations, include-style `fft.cpp`, variant wrappers,
+    and independent `fft_dispatch.cpp`;
+  - added FFT-specific compiled macros `ISO18571_FFT_COMPILED_X86_64_V*` and
+    separate CMake source registration for FFT variants;
+  - `uv pip install -e .`;
+  - `uv run --extra test python -m pytest -q`;
+  - `uv run --extra test pre-commit run --all-files`;
+  - `git diff --check`;
+  - static scan for direct `fft.cpp` CMake registration, FFT macros,
+    `engine::dispatch_table`, and `c2c_power_of_two` call sites;
+  - `mkdir -p .benchmarks/iso18571-fft-dispatch`;
+  - `uv run --extra test python -m pytest -q tests/test_iso18571_benchmarks.py
+    -m benchmark -k native --benchmark-json
+    .benchmarks/iso18571-fft-dispatch/benchmarks.json`;
+  - summarized benchmark JSON with `uv run python`.
+- Validation result:
+  - editable native rebuild passed and installed `iso18571==1.0.6`;
+  - full pytest passed: `19 passed, 32 deselected`;
+  - pre-commit all-files passed Ruff, Mypy, clang-format, whitespace, and config
+    validation hooks;
+  - `git diff --check` passed;
+  - native-only benchmark passed: `8 passed, 24 deselected`;
+  - static scan showed `engine.cpp` still calls only `fft::c2c_power_of_two`,
+    FFT dispatch uses FFT-specific compiled macros, and no direct CMake source
+    registration for `src/iso18571/fft.cpp` was introduced.
+- Benchmark result:
+  - load/setup elapsed, ms:
+    `512=115.215`, `2048=128.551`, `8192=173.059`, `32768=426.999`;
+  - load/setup peak RSS, MiB:
+    `512=46.04`, `2048=46.10`, `8192=47.12`, `32768=52.38`;
+  - runtime median, ms:
+    `512=0.163`, `2048=1.962`, `8192=21.436`, `32768=315.237`;
+  - runtime peak RSS, MiB:
+    `512=45.91`, `2048=46.03`, `8192=46.93`, `32768=52.36`.
+- Conclusion:
+  - FFT now has independent compiled-level macros and runtime dispatch while
+    sharing only the generic CPU feature detector with engine dispatch;
+  - public Python API and `backend_info()` shape remain unchanged.
+- Next hypothesis:
+  - with FFT dispatch isolated, storage modernization can be tested separately:
+    first replace safe typed `arr<T>` uses with standard containers, then handle
+    any alignment-sensitive scratch storage with an explicit measured design.
+
 ## 2026-06-19 18:01 KST - Validation Parameter Name String View Cleanup
 
 - Git status:
