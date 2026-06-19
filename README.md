@@ -165,6 +165,7 @@ The official ISO/TS 18571 Annex CSV data is downloaded into the pytest cache on 
 Run the standard checks:
 
 ```bash
+uv run --extra test pre-commit run --all-files
 uv run --extra test ruff check --fix .
 uv run --extra test ruff format .
 uv run --extra test ruff check .
@@ -172,6 +173,14 @@ uv run --extra test ruff format --check .
 uv run --extra test mypy iso18571 iso18571_reference tests
 uv run --extra test python -m pytest -q
 ```
+
+Install the commit hook once per checkout:
+
+```bash
+uv run --extra test pre-commit install
+```
+
+The hook runs the Ruff fix/format/check sequence, Mypy, `clang-format` for native source files, and a staged whitespace check.
 
 ## References And Licensing
 

@@ -51,12 +51,9 @@ struct DtwState {
     std::vector<std::uint64_t> directions;
 };
 
-std::size_t direction_cell_count (const DtwState& state) {
-    return static_cast<std::size_t>(state.n) * static_cast<std::size_t>(state.band_width);
-}
-
 std::size_t direction_word_count (const DtwState& state) {
-    return (direction_cell_count(state) + DIRECTION_WORD_BITS - 1U) / DIRECTION_WORD_BITS;
+    return (static_cast<std::size_t>(state.n) * static_cast<std::size_t>(state.band_width) + DIRECTION_WORD_BITS - 1U) /
+           DIRECTION_WORD_BITS;
 }
 
 std::uint8_t bitplane_direction_at (const DtwState& state, Index cell_index) {

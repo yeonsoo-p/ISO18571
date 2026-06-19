@@ -16,7 +16,6 @@ SpaceAfterOperatorKeyword: true
 SpaceAfterTemplateKeyword: false
 SpaceBeforeCpp11BracedList: true
 SpaceBeforeCtorInitializerColon: false
-SpaceBeforeEnumUnderlyingTypeColon: false
 SpaceBeforeInheritanceColon: false
 SpaceBeforeParens: Custom
 SpaceBeforeParensOptions:

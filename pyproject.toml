@@ -14,7 +14,18 @@ dependencies = ["numpy"]
 [project.optional-dependencies]
 build = ["build", "cibuildwheel"]
 examples = ["jupyter", "matplotlib"]
-test = ["dtw-python", "dtwalign", "librosa", "mypy", "pytest", "pytest-benchmark", "ruff", "scipy"]
+test = [
+    "clang-format>=22.1.5",
+    "dtw-python",
+    "dtwalign",
+    "librosa",
+    "mypy",
+    "pre-commit>=4.6.0",
+    "pytest",
+    "pytest-benchmark",
+    "ruff",
+    "scipy",
+]
 
 [tool.scikit-build]
 build-dir = "build/{wheel_tag}"

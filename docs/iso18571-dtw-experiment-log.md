@@ -3075,3 +3075,52 @@
 - Conclusion:
   - the writer abstraction is removed from the native DTW direction path while
     retaining the selected two-plane `std::uint64_t` storage strategy.
+
+## 2026-06-19 15:20 KST - Pre-Commit Quality Gate
+
+- Git status:
+  - dirty at start with a pre-existing `src/iso18571/engine_impl.hpp` edit;
+  - hook setup changed `.pre-commit-config.yaml`, `.clang-format`,
+    `pyproject.toml`, `README.md`, `AGENTS.md`, and this log.
+- Hypothesis:
+  - versioned pre-commit hooks can replace manually running Ruff, Mypy, and
+    clang-format before routine commits while preserving the repo's existing
+    quality gate commands.
+- Files changed:
+  - `.pre-commit-config.yaml`;
+  - `.clang-format`;
+  - `pyproject.toml`;
+  - `README.md`;
+  - `AGENTS.md`;
+  - this experiment log.
+- Commands:
+  - `uv add --optional test pre-commit clang-format`;
+  - `uv run --extra test clang-format --version`;
+  - `uv run --extra test pre-commit --version`;
+  - `uv run --extra test pre-commit validate-config`;
+  - `uv run --extra test clang-format --dry-run -Werror ...`;
+  - attempted `uv add --optional test 'clang-format>=23'`, which failed
+    because PyPI only had `clang-format<=22.1.5`;
+  - removed unsupported `.clang-format` key
+    `SpaceBeforeEnumUnderlyingTypeColon`, which is unused by the current native
+    sources;
+  - `uv run --extra test pre-commit run --all-files`;
+  - `uv run --extra test pre-commit install`;
+  - `git diff --check`.
+- Validation result:
+  - dependency-provided tools report `clang-format version 22.1.5` and
+    `pre-commit 4.6.0`;
+  - `pre-commit validate-config` passed;
+  - dependency-provided `clang-format --dry-run -Werror` passed for all native
+    sources after the config compatibility change;
+  - `pre-commit run --all-files` passed Ruff fix, Ruff format, Ruff check,
+    Ruff format check, Mypy, clang-format, and staged whitespace hooks;
+  - local Git hook installed at `.git/hooks/pre-commit`;
+  - `git diff --check` passed.
+- Conclusion:
+  - the repo now has a versioned pre-commit gate that runs the existing Ruff and
+    Mypy commands through `uv --extra test`, formats native files with the
+    dependency-provided clang-format, and checks staged whitespace.
+- Next hypothesis:
+  - CI can use `uv run --extra test pre-commit run --all-files` as the same
+    quality gate entry point used by local commits.

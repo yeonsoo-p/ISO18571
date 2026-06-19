@@ -63,13 +63,17 @@
   loading helpers.
 - `ref/` is ignored reference material. Do not lint, package, or build files from
   `ref/`.
-- Before committing code changes, run:
+- Install commit hooks once per checkout with:
+  - `uv run --extra test pre-commit install`
+- Before committing code changes, let the installed hook run or run:
+  - `uv run --extra test pre-commit run --all-files`
+- The hook runs `clang-format` for native source files plus:
   - `uv run --extra test ruff check --fix .`
   - `uv run --extra test ruff format .`
   - `uv run --extra test ruff check .`
   - `uv run --extra test ruff format --check .`
   - `uv run --extra test mypy iso18571 iso18571_reference tests`
-  - `git diff --check`
+  - `git diff --check --cached`
 - Benchmarks live in `tests/test_iso18571_benchmarks.py` and are deselected by
   default through the `benchmark` marker. They use pytest-benchmark plus spawned
   Python workers to measure setup/load time, warm runtime, and peak process
