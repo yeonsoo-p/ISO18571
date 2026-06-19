@@ -15,7 +15,7 @@ find_package(pybind11 CONFIG REQUIRED)
 set(ISO18571_SOURCES
     src/iso18571/_core.cpp
     src/iso18571/dispatch.cpp
-    src/iso18571/scorer_v1.cpp
+    src/iso18571/engine_v1.cpp
     src/iso18571/validation.cpp
 )
 set(ISO18571_DEFINITIONS ISO18571_COMPILED_X86_64_V1=1)
@@ -46,12 +46,12 @@ if(NOT ISO18571_PROCESSOR MATCHES "x86_64|amd64|x64")
 endif()
 
 if(MSVC)
-    iso18571_try_add_level("X86_64_V3" "src/iso18571/scorer_v3.cpp" "/arch:AVX2" "ISO18571_COMPILED_X86_64_V3")
-    iso18571_try_add_level("X86_64_V4" "src/iso18571/scorer_v4.cpp" "/arch:AVX512" "ISO18571_COMPILED_X86_64_V4")
+    iso18571_try_add_level("X86_64_V3" "src/iso18571/engine_v3.cpp" "/arch:AVX2" "ISO18571_COMPILED_X86_64_V3")
+    iso18571_try_add_level("X86_64_V4" "src/iso18571/engine_v4.cpp" "/arch:AVX512" "ISO18571_COMPILED_X86_64_V4")
 else()
-    iso18571_try_add_level("X86_64_V2" "src/iso18571/scorer_v2.cpp" "-march=x86-64-v2" "ISO18571_COMPILED_X86_64_V2")
-    iso18571_try_add_level("X86_64_V3" "src/iso18571/scorer_v3.cpp" "-march=x86-64-v3" "ISO18571_COMPILED_X86_64_V3")
-    iso18571_try_add_level("X86_64_V4" "src/iso18571/scorer_v4.cpp" "-march=x86-64-v4" "ISO18571_COMPILED_X86_64_V4")
+    iso18571_try_add_level("X86_64_V2" "src/iso18571/engine_v2.cpp" "-march=x86-64-v2" "ISO18571_COMPILED_X86_64_V2")
+    iso18571_try_add_level("X86_64_V3" "src/iso18571/engine_v3.cpp" "-march=x86-64-v3" "ISO18571_COMPILED_X86_64_V3")
+    iso18571_try_add_level("X86_64_V4" "src/iso18571/engine_v4.cpp" "-march=x86-64-v4" "ISO18571_COMPILED_X86_64_V4")
 endif()
 
 pybind11_add_module(_core MODULE ${ISO18571_SOURCES})

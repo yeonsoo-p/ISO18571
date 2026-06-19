@@ -25,3 +25,4 @@ SpaceBeforeParensOptions:
   AfterFunctionDeclarationName: true
   AfterFunctionDefinitionName: true
   AfterIfMacros: false
+BreakTemplateDeclarations: Yes

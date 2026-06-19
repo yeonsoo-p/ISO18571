@@ -1,7 +1,7 @@
 #include <pybind11/numpy.h>
 #include <pybind11/pybind11.h>
 
-#include "scorer.hpp"
+#include "engine.hpp"
 #include "validation.hpp"
 
 #include <algorithm>
@@ -15,8 +15,8 @@ namespace py = pybind11;
 
 namespace {
 
-using iso18571::CurveView;
 using iso18571::CurveDType;
+using iso18571::CurveView;
 using iso18571::Diagnostic;
 using iso18571::DiagnosticCode;
 using iso18571::DiagnosticSeverity;
@@ -121,8 +121,7 @@ bool dtype_from_buffer (const py::buffer_info& info, CurveDType& dtype) {
 }
 
 py::array cast_array_to_float64 (const py::array& array, const char* name) {
-    py::array_t<double, py::array::forcecast> casted =
-        py::array_t<double, py::array::forcecast>::ensure(array);
+    py::array_t<double, py::array::forcecast> casted = py::array_t<double, py::array::forcecast>::ensure(array);
     if (!casted) {
         throw std::invalid_argument(std::string(name) + " must be convertible to float64");
     }
@@ -130,8 +129,8 @@ py::array cast_array_to_float64 (const py::array& array, const char* name) {
 }
 
 NativeCurve native_curve_from_array (py::array array, const char* name) {
-    const py::buffer_info info = array.request();
-    CurveDType dtype           = CurveDType::Float64;
+    const py::buffer_info info  = array.request();
+    CurveDType            dtype = CurveDType::Float64;
     if (!dtype_from_buffer(info, dtype)) {
         array = cast_array_to_float64(array, name);
     }
@@ -150,19 +149,18 @@ NativeCurve native_curve_from_array (py::array array, const char* name) {
         throw std::invalid_argument(std::string(name) + " must have shape (n, 2)");
     }
 
-    return {array,
-            {
-                static_cast<const char*>(native_info.ptr),
-                static_cast<Index>(native_info.strides[0]),
-                static_cast<Index>(native_info.strides[1]),
-                static_cast<Index>(native_info.shape[0]),
-                dtype,
-            }};
+    return {
+        array,
+        {
+          static_cast<const char*>(native_info.ptr),
+          static_cast<Index>(native_info.strides[0]),
+          static_cast<Index>(native_info.strides[1]),
+          static_cast<Index>(native_info.shape[0]),
+          dtype, }
+    };
 }
 
-double time_grid_tolerance (const CurveView& curve) {
-    return curve.dtype == CurveDType::Float32 ? 1.0e-9 : 1.0e-12;
-}
+double time_grid_tolerance (const CurveView& curve) { return curve.dtype == CurveDType::Float32 ? 1.0e-9 : 1.0e-12; }
 
 double derive_uniform_dt (const CurveView& curve, const char* name) {
     if (curve.n < 2) {
@@ -298,9 +296,8 @@ py::dict score_components (py::array reference_curve, py::array comparison_curve
     ScoreResult result;
     {
         py::gil_scoped_release release;
-        result =
-            iso18571::dispatch_table().score_components(curves.reference.view, curves.comparison.view, score_params,
-                                                        curves.dt);
+        result = iso18571::dispatch_table().score_components(curves.reference.view, curves.comparison.view,
+                                                             score_params, curves.dt);
     }
 
     emit_score_warnings(result);
@@ -320,7 +317,7 @@ py::dict backend_info () {
 } // namespace
 
 PYBIND11_MODULE (_core, m) {
-    m.doc() = "Clean-room native ISO/TS 18571 scorer";
+    m.doc() = "Clean-room native ISO/TS 18571 engine";
     m.def("backend_info", &backend_info);
     m.def("_score_components", &score_components, py::arg("reference_curve"), py::arg("comparison_curve"),
           py::arg("params"));

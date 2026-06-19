@@ -2527,3 +2527,53 @@
     validated curve time columns, and existing validation is green.
 - Next hypothesis:
   - commit this native cleanup after final review.
+
+## 2026-06-19 10:57 KST - Native Engine Source Rename
+
+- Git status:
+  - dirty with native scorer source/header files renamed to engine naming,
+    CMake source references updated, and wording updates in binding metadata and
+    TODO notes.
+- Hypothesis:
+  - renaming the native C++ implementation files from scorer to engine can
+    clarify the public production engine shape without changing ISO/TS 18571
+    scoring behavior or dispatch behavior.
+- Files changed:
+  - `.clang-format`;
+  - `CMakeLists.txt`;
+  - `TODO.md`;
+  - `src/iso18571/_core.cpp`;
+  - `src/iso18571/dispatch.cpp`;
+  - `src/iso18571/validation.hpp`;
+  - `src/iso18571/scorer.hpp` -> `src/iso18571/engine.hpp`;
+  - `src/iso18571/scorer_impl.hpp` -> `src/iso18571/engine_impl.hpp`;
+  - `src/iso18571/scorer_v1.cpp` -> `src/iso18571/engine_v1.cpp`;
+  - `src/iso18571/scorer_v2.cpp` -> `src/iso18571/engine_v2.cpp`;
+  - `src/iso18571/scorer_v3.cpp` -> `src/iso18571/engine_v3.cpp`;
+  - `src/iso18571/scorer_v4.cpp` -> `src/iso18571/engine_v4.cpp`;
+  - this experiment log.
+- Commands:
+  - compared the renamed headers against the previous `scorer*` files;
+  - confirmed `engine.hpp` is identical to the old public native header;
+  - confirmed `engine_impl.hpp` only changes include/error text and formatting;
+  - rebuilt the editable native package;
+  - ran the normal validation gate plus the requested native benchmark filter.
+- Validation result:
+  - `uv run --extra test ruff check --fix .` passed;
+  - `uv run --extra test ruff format .` passed with
+    `21 files left unchanged`;
+  - `uv run --extra test ruff check .` passed;
+  - `uv run --extra test ruff format --check .` passed with
+    `21 files already formatted`;
+  - `uv run --extra test mypy iso18571 iso18571_reference tests` passed:
+    `16 source files`;
+  - `uv pip install -e .` passed and installed `iso18571==1.0.5`;
+  - `uv run --extra test python -m pytest -q` passed:
+    `17 passed, 32 deselected`;
+  - `uv run --extra test python -m pytest -q -m benchmark -k native --benchmark-json .benchmarks/iso18571-readme/benchmarks-native.json`
+    passed: `8 passed, 41 deselected`.
+- Conclusion:
+  - the native engine source rename builds, passes parity/robustness coverage,
+    and preserves the benchmarked native path.
+- Next hypothesis:
+  - commit the rename after the final whitespace and staged diff checks.

@@ -1,8 +1,8 @@
 # TODO
 
-## Float32-compatible scorer
+## Float32-compatible engine
 
-- Implement and benchmark a true float32-compatible native scorer path.
+- Implement and benchmark a true float32-compatible native engine path.
 - Keep this separate from the current dtype-aware input validation, which accepts
   float32 arrays but still performs scoring calculations in double precision.
 - Decide whether a future implementation should template only selected hot paths

@@ -1,4 +1,4 @@
-#include "scorer.hpp"
+#include "engine.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -9,7 +9,7 @@
 #include <vector>
 
 #ifndef ISO18571_IMPL_SUFFIX
-#error "ISO18571_IMPL_SUFFIX must be defined before including scorer_impl.hpp"
+#error "ISO18571_IMPL_SUFFIX must be defined before including engine_impl.hpp"
 #endif
 
 #define ISO18571_PASTE_INNER(a, b) a##b
@@ -32,10 +32,10 @@ using iso18571::ScoreParams;
 using iso18571::ScoreResult;
 using iso18571::SlopeResult;
 
-constexpr std::uint8_t DIR_NONE       = 0;
-constexpr std::uint8_t DIR_VERTICAL   = 1;
-constexpr std::uint8_t DIR_HORIZONTAL = 2;
-constexpr std::uint8_t DIR_DIAGONAL   = 3;
+constexpr std::uint8_t DIR_NONE                  = 0;
+constexpr std::uint8_t DIR_VERTICAL              = 1;
+constexpr std::uint8_t DIR_HORIZONTAL            = 2;
+constexpr std::uint8_t DIR_DIAGONAL              = 3;
 constexpr double       CORRELATION_TIE_TOLERANCE = 1.0e-12;
 
 struct DtwState {
@@ -194,7 +194,8 @@ std::vector<double> copy_curve_values (const CurveView& curve, Index start, Inde
     return out;
 }
 
-template<typename Series> PhaseCache build_phase_cache (const Series& reference, const Series& comparison) {
+template<typename Series>
+PhaseCache build_phase_cache (const Series& reference, const Series& comparison) {
     PhaseCache        cache;
     const std::size_t size = static_cast<std::size_t>(reference.n + 1);
     cache.reference_sum.assign(size, 0.0);
@@ -568,8 +569,8 @@ ScoreResult score_components_impl (const CurveView& reference, const CurveView& 
         copy_curve_values(comparison, result.phase.alignment.comparison_start, result.phase.alignment.length);
     const std::vector<double> contiguous_reference =
         copy_curve_values(reference, result.phase.alignment.reference_start, result.phase.alignment.length);
-    const ArrayView           contiguous_comparison_view = view_from_vector(contiguous_comparison);
-    const ArrayView           contiguous_reference_view  = view_from_vector(contiguous_reference);
+    const ArrayView contiguous_comparison_view = view_from_vector(contiguous_comparison);
+    const ArrayView contiguous_reference_view  = view_from_vector(contiguous_reference);
 
     result.magnitude = magnitude_score_from_values(contiguous_reference_view, contiguous_comparison_view, params);
     result.slope     = fused_slope_score_from_values(contiguous_reference_view, contiguous_comparison_view, params, dt);
