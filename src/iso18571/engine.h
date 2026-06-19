@@ -4,7 +4,22 @@
 #include <span>
 #include <vector>
 
-namespace iso18571 {
+namespace engine {
+inline constexpr int kScoreExponentMinimum = 1;
+inline constexpr int kScoreExponentMaximum = 3;
+
+inline constexpr double kInitMinMinimum          = 0.0;
+inline constexpr double kInitMinExclusiveMaximum = 1.0;
+
+inline constexpr double kA0Minimum = 0.0;
+inline constexpr double kA0Maximum = 1.0;
+
+inline constexpr double kB0Minimum = 0.0;
+inline constexpr double kB0Maximum = 1.0;
+
+inline constexpr double kWeightMinimum              = 0.0;
+inline constexpr double kExpectedWeightSum          = 1.0;
+inline constexpr double kWeightSumAbsoluteTolerance = 1.0e-12;
 
 using Index      = std::ptrdiff_t;
 using DoubleSpan = std::span<const double>;
@@ -23,6 +38,10 @@ struct ScoreParams {
     double w_m;
     double w_s;
 };
+
+int  score_exponent_from_double (double value, const char* name);
+int  positive_integer_from_double (double value, const char* name);
+void validate_score_params (const ScoreParams& params);
 
 struct PhaseAlignment {
     Index  reference_start  = 0;
@@ -112,6 +131,5 @@ ScoreResult score_components_v4 (DoubleSpan reference, DoubleSpan comparison, co
 #endif
 
 const DispatchTable& dispatch_table ();
-const char*          compiled_x86_64_levels ();
 
-} // namespace iso18571
+} // namespace engine

@@ -1,12 +1,11 @@
-#include "validation.hpp"
+#include "engine.h"
 
 #include <cmath>
 #include <limits>
 #include <stdexcept>
 #include <string>
 
-namespace iso18571 {
-namespace {
+namespace engine {
 
 [[noreturn]] void throw_score_exponent_error (const char* name) {
     throw std::invalid_argument(std::string(name) + " has to be 1, 2, or 3");
@@ -54,8 +53,6 @@ void require_closed_interval (double value, const char* name, double minimum, do
         throw std::invalid_argument(std::string(name) + " must satisfy 0 <= " + name + " <= 1");
     }
 }
-
-} // namespace
 
 int score_exponent_from_double (double value, const char* name) {
     if (!std::isfinite(value)) {
@@ -110,4 +107,4 @@ void validate_score_params (const ScoreParams& params) {
     }
 }
 
-} // namespace iso18571
+} // namespace engine

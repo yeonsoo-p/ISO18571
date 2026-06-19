@@ -3392,3 +3392,234 @@
 - Next hypothesis:
   - benchmark the cleaned single-thread FFT path only after the surrounding FFT
     experiment is ready for a performance comparison.
+
+## 2026-06-19 17:16 KST - FFT Scratch Allocation Alignment A/B
+
+- Git status:
+  - clean at start of the timed allocation experiment;
+  - `src/iso18571/fft.hpp` was temporarily patched from `::aligned_alloc(...)`
+    to `::malloc(size)` for measurement and then restored.
+- Hypothesis:
+  - if the FFT scratch-buffer alignment is not materially helping current
+    generated code, replacing the aligned allocation call with plain `malloc`
+    should preserve or improve native benchmark timings.
+- Files changed:
+  - temporary-only edit to `src/iso18571/fft.hpp`;
+  - benchmark artifacts under `.benchmarks/iso18571-fft-alloc-aligned/` and
+    `.benchmarks/iso18571-fft-alloc-malloc/`;
+  - this experiment log.
+- Commands:
+  - `uv pip install -e .`;
+  - `mkdir -p .benchmarks/iso18571-fft-alloc-aligned`;
+  - `uv run --extra test python -m pytest -q tests/test_iso18571_benchmarks.py
+    -m benchmark -k native --benchmark-warmup off --benchmark-min-rounds 1
+    --benchmark-max-time 0.05 --benchmark-quiet --benchmark-json
+    .benchmarks/iso18571-fft-alloc-aligned/benchmarks.json`;
+  - patched `src/iso18571/fft.hpp` allocation wrapper to ignore `align` and use
+    `::malloc(size)`;
+  - `uv pip install -e .`;
+  - `mkdir -p .benchmarks/iso18571-fft-alloc-malloc`;
+  - `uv run --extra test python -m pytest -q tests/test_iso18571_benchmarks.py
+    -m benchmark -k native --benchmark-warmup off --benchmark-min-rounds 1
+    --benchmark-max-time 0.05 --benchmark-quiet --benchmark-json
+    .benchmarks/iso18571-fft-alloc-malloc/benchmarks.json`;
+  - ran a repeated warmed native scorer timing script for the malloc build and
+    wrote `.benchmarks/iso18571-fft-alloc-malloc/runtime_repeated.csv`;
+  - restored the aligned allocation wrapper;
+  - `uv pip install -e .`;
+  - ran the same repeated warmed native scorer timing script for the aligned
+    build and wrote `.benchmarks/iso18571-fft-alloc-aligned/runtime_repeated.csv`.
+- Validation result:
+  - aligned native benchmark passed: `8 passed, 24 deselected`;
+  - malloc native benchmark passed: `8 passed, 24 deselected`;
+  - both editable rebuilds completed successfully.
+- Benchmark result:
+  - pytest-benchmark median runtime, aligned vs malloc, ms:
+    `512=0.169/0.194`, `2048=1.579/3.838`, `8192=21.447/21.380`,
+    `32768=306.886/309.379`;
+  - repeated warmed scorer median runtime, aligned vs malloc, ms:
+    `512=0.178/0.180`, `2048=1.479/1.467`, `8192=20.795/20.777`,
+    `32768=305.840/307.986`;
+  - repeated warmed scorer means, aligned vs malloc, ms:
+    `512=0.174/0.180`, `2048=1.692/1.566`, `8192=20.989/20.783`,
+    `32768=305.859/309.584`.
+- Conclusion:
+  - plain `malloc` did not show a material runtime win and was slightly worse
+    for the largest repeated timing case, so the aligned allocation path was
+    restored.
+- Next hypothesis:
+  - if pursuing FFT allocation performance further, benchmark an aligned
+    allocator for the caller-owned FFT vectors and explicit local alignment
+    assumptions in hot FFT code, rather than removing internal scratch
+    alignment.
+
+## 2026-06-19 17:24 KST - Phase FFT Dead-Code Prune
+
+- Git status:
+  - dirty at start from the prior FFT scratch-allocation experiment log entry;
+  - implementation changed `src/iso18571/fft.hpp` and
+    `src/iso18571/engine_impl.hpp`;
+  - this experiment log was appended.
+- Hypothesis:
+  - the native phase scorer only needs a 1-D contiguous in-place complex FFT at
+    power-of-two lengths, so the generic real/DCT/DST/Hartley/N-D/Bluestein FFT
+    support can be removed without changing benchmark collection behavior.
+- Files changed:
+  - `src/iso18571/fft.hpp`;
+  - `src/iso18571/engine_impl.hpp`;
+  - this experiment log;
+  - benchmark JSON under `.benchmarks/iso18571-native/`.
+- Commands:
+  - `rg -n "fft::(c2c|shape_t|stride_t|r2c|c2r|dct|dst|r2r)|c2c_power_of_two|class rfftp|class fftblue|class fft_r|T_dct|T_dst|T_dcst|general_nd|multi_iter|shape_t|stride_t|pass3|pass5|pass7|pass11|passg|good_size|largest_prime|cost_guess"
+    src/iso18571/fft.hpp src/iso18571/engine_impl.hpp`;
+  - `uv pip install -e .`;
+  - `mkdir -p .benchmarks/iso18571-native`;
+  - `uv run --extra test python -m pytest -q tests/test_iso18571_benchmarks.py
+    -m benchmark -k native --benchmark-json
+    .benchmarks/iso18571-native/benchmarks.json`;
+  - `uv run python - <<'PY' ... PY` to summarize benchmark JSON.
+- Validation result:
+  - no tests were added;
+  - editable native rebuild passed and installed `iso18571==1.0.6`;
+  - native-only benchmark passed: `8 passed, 24 deselected`;
+  - stale FFT API/dead-code scan found only the new `c2c_power_of_two` call
+    sites and definition.
+- Benchmark result:
+  - load/setup elapsed, ms:
+    `512=141.34`, `2048=153.33`, `8192=182.87`, `32768=459.37`;
+  - peak RSS, MiB:
+    `512=45.96`, `2048=46.11`, `8192=46.82`, `32768=52.22`;
+  - runtime median, ms:
+    `512=0.22`, `2048=1.73`, `8192=21.92`, `32768=307.12`.
+- Conclusion:
+  - the FFT header now carries only the phase-score power-of-two complex FFT
+    path, and the requested native benchmark still completes successfully.
+- Next hypothesis:
+  - if more FFT cleanup is desired, compare reusable plan caching or a
+    real-input convolution path against the current per-call complex FFT plans.
+
+## 2026-06-19 17:32 KST - Native Namespace And Shared Dispatch Split
+
+- Git status:
+  - dirty at start from the FFT dead-code prune and experiment-log entries;
+  - implementation changed native C++ namespace declarations/qualifiers and
+    added `src/iso18571/dispatch.hpp`;
+  - this experiment log was appended.
+- Hypothesis:
+  - separating scorer-owned C++ symbols into `engine` and generic CPU-level
+    selection into `dispatch` will preserve the public Python package shape
+    while making future FFT version dispatch share the same CPU feature logic.
+- Files changed:
+  - `src/iso18571/engine.hpp`, `src/iso18571/engine_impl.hpp`,
+    `src/iso18571/validation.hpp`, `src/iso18571/validation.cpp`,
+    `src/iso18571/_core.cpp`, `src/iso18571/dispatch.cpp`;
+  - new `src/iso18571/dispatch.hpp`;
+  - this experiment log.
+- Commands:
+  - `rg -n "namespace iso18571\\b|iso18571::|using iso18571|} // namespace iso18571|namespace engine\\b|engine::|namespace dispatch\\b|dispatch::"
+    src/iso18571 -S`;
+  - `uv pip install -e .`;
+  - `uv run --extra test python -m pytest -q`;
+  - `uv run --extra test clang-format --dry-run -Werror
+    src/iso18571/dispatch.hpp src/iso18571/dispatch.cpp
+    src/iso18571/engine.hpp src/iso18571/validation.hpp
+    src/iso18571/validation.cpp src/iso18571/engine_impl.hpp
+    src/iso18571/_core.cpp`;
+  - `git diff --check`.
+- Validation result:
+  - no tests were added;
+  - editable native rebuild passed and installed `iso18571==1.0.6`;
+  - full pytest passed: `19 passed, 32 deselected`;
+  - clang-format dry-run passed for touched C++ files;
+  - `git diff --check` passed;
+  - namespace scan found no remaining internal native `iso18571` namespace or
+    `iso18571::` qualifiers under `src/iso18571`.
+- Conclusion:
+  - public Python/package naming remains `iso18571`;
+  - scorer-owned native symbols now live under `engine`;
+  - reusable CPU level selection now lives under `dispatch` and feeds
+    `engine::dispatch_table()`.
+- Next hypothesis:
+  - when splitting FFT into `fft.hpp` and variant-specific `fft_impl.hpp`, use
+    `dispatch::best_x86_64_level(...)` to select the FFT function table without
+    coupling FFT to engine scorer types.
+
+## 2026-06-19 17:55 KST - Encapsulated Engine Helper Build Fix
+
+- Git status:
+  - dirty at start from the namespace/file-layout refactor and FFT dead-code
+    prune;
+  - implementation kept the `.h`/`.cpp` file layout, changed engine helper
+    linkage, and fixed the renamed validation source path;
+  - this experiment log was appended.
+- Hypothesis:
+  - the generated engine implementation can avoid duplicate symbols across
+    `engine_v1.cpp` through `engine_v4.cpp` by keeping private helpers in an
+    anonymous namespace, while exporting only the variant scorer entrypoints in
+    `namespace engine`.
+- Files changed:
+  - `CMakeLists.txt`;
+  - `src/iso18571/engine.cpp`, `src/iso18571/engine.h`,
+    `src/iso18571/engine_validation.cpp`, `src/iso18571/_core.cpp`;
+  - this experiment log.
+- Commands:
+  - `uv pip install -e .`;
+  - `uv run --extra test python -m pytest -q`;
+  - `git diff --check`;
+  - `rg -n "namespace iso18571\\b|iso18571::|using iso18571|} // namespace iso18571|engine_impl\\.hpp|validation\\.cpp"
+    src/iso18571 CMakeLists.txt`;
+  - `uv run --extra test clang-format --dry-run -Werror
+    src/iso18571/_core.cpp src/iso18571/engine.cpp
+    src/iso18571/engine.h src/iso18571/engine_validation.cpp
+    src/iso18571/engine_dispatch.cpp src/iso18571/dispatch.cpp
+    src/iso18571/dispatch.h src/iso18571/fft.h`.
+- Validation result:
+  - no tests were added;
+  - editable native rebuild passed and installed `iso18571==1.0.6`;
+  - full pytest passed: `19 passed, 32 deselected`;
+  - clang-format dry-run passed for touched C++ files;
+  - `git diff --check` passed;
+  - namespace scan found no remaining internal native `iso18571` namespace or
+    `iso18571::` qualifiers under `src/iso18571`; its only match was the
+    intentional `engine_validation.cpp` filename.
+- Conclusion:
+  - private scorer helpers are again encapsulated without noisy per-helper
+    variant macros;
+  - the variant entrypoints remain exported for dispatch;
+  - the renamed validation implementation is now part of the CMake source list.
+- Next hypothesis:
+  - if helper encapsulation needs further tuning, benchmark only targeted
+    `static inline` changes in measured hot helpers rather than changing
+    linkage style broadly.
+
+## 2026-06-19 17:56 KST - Encapsulated Helper Native Benchmark
+
+- Git status:
+  - dirty at start from the namespace/file-layout refactor, FFT dead-code prune,
+    and encapsulated helper build fix;
+  - benchmark JSON was written under `.benchmarks/iso18571-native/`;
+  - this experiment log was appended.
+- Hypothesis:
+  - restoring anonymous-namespace helper encapsulation should preserve native
+    benchmark behavior after the file-layout and dispatch refactor.
+- Files changed:
+  - this experiment log;
+  - benchmark JSON under `.benchmarks/iso18571-native/`.
+- Commands:
+  - `mkdir -p .benchmarks/iso18571-native && uv run --extra test python -m pytest -q tests/test_iso18571_benchmarks.py -m benchmark -k native --benchmark-json .benchmarks/iso18571-native/benchmarks.json`;
+  - `uv run python - <<'PY' ... PY` to summarize benchmark JSON.
+- Validation result:
+  - native-only benchmark passed: `8 passed, 24 deselected`.
+- Benchmark result:
+  - load/setup elapsed, ms:
+    `512=133.35`, `2048=153.79`, `8192=144.52`, `32768=469.72`;
+  - peak RSS, MiB:
+    `512=45.82`, `2048=45.96`, `8192=46.87`, `32768=52.08`;
+  - runtime median, ms:
+    `512=0.228`, `2048=2.170`, `8192=22.280`, `32768=312.076`.
+- Conclusion:
+  - the native benchmark remains in the same range as the prior FFT-prune run;
+    the encapsulation cleanup did not create an obvious benchmark regression.
+- Next hypothesis:
+  - investigate `static inline` or `restrict` only with paired before/after
+    benchmark runs, not as part of the namespace cleanup.

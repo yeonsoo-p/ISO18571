@@ -1,8 +1,7 @@
 #include <pybind11/numpy.h>
 #include <pybind11/pybind11.h>
 
-#include "engine.hpp"
-#include "validation.hpp"
+#include "engine.h"
 
 #include <algorithm>
 #include <cmath>
@@ -15,13 +14,13 @@ namespace py = pybind11;
 
 namespace {
 
-using iso18571::Diagnostic;
-using iso18571::DiagnosticCode;
-using iso18571::DiagnosticSeverity;
-using iso18571::DoubleSpan;
-using iso18571::Index;
-using iso18571::ScoreParams;
-using iso18571::ScoreResult;
+using engine::Diagnostic;
+using engine::DiagnosticCode;
+using engine::DiagnosticSeverity;
+using engine::DoubleSpan;
+using engine::Index;
+using engine::ScoreParams;
+using engine::ScoreResult;
 
 struct ValidatedCurves {
     std::vector<double> reference_values;
@@ -48,31 +47,31 @@ double get_required_double_param (const py::dict& params, const char* name) {
 int get_required_positive_integer_param (const py::dict& params, const char* name) {
     const py::handle value = require_param(params, name);
     if (PyNumber_Check(value.ptr()) == 0) {
-        return iso18571::positive_integer_from_double(std::numeric_limits<double>::quiet_NaN(), name);
+        return engine::positive_integer_from_double(std::numeric_limits<double>::quiet_NaN(), name);
     }
 
     py::object number = py::reinterpret_steal<py::object>(PyNumber_Float(value.ptr()));
     if (!number) {
         PyErr_Clear();
-        return iso18571::positive_integer_from_double(std::numeric_limits<double>::quiet_NaN(), name);
+        return engine::positive_integer_from_double(std::numeric_limits<double>::quiet_NaN(), name);
     }
 
-    return iso18571::positive_integer_from_double(py::cast<double>(number), name);
+    return engine::positive_integer_from_double(py::cast<double>(number), name);
 }
 
 int get_required_score_exponent (const py::dict& params, const char* name) {
     const py::handle value = require_param(params, name);
     if (PyNumber_Check(value.ptr()) == 0) {
-        return iso18571::score_exponent_from_double(std::numeric_limits<double>::quiet_NaN(), name);
+        return engine::score_exponent_from_double(std::numeric_limits<double>::quiet_NaN(), name);
     }
 
     py::object number = py::reinterpret_steal<py::object>(PyNumber_Float(value.ptr()));
     if (!number) {
         PyErr_Clear();
-        return iso18571::score_exponent_from_double(std::numeric_limits<double>::quiet_NaN(), name);
+        return engine::score_exponent_from_double(std::numeric_limits<double>::quiet_NaN(), name);
     }
 
-    return iso18571::score_exponent_from_double(py::cast<double>(number), name);
+    return engine::score_exponent_from_double(py::cast<double>(number), name);
 }
 
 ScoreParams score_params_from_dict (const py::dict& params) {
@@ -313,7 +312,7 @@ void add_score_fields (py::dict& out, const ScoreResult& result) {
 py::dict score_components (py::array reference_curve, py::array comparison_curve, py::dict params) {
     const ValidatedCurves curves       = validate_curves(reference_curve, comparison_curve);
     ScoreParams           score_params = score_params_from_dict(params);
-    iso18571::validate_score_params(score_params);
+    engine::validate_score_params(score_params);
     const DoubleSpan reference_values(curves.reference_values.data(), curves.reference_values.size());
     const DoubleSpan comparison_values(curves.comparison_values.data(), curves.comparison_values.size());
 
@@ -321,7 +320,7 @@ py::dict score_components (py::array reference_curve, py::array comparison_curve
     {
         py::gil_scoped_release release;
         result =
-            iso18571::dispatch_table().score_components(reference_values, comparison_values, score_params, curves.dt);
+            engine::dispatch_table().score_components(reference_values, comparison_values, score_params, curves.dt);
     }
 
     emit_score_warnings(result);
@@ -334,7 +333,7 @@ py::dict score_components (py::array reference_curve, py::array comparison_curve
 py::dict backend_info () {
     py::dict info;
     info["implementation"] = "C++20";
-    info["optimization"]   = iso18571::dispatch_table().level;
+    info["optimization"]   = engine::dispatch_table().level;
     return info;
 }
 

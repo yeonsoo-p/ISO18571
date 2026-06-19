@@ -1,7 +1,6 @@
-#include "engine.hpp"
+#include "dispatch.h"
 
 #include <cstdint>
-#include <string>
 
 #if defined(__GNUC__) && (defined(__x86_64__) || defined(__i386__))
 #include <cpuid.h>
@@ -11,9 +10,7 @@
 #include <intrin.h>
 #endif
 
-namespace iso18571 {
-
-namespace {
+namespace dispatch {
 
 #if defined(__GNUC__) && (defined(__x86_64__) || defined(__i386__))
 void cpuid (unsigned int leaf, unsigned int subleaf, unsigned int (&registers)[4]) {
@@ -188,47 +185,48 @@ bool supports_v4 () {
 #endif
 }
 
-DispatchTable make_dispatch_table () {
-#if defined(ISO18571_COMPILED_X86_64_V4)
-    if (supports_v4()) {
-        return {score_components_v4, "x86-64-v4"};
+const char* level_name (X86_64Level level) {
+    switch (level) {
+    case X86_64Level::V1:
+        return "x86-64-v1";
+    case X86_64Level::V2:
+        return "x86-64-v2";
+    case X86_64Level::V3:
+        return "x86-64-v3";
+    case X86_64Level::V4:
+        return "x86-64-v4";
     }
-#endif
-#if defined(ISO18571_COMPILED_X86_64_V3)
-    if (supports_v3()) {
-        return {score_components_v3, "x86-64-v3"};
-    }
-#endif
-#if defined(ISO18571_COMPILED_X86_64_V2)
-    if (supports_v2()) {
-        return {score_components_v2, "x86-64-v2"};
-    }
-#endif
-    return {score_components_v1, "x86-64-v1"};
+    return "x86-64-v1";
 }
 
-} // namespace
-
-const DispatchTable& dispatch_table () {
-    static const DispatchTable table = make_dispatch_table();
-    return table;
+X86_64Level best_x86_64_level (CompiledX86_64Levels compiled) {
+    if (compiled.v4 && supports_v4()) {
+        return X86_64Level::V4;
+    }
+    if (compiled.v3 && supports_v3()) {
+        return X86_64Level::V3;
+    }
+    if (compiled.v2 && supports_v2()) {
+        return X86_64Level::V2;
+    }
+    return X86_64Level::V1;
 }
 
-const char* compiled_x86_64_levels () {
-    static const std::string levels = [] {
-        std::string out = "x86-64-v1";
-#if defined(ISO18571_COMPILED_X86_64_V2)
-        out += ",x86-64-v2";
-#endif
-#if defined(ISO18571_COMPILED_X86_64_V3)
-        out += ",x86-64-v3";
-#endif
-#if defined(ISO18571_COMPILED_X86_64_V4)
-        out += ",x86-64-v4";
-#endif
-        return out;
-    }();
-    return levels.c_str();
+std::string compiled_x86_64_levels (CompiledX86_64Levels compiled) {
+    std::string out = level_name(X86_64Level::V1);
+    if (compiled.v2) {
+        out += ",";
+        out += level_name(X86_64Level::V2);
+    }
+    if (compiled.v3) {
+        out += ",";
+        out += level_name(X86_64Level::V3);
+    }
+    if (compiled.v4) {
+        out += ",";
+        out += level_name(X86_64Level::V4);
+    }
+    return out;
 }
 
-} // namespace iso18571
+} // namespace dispatch

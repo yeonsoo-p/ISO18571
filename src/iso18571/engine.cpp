@@ -1,4 +1,4 @@
-#include "engine.hpp"
+#include "engine.h"
 
 #include <algorithm>
 #include <cmath>
@@ -9,10 +9,10 @@
 #include <utility>
 #include <vector>
 
-#include <fft.hpp>
+#include "fft.h"
 
 #ifndef ISO18571_IMPL_SUFFIX
-#error "ISO18571_IMPL_SUFFIX must be defined before including engine_impl.hpp"
+#error "ISO18571_IMPL_SUFFIX must be defined before including engine.cpp"
 #endif
 
 #define ISO18571_PASTE_INNER(a, b) a##b
@@ -21,18 +21,18 @@
 
 namespace {
 
-using iso18571::Diagnostic;
-using iso18571::DiagnosticCode;
-using iso18571::DiagnosticComponent;
-using iso18571::DiagnosticSeverity;
-using iso18571::DoubleSpan;
-using iso18571::Index;
-using iso18571::MagnitudeResult;
-using iso18571::PhaseAlignment;
-using iso18571::PhaseResult;
-using iso18571::ScoreParams;
-using iso18571::ScoreResult;
-using iso18571::SlopeResult;
+using engine::Diagnostic;
+using engine::DiagnosticCode;
+using engine::DiagnosticComponent;
+using engine::DiagnosticSeverity;
+using engine::DoubleSpan;
+using engine::Index;
+using engine::MagnitudeResult;
+using engine::PhaseAlignment;
+using engine::PhaseResult;
+using engine::ScoreParams;
+using engine::ScoreResult;
+using engine::SlopeResult;
 
 constexpr double CORRELATION_TIE_TOLERANCE = 1.0e-12;
 constexpr double CORRELATION_REFINE_MARGIN = 1.0e-9;
@@ -242,15 +242,6 @@ double correlation_for_shift (DoubleSpan reference, DoubleSpan comparison, Index
     return correlation;
 }
 
-double product_sum_for_shift (DoubleSpan reference, DoubleSpan comparison, Index reference_start,
-                              Index comparison_start, Index length) {
-    double out = 0.0;
-    for (Index idx = 0; idx < length; ++idx) {
-        out += value_at(reference, reference_start + idx) * value_at(comparison, comparison_start + idx);
-    }
-    return out;
-}
-
 std::size_t next_power_of_two (std::size_t value) {
     std::size_t out = 1;
     while (out < value) {
@@ -271,16 +262,12 @@ PhaseProductSums fft_product_sums (DoubleSpan reference, DoubleSpan comparison) 
         comparison_fft[idx] = {value_at(comparison, static_cast<Index>(n - idx - 1U)), 0.0};
     }
 
-    const fft::shape_t  shape {fft_size};
-    const fft::stride_t stride {static_cast<std::ptrdiff_t>(sizeof(std::complex<double>))};
-    const fft::shape_t  axes {0};
-    fft::c2c(shape, stride, stride, axes, fft::FORWARD, reference_fft.data(), reference_fft.data(), 1.0);
-    fft::c2c(shape, stride, stride, axes, fft::FORWARD, comparison_fft.data(), comparison_fft.data(), 1.0);
+    fft::c2c_power_of_two(reference_fft.data(), fft_size, fft::FORWARD, 1.0);
+    fft::c2c_power_of_two(comparison_fft.data(), fft_size, fft::FORWARD, 1.0);
     for (std::size_t idx = 0; idx < fft_size; ++idx) {
         reference_fft[idx] *= comparison_fft[idx];
     }
-    fft::c2c(shape, stride, stride, axes, fft::BACKWARD, reference_fft.data(), reference_fft.data(),
-             1.0 / static_cast<double>(fft_size));
+    fft::c2c_power_of_two(reference_fft.data(), fft_size, fft::BACKWARD, 1.0 / static_cast<double>(fft_size));
 
     PhaseProductSums sums;
     sums.products.assign(conv_size, 0.0);
@@ -610,14 +597,14 @@ ScoreResult score_components_impl (DoubleSpan reference, DoubleSpan comparison, 
 
 } // namespace
 
-namespace iso18571 {
+namespace engine {
 
 ScoreResult ISO18571_VARIANT (score_components)(DoubleSpan reference, DoubleSpan comparison, const ScoreParams& params,
                                                 double dt) {
     return score_components_impl(reference, comparison, params, dt);
 }
 
-} // namespace iso18571
+} // namespace engine
 
 #undef ISO18571_VARIANT
 #undef ISO18571_PASTE
