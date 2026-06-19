@@ -45,7 +45,7 @@ The package also exposes a native diagnostic helper:
 from iso18571 import backend_info
 
 print(backend_info())
-# {'name': 'iso18571', 'implementation': 'C++20', 'version': '1.0.5', 'optimization': 'x86-64-v3'}
+# {'name': 'iso18571', 'implementation': 'C++20', 'version': '1.0.6', 'optimization': 'x86-64-v3'}
 ```
 
 ## Prerequisites
@@ -112,7 +112,7 @@ The release wheel matrix targets CPython 3.12, 3.13, and 3.14 on:
 - Linux x86_64;
 - Windows AMD64.
 
-Use the project wheel builder as the normal entrypoint. On a Linux host it builds Linux wheels with `cibuildwheel`  anylinux containers and Windows wheels with `clang-cl` plus `xwin`. On a Windows host it uses `cibuildwheel` for both native Windows MSVC wheels and Linux wheels through Docker.
+Use the project wheel builder as the normal entrypoint. On a Linux host it builds Linux wheels with `cibuildwheel` manylinux containers and Windows wheels with `clang-cl` plus `xwin`. On a Windows host it uses `cibuildwheel` for both native Windows MSVC wheels and Linux wheels through Docker.
 
 For a full local release build:
 

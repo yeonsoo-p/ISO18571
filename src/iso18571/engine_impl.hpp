@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstdint>
 #include <limits>
+#include <span>
 #include <stdexcept>
 #include <utility>
 #include <vector>
@@ -18,7 +19,6 @@
 
 namespace {
 
-using iso18571::ArrayView;
 using iso18571::Diagnostic;
 using iso18571::DiagnosticCode;
 using iso18571::DiagnosticComponent;
@@ -29,14 +29,21 @@ using iso18571::PhaseAlignment;
 using iso18571::PhaseResult;
 using iso18571::ScoreParams;
 using iso18571::ScoreResult;
-using iso18571::SignalView;
 using iso18571::SlopeResult;
+
+using DoubleSpan = std::span<const double>;
 
 constexpr std::uint8_t DIR_NONE                  = 0;
 constexpr std::uint8_t DIR_VERTICAL              = 1;
 constexpr std::uint8_t DIR_HORIZONTAL            = 2;
 constexpr std::uint8_t DIR_DIAGONAL              = 3;
 constexpr double       CORRELATION_TIE_TOLERANCE = 1.0e-12;
+
+std::size_t offset (Index index) { return static_cast<std::size_t>(index); }
+
+Index span_size (DoubleSpan values) { return static_cast<Index>(values.size()); }
+
+double value_at (DoubleSpan values, Index index) { return values[offset(index)]; }
 
 struct DtwState {
     Index                     n          = 0;
@@ -70,10 +77,10 @@ Index window_radius (Index n, double window_size) {
     return std::min<Index>(n, std::max<Index>(1, raw));
 }
 
-DtwState compute_directions_index_incremental (const ArrayView& x, const ArrayView& y, double window_size) {
+DtwState compute_directions_index_incremental (DoubleSpan x, DoubleSpan y, double window_size) {
     DtwState state;
-    state.n          = x.n;
-    state.radius     = window_radius(x.n, window_size);
+    state.n          = span_size(x);
+    state.radius     = window_radius(state.n, window_size);
     state.band_width = 2 * state.radius - 1;
     state.directions.assign(static_cast<std::size_t>(state.n * state.band_width), DIR_NONE);
 
@@ -91,7 +98,7 @@ DtwState compute_directions_index_incremental (const ArrayView& x, const ArrayVi
 
         Index direction_idx = direction_base;
         for (Index j = j_start; j < j_stop; ++j, ++direction_idx) {
-            const double delta       = x.value(i) - y.value(j);
+            const double delta       = value_at(x, i) - value_at(y, j);
             const double local_cost  = delta * delta;
             double       accumulated = inf;
             std::uint8_t direction   = DIR_NONE;
@@ -139,19 +146,19 @@ DtwState compute_directions_index_incremental (const ArrayView& x, const ArrayVi
     return state;
 }
 
-std::pair<double, double> magnitude_error_from_state (const ArrayView& x, const ArrayView& y, const DtwState& state) {
-    double numerator   = 0.0;
-    double denominator = 0.0;
-    Index  i           = state.n - 1;
-    Index  j           = state.n - 1;
+std::pair<double, double> magnitude_error_from_state (DoubleSpan x, DoubleSpan y, const DtwState& state) {
+    double     numerator       = 0.0;
+    double     denominator     = 0.0;
+    Index      i               = state.n - 1;
+    Index      j               = state.n - 1;
     const auto direction_index = [&state] (Index row, Index column) {
         const Index row_start = row - state.radius + 1;
         return row * state.band_width + (column - row_start);
     };
 
     while (true) {
-        numerator += std::abs(x.value(i) - y.value(j));
-        denominator += std::abs(y.value(j));
+        numerator += std::abs(value_at(x, i) - value_at(y, j));
+        denominator += std::abs(value_at(y, j));
         if (i == 0 && j == 0) {
             break;
         }
@@ -171,20 +178,20 @@ std::pair<double, double> magnitude_error_from_state (const ArrayView& x, const 
     return {numerator, denominator};
 }
 
-template<typename Series>
-PhaseCache build_phase_cache (const Series& reference, const Series& comparison) {
+PhaseCache build_phase_cache (DoubleSpan reference, DoubleSpan comparison) {
     PhaseCache        cache;
-    const std::size_t size = static_cast<std::size_t>(reference.n + 1);
+    const Index       n    = span_size(reference);
+    const std::size_t size = static_cast<std::size_t>(n + 1);
     cache.reference_sum.assign(size, 0.0);
     cache.comparison_sum.assign(size, 0.0);
     cache.reference_square_sum.assign(size, 0.0);
     cache.comparison_square_sum.assign(size, 0.0);
 
-    for (Index idx = 0; idx < reference.n; ++idx) {
+    for (Index idx = 0; idx < n; ++idx) {
         const std::size_t current            = static_cast<std::size_t>(idx + 1);
         const std::size_t previous           = static_cast<std::size_t>(idx);
-        const double      x                  = reference.value(idx);
-        const double      y                  = comparison.value(idx);
+        const double      x                  = value_at(reference, idx);
+        const double      y                  = value_at(comparison, idx);
         cache.reference_sum[current]         = cache.reference_sum[previous] + x;
         cache.comparison_sum[current]        = cache.comparison_sum[previous] + y;
         cache.reference_square_sum[current]  = cache.reference_square_sum[previous] + x * x;
@@ -197,25 +204,23 @@ double prefix_range (const std::vector<double>& values, Index start, Index lengt
     return values[static_cast<std::size_t>(start + length)] - values[static_cast<std::size_t>(start)];
 }
 
-template<typename Series>
-bool values_equal_for_shift (const Series& reference, const Series& comparison, Index reference_start,
-                             Index comparison_start, Index length) {
+bool values_equal_for_shift (DoubleSpan reference, DoubleSpan comparison, Index reference_start, Index comparison_start,
+                             Index length) {
     for (Index idx = 0; idx < length; ++idx) {
-        if (reference.value(reference_start + idx) != comparison.value(comparison_start + idx)) {
+        if (value_at(reference, reference_start + idx) != value_at(comparison, comparison_start + idx)) {
             return false;
         }
     }
     return true;
 }
 
-template<typename Series>
-double correlation_for_shift (const Series& reference, const Series& comparison, Index reference_start,
+double correlation_for_shift (DoubleSpan reference, DoubleSpan comparison, Index reference_start,
                               Index comparison_start, Index length, std::vector<Diagnostic>& diagnostics) {
     double reference_sum  = 0.0;
     double comparison_sum = 0.0;
     for (Index idx = 0; idx < length; ++idx) {
-        reference_sum += reference.value(reference_start + idx);
-        comparison_sum += comparison.value(comparison_start + idx);
+        reference_sum += value_at(reference, reference_start + idx);
+        comparison_sum += value_at(comparison, comparison_start + idx);
     }
 
     if (length < 2) {
@@ -230,8 +235,8 @@ double correlation_for_shift (const Series& reference, const Series& comparison,
     double       comparison_cov  = 0.0;
     double       cross_cov       = 0.0;
     for (Index idx = 0; idx < length; ++idx) {
-        const double x = reference.value(reference_start + idx) - reference_mean;
-        const double y = comparison.value(comparison_start + idx) - comparison_mean;
+        const double x = value_at(reference, reference_start + idx) - reference_mean;
+        const double y = value_at(comparison, comparison_start + idx) - comparison_mean;
         reference_cov += x * x;
         comparison_cov += y * y;
         cross_cov += x * y;
@@ -257,12 +262,11 @@ double correlation_for_shift (const Series& reference, const Series& comparison,
     return correlation;
 }
 
-template<typename Series>
-double product_sum_for_shift (const Series& reference, const Series& comparison, Index reference_start,
+double product_sum_for_shift (DoubleSpan reference, DoubleSpan comparison, Index reference_start,
                               Index comparison_start, Index length) {
     double out = 0.0;
     for (Index idx = 0; idx < length; ++idx) {
-        out += reference.value(reference_start + idx) * comparison.value(comparison_start + idx);
+        out += value_at(reference, reference_start + idx) * value_at(comparison, comparison_start + idx);
     }
     return out;
 }
@@ -295,8 +299,7 @@ double correlation_from_cached_product (const PhaseCache& cache, Index reference
     return correlation;
 }
 
-template<typename Series>
-PhaseResult phase_candidate_for_shift (const Series& reference, const Series& comparison, Index reference_start,
+PhaseResult phase_candidate_for_shift (DoubleSpan reference, DoubleSpan comparison, Index reference_start,
                                        Index comparison_start, Index length, Index n_eps, double max_shift) {
     PhaseResult result;
     result.alignment.reference_start  = reference_start;
@@ -321,8 +324,7 @@ PhaseResult phase_candidate_from_correlation (Index reference_start, Index compa
     return result;
 }
 
-template<typename Series>
-std::pair<PhaseResult, PhaseResult> dual_phase_candidates_for_shift (const Series& reference, const Series& comparison,
+std::pair<PhaseResult, PhaseResult> dual_phase_candidates_for_shift (DoubleSpan reference, DoubleSpan comparison,
                                                                      const PhaseCache& cache, Index shift, Index length,
                                                                      double max_shift) {
     if (length < 32) {
@@ -351,21 +353,22 @@ std::pair<PhaseResult, PhaseResult> dual_phase_candidates_for_shift (const Serie
     return {left_result, right_result};
 }
 
-template<typename Series>
-PhaseResult compute_phase_alignment (const Series& reference, const Series& comparison, const ScoreParams& params) {
-    const double max_shift = std::round((1.0 - params.init_min) * 100.0) / 100.0;
-    PhaseResult  result    = phase_candidate_for_shift(reference, comparison, 0, 0, reference.n, 0, max_shift);
+PhaseResult compute_phase_alignment (DoubleSpan reference, DoubleSpan comparison, const ScoreParams& params) {
+    const Index  reference_n  = span_size(reference);
+    const Index  comparison_n = span_size(comparison);
+    const double max_shift    = std::round((1.0 - params.init_min) * 100.0) / 100.0;
+    PhaseResult  result       = phase_candidate_for_shift(reference, comparison, 0, 0, reference_n, 0, max_shift);
     if (result.correlation.rho_e == 1.0) {
         return result;
     }
 
-    const Index      window_size = static_cast<Index>(std::floor(static_cast<double>(comparison.n) * max_shift) + 1.0);
-    const Index      bounded_window_size = std::min(window_size, reference.n);
+    const Index      window_size = static_cast<Index>(std::floor(static_cast<double>(comparison_n) * max_shift) + 1.0);
+    const Index      bounded_window_size = std::min(window_size, reference_n);
     const PhaseCache cache               = build_phase_cache(reference, comparison);
     double           ccr_max             = result.correlation.rho_e;
 
     for (Index idx = 1; idx < bounded_window_size; ++idx) {
-        const Index length     = reference.n - idx;
+        const Index length     = reference_n - idx;
         const auto  candidates = dual_phase_candidates_for_shift(reference, comparison, cache, idx, length, max_shift);
         const PhaseResult left_candidate = candidates.first;
         if (left_candidate.correlation.rho_e > ccr_max + CORRELATION_TIE_TOLERANCE) {
@@ -381,34 +384,35 @@ PhaseResult compute_phase_alignment (const Series& reference, const Series& comp
     }
 
     if (result.alignment.length < 9) {
-        result = phase_candidate_for_shift(reference, comparison, 0, 0, reference.n, 0, max_shift);
+        result = phase_candidate_for_shift(reference, comparison, 0, 0, reference_n, 0, max_shift);
         append_warning(result.diagnostics, DiagnosticComponent::Phase, DiagnosticCode::PhaseShiftClampedToUnshifted);
     }
 
     return result;
 }
 
-double corridor_score (const SignalView& reference, const SignalView& comparison, const ScoreParams& params) {
-    double t_norm = 0.0;
-    for (Index idx = 0; idx < reference.n; ++idx) {
-        t_norm = std::max(t_norm, std::abs(reference.value(idx)));
+double corridor_score (DoubleSpan reference, DoubleSpan comparison, const ScoreParams& params) {
+    const Index n      = span_size(reference);
+    double      t_norm = 0.0;
+    for (Index idx = 0; idx < n; ++idx) {
+        t_norm = std::max(t_norm, std::abs(value_at(reference, idx)));
     }
 
     if (t_norm == 0.0) {
         double sum = 0.0;
-        for (Index idx = 0; idx < reference.n; ++idx) {
-            if (reference.value(idx) == comparison.value(idx)) {
+        for (Index idx = 0; idx < n; ++idx) {
+            if (value_at(reference, idx) == value_at(comparison, idx)) {
                 sum += 1.0;
             }
         }
-        return sum / static_cast<double>(reference.n);
+        return sum / static_cast<double>(n);
     }
 
     const double inner_corridor = params.a_0 * t_norm;
     const double outer_corridor = params.b_0 * t_norm;
     double       sum            = 0.0;
-    for (Index idx = 0; idx < reference.n; ++idx) {
-        const double diff = std::abs(reference.value(idx) - comparison.value(idx));
+    for (Index idx = 0; idx < n; ++idx) {
+        const double diff = std::abs(value_at(reference, idx) - value_at(comparison, idx));
         double       c_i =
             std::pow((outer_corridor - diff) / (outer_corridor - inner_corridor), static_cast<double>(params.k_z));
         if (diff < inner_corridor) {
@@ -419,11 +423,11 @@ double corridor_score (const SignalView& reference, const SignalView& comparison
         }
         sum += c_i;
     }
-    return sum / static_cast<double>(reference.n);
+    return sum / static_cast<double>(n);
 }
 
-double phase_score (const SignalView& reference, const ScoreParams& params, const PhaseAlignment& alignment) {
-    const double max_allowable_time_shift_threshold = static_cast<double>(reference.n) * alignment.max_shift;
+double phase_score (DoubleSpan reference, const ScoreParams& params, const PhaseAlignment& alignment) {
+    const double max_allowable_time_shift_threshold = static_cast<double>(span_size(reference)) * alignment.max_shift;
     if (alignment.n_eps == 0) {
         return 1.0;
     }
@@ -435,7 +439,7 @@ double phase_score (const SignalView& reference, const ScoreParams& params, cons
                     static_cast<double>(params.k_p));
 }
 
-MagnitudeResult magnitude_score_from_values (const ArrayView& reference_values, const ArrayView& comparison_values,
+MagnitudeResult magnitude_score_from_values (DoubleSpan reference_values, DoubleSpan comparison_values,
                                              const ScoreParams& params) {
     const DtwState state = compute_directions_index_incremental(comparison_values, reference_values, 0.1);
     const auto [numerator, denominator] = magnitude_error_from_state(comparison_values, reference_values, state);
@@ -460,14 +464,14 @@ MagnitudeResult magnitude_score_from_values (const ArrayView& reference_values, 
     };
 }
 
-void gradient_values (const ArrayView& values, double dt, std::vector<double>& gradient) {
-    const Index n = values.n;
+void gradient_values (DoubleSpan values, double dt, std::vector<double>& gradient) {
+    const Index n = span_size(values);
     gradient.assign(static_cast<std::size_t>(n), 0.0);
-    gradient[0] = (values.value(1) - values.value(0)) / dt;
+    gradient[0] = (value_at(values, 1) - value_at(values, 0)) / dt;
     for (Index idx = 1; idx < n - 1; ++idx) {
-        gradient[static_cast<std::size_t>(idx)] = (values.value(idx + 1) - values.value(idx - 1)) / (2.0 * dt);
+        gradient[static_cast<std::size_t>(idx)] = (value_at(values, idx + 1) - value_at(values, idx - 1)) / (2.0 * dt);
     }
-    gradient[static_cast<std::size_t>(n - 1)] = (values.value(n - 1) - values.value(n - 2)) / dt;
+    gradient[static_cast<std::size_t>(n - 1)] = (value_at(values, n - 1) - value_at(values, n - 2)) / dt;
 }
 
 double smoothed_slope_at (const std::vector<double>& gradient, Index idx) {
@@ -499,9 +503,10 @@ double smoothed_slope_at (const std::vector<double>& gradient, Index idx) {
     return sum / 9.0;
 }
 
-SlopeResult fused_slope_score_from_values (const ArrayView& reference_values, const ArrayView& comparison_values,
+SlopeResult fused_slope_score_from_values (DoubleSpan reference_values, DoubleSpan comparison_values,
                                            const ScoreParams& params, double dt) {
-    if (reference_values.n < 9) {
+    const Index n = span_size(reference_values);
+    if (n < 9) {
         throw std::invalid_argument("Shifted curves must have at least 9 samples for slope rating");
     }
 
@@ -512,7 +517,7 @@ SlopeResult fused_slope_score_from_values (const ArrayView& reference_values, co
 
     double numerator   = 0.0;
     double denominator = 0.0;
-    for (Index idx = 0; idx < reference_values.n; ++idx) {
+    for (Index idx = 0; idx < n; ++idx) {
         const double comparison_smoothed = smoothed_slope_at(comparison_gradient, idx);
         const double reference_smoothed  = smoothed_slope_at(reference_gradient, idx);
         numerator += std::abs(comparison_smoothed - reference_smoothed);
@@ -536,17 +541,16 @@ SlopeResult fused_slope_score_from_values (const ArrayView& reference_values, co
     return {(params.e_s - e_slope) / params.e_s, {}};
 }
 
-ScoreResult score_components_impl (const SignalView& reference, const SignalView& comparison, const ScoreParams& params,
-                                   double dt) {
+ScoreResult score_components_impl (DoubleSpan reference, DoubleSpan comparison, const ScoreParams& params, double dt) {
     ScoreResult result;
     result.phase          = compute_phase_alignment(reference, comparison, params);
     result.corridor.score = corridor_score(reference, comparison, params);
     result.phase.score    = phase_score(reference, params, result.phase.alignment);
 
-    const ArrayView aligned_comparison =
-        comparison.value_slice(result.phase.alignment.comparison_start, result.phase.alignment.length);
-    const ArrayView aligned_reference =
-        reference.value_slice(result.phase.alignment.reference_start, result.phase.alignment.length);
+    const DoubleSpan aligned_comparison =
+        comparison.subspan(offset(result.phase.alignment.comparison_start), offset(result.phase.alignment.length));
+    const DoubleSpan aligned_reference =
+        reference.subspan(offset(result.phase.alignment.reference_start), offset(result.phase.alignment.length));
 
     result.magnitude = magnitude_score_from_values(aligned_reference, aligned_comparison, params);
     result.slope     = fused_slope_score_from_values(aligned_reference, aligned_comparison, params, dt);
@@ -559,7 +563,7 @@ ScoreResult score_components_impl (const SignalView& reference, const SignalView
 
 namespace iso18571 {
 
-ScoreResult ISO18571_VARIANT (score_components)(const SignalView& reference, const SignalView& comparison,
+ScoreResult ISO18571_VARIANT (score_components)(std::span<const double> reference, std::span<const double> comparison,
                                                 const ScoreParams& params, double dt) {
     return score_components_impl(reference, comparison, params, dt);
 }

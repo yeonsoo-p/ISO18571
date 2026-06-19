@@ -16,36 +16,17 @@ namespace py = pybind11;
 
 namespace {
 
-using iso18571::CurveDType;
-using iso18571::CurveView;
 using iso18571::Diagnostic;
 using iso18571::DiagnosticCode;
 using iso18571::DiagnosticSeverity;
 using iso18571::Index;
 using iso18571::ScoreParams;
 using iso18571::ScoreResult;
-using iso18571::SignalView;
-
-struct NativeCurve {
-    py::array array;
-    CurveView view;
-};
 
 struct ValidatedCurves {
-    NativeCurve reference;
-    NativeCurve comparison;
-    double      dt = 0.0;
-};
-
-struct OwnedCurve {
-    std::vector<double> value;
-
-    SignalView view () const {
-        return {
-            std::span<const double>(value.data(), value.size()),
-            static_cast<Index>(value.size()),
-        };
-    }
+    std::vector<double> reference_values;
+    std::vector<double> comparison_values;
+    double              dt = 0.0;
 };
 
 py::handle require_param (const py::dict& params, const char* name) {
@@ -121,18 +102,6 @@ bool buffer_is_float32 (const py::buffer_info& info) {
            info.format == py::format_descriptor<float>::format();
 }
 
-bool dtype_from_buffer (const py::buffer_info& info, CurveDType& dtype) {
-    if (buffer_is_float64(info)) {
-        dtype = CurveDType::Float64;
-        return true;
-    }
-    if (buffer_is_float32(info)) {
-        dtype = CurveDType::Float32;
-        return true;
-    }
-    return false;
-}
-
 py::array cast_array_to_float64 (const py::array& array, const char* name) {
     py::array_t<double, py::array::forcecast> casted = py::array_t<double, py::array::forcecast>::ensure(array);
     if (!casted) {
@@ -141,51 +110,65 @@ py::array cast_array_to_float64 (const py::array& array, const char* name) {
     return py::array(casted);
 }
 
-NativeCurve native_curve_from_array (py::array array, const char* name) {
-    const py::buffer_info info  = array.request();
-    CurveDType            dtype = CurveDType::Float64;
-    if (!dtype_from_buffer(info, dtype)) {
+bool buffer_is_native_float (const py::buffer_info& info) { return buffer_is_float64(info) || buffer_is_float32(info); }
+
+void validate_curve_shape (const py::buffer_info& info, const char* name) {
+    if (info.ndim != 2) {
+        throw std::invalid_argument(std::string(name) + " must be a 2D array");
+    }
+    if (info.shape[0] <= 0) {
+        throw std::invalid_argument(std::string(name) + " must not be empty");
+    }
+    if (info.shape[1] != 2) {
+        throw std::invalid_argument(std::string(name) + " must have shape (n, 2)");
+    }
+}
+
+py::array native_curve_array (py::array array, const char* name, bool& use_float32_time_tolerance) {
+    py::buffer_info info = array.request();
+    if (!buffer_is_native_float(info)) {
         array = cast_array_to_float64(array, name);
     }
-    const py::buffer_info native_info = array.request();
-    if (!dtype_from_buffer(native_info, dtype)) {
+    info                       = array.request();
+    use_float32_time_tolerance = buffer_is_float32(info);
+    if (!use_float32_time_tolerance && !buffer_is_float64(info)) {
         throw std::runtime_error(std::string(name) + " did not cast to a supported native dtype");
     }
 
-    if (native_info.ndim != 2) {
-        throw std::invalid_argument(std::string(name) + " must be a 2D array");
-    }
-    if (native_info.shape[0] <= 0) {
-        throw std::invalid_argument(std::string(name) + " must not be empty");
-    }
-    if (native_info.shape[1] != 2) {
-        throw std::invalid_argument(std::string(name) + " must have shape (n, 2)");
-    }
-
-    return {
-        array,
-        {
-          static_cast<const char*>(native_info.ptr),
-          static_cast<Index>(native_info.strides[0]),
-          static_cast<Index>(native_info.strides[1]),
-          static_cast<Index>(native_info.shape[0]),
-          dtype, }
-    };
+    validate_curve_shape(info, name);
+    return array;
 }
 
-double time_grid_tolerance (const CurveView& curve) { return curve.dtype == CurveDType::Float32 ? 1.0e-9 : 1.0e-12; }
+template<typename T>
+double scalar_at (const py::buffer_info& info, Index row, Index column) {
+    const char* ptr = static_cast<const char*>(info.ptr) + row * static_cast<Index>(info.strides[0]) +
+                      column * static_cast<Index>(info.strides[1]);
+    return static_cast<double>(*reinterpret_cast<const T*>(ptr));
+}
 
-double derive_uniform_dt (const CurveView& curve, const char* name) {
-    if (curve.n < 2) {
+double curve_scalar_at (const py::buffer_info& info, bool is_float32, Index row, Index column) {
+    if (is_float32) {
+        return scalar_at<float>(info, row, column);
+    }
+    return scalar_at<double>(info, row, column);
+}
+
+Index curve_length (const py::buffer_info& info) { return static_cast<Index>(info.shape[0]); }
+
+double time_grid_tolerance (bool is_float32) { return is_float32 ? 1.0e-9 : 1.0e-12; }
+
+double derive_uniform_dt (const py::buffer_info& info, bool is_float32, const char* name) {
+    const Index n = curve_length(info);
+    if (n < 2) {
         throw std::invalid_argument(std::string(name) + " must have at least 2 samples");
     }
 
-    double previous_time = curve.time(0);
+    double previous_time = curve_scalar_at(info, is_float32, 0, 0);
     if (!std::isfinite(previous_time)) {
         throw std::invalid_argument(std::string(name) + " time values must be finite");
     }
 
-    const double second_time = curve.time(1);
+    const double second_time = curve_scalar_at(info, is_float32, 1, 0);
     if (!std::isfinite(second_time)) {
         throw std::invalid_argument(std::string(name) + " time values must be finite");
     }
@@ -195,10 +178,10 @@ double derive_uniform_dt (const CurveView& curve, const char* name) {
         throw std::invalid_argument(std::string(name) + " time values must be strictly increasing");
     }
 
-    const double tolerance = time_grid_tolerance(curve);
+    const double tolerance = time_grid_tolerance(is_float32);
     previous_time          = second_time;
-    for (Index idx = 2; idx < curve.n; ++idx) {
-        const double current_time = curve.time(idx);
+    for (Index idx = 2; idx < n; ++idx) {
+        const double current_time = curve_scalar_at(info, is_float32, idx, 0);
         if (!std::isfinite(current_time)) {
             throw std::invalid_argument(std::string(name) + " time values must be finite");
         }
@@ -215,16 +198,21 @@ double derive_uniform_dt (const CurveView& curve, const char* name) {
     return dt;
 }
 
-double validate_time_grids (const CurveView& reference, const CurveView& comparison) {
-    const double reference_dt  = derive_uniform_dt(reference, "reference_curve");
-    const double comparison_dt = derive_uniform_dt(comparison, "comparison_curve");
-    const double tolerance     = std::max(time_grid_tolerance(reference), time_grid_tolerance(comparison));
+double validate_time_grids (const py::buffer_info& reference, bool reference_is_float32,
+                            const py::buffer_info& comparison, bool comparison_is_float32) {
+    const double reference_dt  = derive_uniform_dt(reference, reference_is_float32, "reference_curve");
+    const double comparison_dt = derive_uniform_dt(comparison, comparison_is_float32, "comparison_curve");
+    const double tolerance =
+        std::max(time_grid_tolerance(reference_is_float32), time_grid_tolerance(comparison_is_float32));
     if (std::abs(comparison_dt - reference_dt) > tolerance) {
         throw std::invalid_argument("Curve time intervals are not equal");
     }
 
-    for (Index idx = 0; idx < reference.n; ++idx) {
-        if (std::abs(reference.time(idx) - comparison.time(idx)) > tolerance) {
+    const Index n = curve_length(reference);
+    for (Index idx = 0; idx < n; ++idx) {
+        const double reference_time  = curve_scalar_at(reference, reference_is_float32, idx, 0);
+        const double comparison_time = curve_scalar_at(comparison, comparison_is_float32, idx, 0);
+        if (std::abs(reference_time - comparison_time) > tolerance) {
             throw std::invalid_argument("Curve time values are not equal");
         }
     }
@@ -232,34 +220,45 @@ double validate_time_grids (const CurveView& reference, const CurveView& compari
     return reference_dt;
 }
 
-void validate_signal_values (const CurveView& curve, const char* name) {
-    for (Index idx = 0; idx < curve.n; ++idx) {
-        if (!std::isfinite(curve.value(idx))) {
+void validate_signal_values (const py::buffer_info& info, bool is_float32, const char* name) {
+    const Index n = curve_length(info);
+    for (Index idx = 0; idx < n; ++idx) {
+        if (!std::isfinite(curve_scalar_at(info, is_float32, idx, 1))) {
             throw std::invalid_argument(std::string(name) + " signal values must be finite");
         }
     }
 }
 
-ValidatedCurves validate_curves (py::array reference_curve, py::array comparison_curve) {
-    NativeCurve reference  = native_curve_from_array(reference_curve, "reference_curve");
-    NativeCurve comparison = native_curve_from_array(comparison_curve, "comparison_curve");
-    if (reference.view.n != comparison.view.n) {
-        throw std::invalid_argument("Curves are not equal in size/dimension");
-    }
-    const double dt = validate_time_grids(reference.view, comparison.view);
-    validate_signal_values(reference.view, "reference_curve");
-    validate_signal_values(comparison.view, "comparison_curve");
-    return {reference, comparison, dt};
-}
-
-OwnedCurve copy_curve (const CurveView& curve) {
-    OwnedCurve out;
-    out.value.resize(static_cast<std::size_t>(curve.n));
-    for (Index idx = 0; idx < curve.n; ++idx) {
+std::vector<double> copy_signal_values (const py::buffer_info& info, bool is_float32) {
+    const Index         n = curve_length(info);
+    std::vector<double> out(static_cast<std::size_t>(n));
+    for (Index idx = 0; idx < n; ++idx) {
         const std::size_t offset = static_cast<std::size_t>(idx);
-        out.value[offset]       = curve.value(idx);
+        out[offset]              = curve_scalar_at(info, is_float32, idx, 1);
     }
     return out;
+}
+
+ValidatedCurves validate_curves (py::array reference_curve, py::array comparison_curve) {
+    bool      reference_is_float32  = false;
+    bool      comparison_is_float32 = false;
+    py::array reference             = native_curve_array(reference_curve, "reference_curve", reference_is_float32);
+    py::array comparison            = native_curve_array(comparison_curve, "comparison_curve", comparison_is_float32);
+
+    const py::buffer_info reference_info  = reference.request();
+    const py::buffer_info comparison_info = comparison.request();
+    if (curve_length(reference_info) != curve_length(comparison_info)) {
+        throw std::invalid_argument("Curves are not equal in size/dimension");
+    }
+
+    const double dt = validate_time_grids(reference_info, reference_is_float32, comparison_info, comparison_is_float32);
+    validate_signal_values(reference_info, reference_is_float32, "reference_curve");
+    validate_signal_values(comparison_info, comparison_is_float32, "comparison_curve");
+    return {
+        copy_signal_values(reference_info, reference_is_float32),
+        copy_signal_values(comparison_info, comparison_is_float32),
+        dt,
+    };
 }
 
 void emit_runtime_warning (const char* message) {
@@ -315,15 +314,14 @@ py::dict score_components (py::array reference_curve, py::array comparison_curve
     const ValidatedCurves curves       = validate_curves(reference_curve, comparison_curve);
     ScoreParams           score_params = score_params_from_dict(params);
     iso18571::validate_score_params(score_params);
-    const OwnedCurve reference_snapshot  = copy_curve(curves.reference.view);
-    const OwnedCurve comparison_snapshot = copy_curve(curves.comparison.view);
-    const SignalView reference_view      = reference_snapshot.view();
-    const SignalView comparison_view     = comparison_snapshot.view();
+    const std::span<const double> reference_values(curves.reference_values.data(), curves.reference_values.size());
+    const std::span<const double> comparison_values(curves.comparison_values.data(), curves.comparison_values.size());
 
     ScoreResult result;
     {
         py::gil_scoped_release release;
-        result = iso18571::dispatch_table().score_components(reference_view, comparison_view, score_params, curves.dt);
+        result =
+            iso18571::dispatch_table().score_components(reference_values, comparison_values, score_params, curves.dt);
     }
 
     emit_score_warnings(result);

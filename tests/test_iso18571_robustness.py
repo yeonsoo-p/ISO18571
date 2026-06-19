@@ -4,7 +4,7 @@ import math
 import warnings
 from collections.abc import Sequence
 from importlib.metadata import version
-from typing import Final
+from typing import Final, cast
 
 import numpy as np
 from numpy.typing import NDArray
@@ -39,6 +39,26 @@ def float32_curve_from_values(
     curve = np.column_stack((time, values.astype(np.float32))).astype(
         np.float32, copy=False
     )
+    return curve
+
+
+def strided_curve_from_values(
+    values: NDArray[np.float64], dt: float = 0.0001
+) -> NDArray[np.float64]:
+    storage = np.empty((values.shape[0] * 2, 4), dtype=np.float64)
+    curve = storage[::2, ::2]
+    curve[:, 0] = np.arange(values.shape[0], dtype=np.float64) * dt
+    curve[:, 1] = values
+    return curve
+
+
+def strided_float32_curve_from_values(
+    values: NDArray[np.float64], dt: float = 0.0001
+) -> NDArray[np.float32]:
+    storage = np.empty((values.shape[0] * 2, 4), dtype=np.float32)
+    curve = storage[::2, ::2]
+    curve[:, 0] = np.arange(values.shape[0], dtype=np.float32) * np.float32(dt)
+    curve[:, 1] = values.astype(np.float32)
     return curve
 
 
@@ -324,6 +344,59 @@ def test_mixed_float32_float64_time_grids_are_accepted() -> None:
         assert iso.reference_start == 0
         assert iso.comparison_start == 0
         assert iso.shift_length == 32
+
+
+def test_strided_float_curve_inputs_are_accepted_by_native_validation() -> None:
+    values = sine_values(32)
+    cases = (
+        (
+            "strided float64",
+            strided_curve_from_values(values),
+            strided_curve_from_values(values),
+        ),
+        (
+            "strided float32",
+            strided_float32_curve_from_values(values),
+            strided_float32_curve_from_values(values),
+        ),
+    )
+
+    for context, reference, comparison in cases:
+        assert not reference.flags.c_contiguous
+        assert not comparison.flags.c_contiguous
+        iso, messages = score_with_warnings(reference, comparison)
+
+        assert messages == []
+        assert_scores_close(
+            iso,
+            {"Z": 1.0, "EP": 1.0, "EM": 1.0, "ES": 1.0, "R": 1.0},
+            context,
+        )
+        assert iso.reference_start == 0
+        assert iso.comparison_start == 0
+        assert iso.shift_length == 32
+
+
+def test_numeric_non_float_curve_inputs_are_force_cast_to_float64() -> None:
+    n = 32
+    time = np.arange(n, dtype=np.int64)
+    values = ((time * time + 3) % 17) - 8
+    curve = np.column_stack((time, values)).astype(np.int64, copy=False)
+
+    iso, messages = score_with_warnings(
+        cast("NDArray[np.float64]", curve),
+        cast("NDArray[np.float64]", curve.copy()),
+    )
+
+    assert messages == []
+    assert_scores_close(
+        iso,
+        {"Z": 1.0, "EP": 1.0, "EM": 1.0, "ES": 1.0, "R": 1.0},
+        "integer force-cast",
+    )
+    assert iso.reference_start == 0
+    assert iso.comparison_start == 0
+    assert iso.shift_length == n
 
 
 def test_visibly_nonuniform_float32_time_grid_still_fails() -> None:

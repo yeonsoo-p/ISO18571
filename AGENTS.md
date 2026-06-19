@@ -9,7 +9,7 @@
 
 - The public production scorer is `iso18571.ISO18571`.
 - The native extension module is `iso18571._core`; public package exports are
-  `ISO18571` and `backend_info`.
+  `ISO18571`, `backend_info`, and `ScoreComponents`.
 - Reference scorers live in source-only `iso18571_reference` and are used for
   tests/research only:
   - `rating_dtwalign.ISO18571`;

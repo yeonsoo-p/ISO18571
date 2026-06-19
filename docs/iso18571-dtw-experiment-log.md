@@ -2679,3 +2679,82 @@
     validation plus native-only benchmarks are green.
 - Next hypothesis:
   - commit this indices-only shifted-output API change.
+
+## 2026-06-19 13:39 KST - Native Views To Spans
+
+- Git status:
+  - dirty with native scorer refactor changes in `_core.cpp`, `engine.hpp`, and
+    `engine_impl.hpp`.
+- Hypothesis:
+  - removing `ArrayView`, `CurveView`, `SignalView`, `CurveDType`, and
+    `NativeCurve` can simplify the native engine interface while preserving
+    strided NumPy validation, float32 tolerance, numeric force-casting, and
+    GIL-free scoring from owned value snapshots.
+- Files changed:
+  - `src/iso18571/_core.cpp`;
+  - `src/iso18571/engine.hpp`;
+  - `src/iso18571/engine_impl.hpp`;
+  - `tests/test_iso18571_robustness.py`;
+  - this experiment log.
+- Commands:
+  - replaced native scorer function declarations and definitions with
+    `std::span<const double>` reference/comparison inputs;
+  - rewired engine implementation helpers to use span size, indexing, and
+    `subspan` for aligned slices;
+  - localized NumPy dtype, shape, stride, time-grid, and signal-value validation
+    in `_core.cpp`;
+  - copied only validated signal values into owned `std::vector<double>`
+    snapshots before releasing the GIL.
+  - added robustness coverage for strided float32/float64 inputs and non-float
+    numeric force-casting.
+- Validation result:
+  - `uv pip install -e .` passed and installed `iso18571==1.0.5`;
+  - `uv run --extra test python -m pytest -q tests/test_iso18571_robustness.py`
+    passed: `16 passed`;
+  - `uv run --extra test python -m pytest -q tests/test_iso18571_parity.py`
+    passed: `3 passed`;
+  - `uv run --extra test ruff check --fix .` passed;
+  - `uv run --extra test ruff format .` passed with `21 files left unchanged`;
+  - `uv run --extra test ruff check .` passed;
+  - `uv run --extra test ruff format --check .` passed with
+    `21 files already formatted`;
+  - `uv run --extra test mypy iso18571 iso18571_reference tests` passed:
+    `16 source files`;
+  - `git diff --check` passed.
+- Conclusion:
+  - the native scorer now exposes span-only read paths below the pybind boundary,
+    while Python-facing behavior and parity/robustness checks remain green.
+- Next hypothesis:
+  - run the native benchmark suite to confirm the refactor does not change
+    steady-state timing or memory behavior.
+
+## 2026-06-19 13:43 KST - Span Refactor Native Benchmark
+
+- Git status:
+  - dirty with span refactor source changes, robustness test coverage, and this
+    experiment log update.
+- Hypothesis:
+  - after the span refactor, rebuilding the native extension and running the
+    native-only benchmark should preserve benchmark collection success and
+    produce normal runtime/load-memory rows.
+- Files changed:
+  - this experiment log;
+  - benchmark JSON written under `.benchmarks/iso18571-native-only/` (ignored
+    generated output).
+- Commands:
+  - `mkdir -p .benchmarks/iso18571-native-only`;
+  - `uv pip install -e .`;
+  - `uv run --extra test python -m pytest -q tests/test_iso18571_benchmarks.py -m benchmark -k native --benchmark-json .benchmarks/iso18571-native-only/benchmarks.json`.
+- Validation result:
+  - editable rebuild passed and installed `iso18571==1.0.5`;
+  - native benchmark passed: `8 passed, 24 deselected`;
+  - benchmark JSON was written to
+    `.benchmarks/iso18571-native-only/benchmarks.json`;
+  - runtime median rows were about `215 us` for n=512, `2.245 ms` for n=2048,
+    `33.877 ms` for n=8192, and `578.478 ms` for n=32768.
+- Conclusion:
+  - the rebuilt span-refactor extension collects the native benchmark suite
+    successfully, including runtime and load-memory benchmark rows.
+- Next hypothesis:
+  - compare the generated benchmark JSON against the pre-refactor native-only
+    benchmark data if a historical artifact is available.
