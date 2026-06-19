@@ -2758,3 +2758,46 @@
 - Next hypothesis:
   - compare the generated benchmark JSON against the pre-refactor native-only
     benchmark data if a historical artifact is available.
+
+## 2026-06-19 13:57 KST - Shared Native DoubleSpan Alias
+
+- Git status:
+  - dirty with native alias updates in `_core.cpp`, `engine.hpp`, and
+    `engine_impl.hpp`.
+- Hypothesis:
+  - moving the native `DoubleSpan` alias into `engine.hpp` is safe because
+    `engine.hpp` already includes `<span>` and declares the span-based scorer
+    function type and variant entry points.
+- Files changed:
+  - `src/iso18571/_core.cpp`;
+  - `src/iso18571/engine.hpp`;
+  - `src/iso18571/engine_impl.hpp`;
+  - this experiment log.
+- Commands:
+  - moved `using DoubleSpan = std::span<const double>;` into the
+    `iso18571` namespace in `engine.hpp`;
+  - replaced native scorer declarations, the variant definition, and pybind
+    boundary local span variables with the shared alias;
+  - removed redundant direct `<span>` includes from `_core.cpp` and
+    `engine_impl.hpp`;
+  - `uv pip install -e .`;
+  - `uv run --extra test ruff check --fix .`;
+  - `uv run --extra test ruff format .`;
+  - `uv run --extra test ruff check .`;
+  - `uv run --extra test ruff format --check .`;
+  - `uv run --extra test mypy iso18571 iso18571_reference tests`;
+  - `uv run --extra test python -m pytest -q`;
+  - `git diff --check`.
+- Validation result:
+  - editable rebuild passed and installed `iso18571==1.0.6`;
+  - ruff fix/check and format/check passed with no file changes;
+  - mypy passed: `16 source files`;
+  - pytest passed: `19 passed, 32 deselected`;
+  - `git diff --check` passed.
+- Conclusion:
+  - the alias can live safely in `engine.hpp`; the native implementation and
+    pybind boundary now share that single declaration without changing scorer
+    behavior.
+- Next hypothesis:
+  - keep future native type aliases in `engine.hpp` only when they are part of
+    the internal scorer interface shared across translation units.

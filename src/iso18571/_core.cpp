@@ -7,7 +7,6 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
-#include <span>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -19,6 +18,7 @@ namespace {
 using iso18571::Diagnostic;
 using iso18571::DiagnosticCode;
 using iso18571::DiagnosticSeverity;
+using iso18571::DoubleSpan;
 using iso18571::Index;
 using iso18571::ScoreParams;
 using iso18571::ScoreResult;
@@ -314,8 +314,8 @@ py::dict score_components (py::array reference_curve, py::array comparison_curve
     const ValidatedCurves curves       = validate_curves(reference_curve, comparison_curve);
     ScoreParams           score_params = score_params_from_dict(params);
     iso18571::validate_score_params(score_params);
-    const std::span<const double> reference_values(curves.reference_values.data(), curves.reference_values.size());
-    const std::span<const double> comparison_values(curves.comparison_values.data(), curves.comparison_values.size());
+    const DoubleSpan reference_values(curves.reference_values.data(), curves.reference_values.size());
+    const DoubleSpan comparison_values(curves.comparison_values.data(), curves.comparison_values.size());
 
     ScoreResult result;
     {

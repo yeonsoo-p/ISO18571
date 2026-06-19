@@ -4,7 +4,6 @@
 #include <cmath>
 #include <cstdint>
 #include <limits>
-#include <span>
 #include <stdexcept>
 #include <utility>
 #include <vector>
@@ -23,6 +22,7 @@ using iso18571::Diagnostic;
 using iso18571::DiagnosticCode;
 using iso18571::DiagnosticComponent;
 using iso18571::DiagnosticSeverity;
+using iso18571::DoubleSpan;
 using iso18571::Index;
 using iso18571::MagnitudeResult;
 using iso18571::PhaseAlignment;
@@ -30,8 +30,6 @@ using iso18571::PhaseResult;
 using iso18571::ScoreParams;
 using iso18571::ScoreResult;
 using iso18571::SlopeResult;
-
-using DoubleSpan = std::span<const double>;
 
 constexpr std::uint8_t DIR_NONE                  = 0;
 constexpr std::uint8_t DIR_VERTICAL              = 1;
@@ -563,8 +561,8 @@ ScoreResult score_components_impl (DoubleSpan reference, DoubleSpan comparison, 
 
 namespace iso18571 {
 
-ScoreResult ISO18571_VARIANT (score_components)(std::span<const double> reference, std::span<const double> comparison,
-                                                const ScoreParams& params, double dt) {
+ScoreResult ISO18571_VARIANT (score_components)(DoubleSpan reference, DoubleSpan comparison, const ScoreParams& params,
+                                                double dt) {
     return score_components_impl(reference, comparison, params, dt);
 }
 
