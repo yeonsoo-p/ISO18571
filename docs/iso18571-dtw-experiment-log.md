@@ -3688,6 +3688,60 @@
     first replace safe typed `arr<T>` uses with standard containers, then handle
     any alignment-sensitive scratch storage with an explicit measured design.
 
+## 2026-06-19 18:28 KST - FFT std::complex Internal Replacement
+
+- Git status:
+  - started from committed FFT dispatch split `ff54180`;
+  - implementation changed `src/iso18571/fft.cpp` and refreshed README native
+    benchmark rows.
+- Hypothesis:
+  - because native inputs are promoted to `double` and the FFT entrypoint now
+    accepts only `std::complex<double>*`, the private FFT implementation can
+    replace the local `cmplx` type and unused numeric templates with concrete
+    `std::complex<double>` code without changing the public FFT API.
+- Files changed:
+  - `README.md`;
+  - `src/iso18571/fft.cpp`;
+  - this experiment log.
+- Commands:
+  - removed the local `cmplx` struct;
+  - introduced a private `Complex = std::complex<double>` alias;
+  - simplified twiddle generation, FFT pass buffers, rotations, and the plan
+    class from numeric templates to concrete double-complex storage;
+  - removed the final `reinterpret_cast` in the FFT entrypoint;
+  - `uv pip install -e .`;
+  - `uv run --extra test clang-format -i src/iso18571/fft.cpp`;
+  - `rg -n "cmplx|Thigh|T0|std::conditional|reinterpret_cast<.*complex|\\.r\\b|\\.i\\b|\\.Set\\("
+    src/iso18571/fft.cpp src/iso18571/fft.h`;
+  - `mkdir -p .benchmarks/iso18571-fft-std-complex`;
+  - `uv run --extra test python -m pytest -q tests/test_iso18571_benchmarks.py
+    -m benchmark -k native --benchmark-json
+    .benchmarks/iso18571-fft-std-complex/benchmarks.json`;
+  - summarized benchmark JSON with `uv run python`;
+  - updated README native benchmark rows from the new JSON;
+  - `git diff --check`.
+- Validation result:
+  - editable native rebuild passed and installed `iso18571==1.0.6`;
+  - native-only benchmark passed: `8 passed, 24 deselected`;
+  - no full pytest suite was run;
+  - stale custom-complex scan found no remaining matches;
+  - `git diff --check` passed.
+- Benchmark result:
+  - load/setup elapsed, ms:
+    `512=154.708`, `2048=153.817`, `8192=174.053`, `32768=437.304`;
+  - load/setup peak RSS, MiB:
+    `512=46.13`, `2048=46.08`, `8192=46.86`, `32768=52.34`;
+  - runtime median, ms:
+    `512=0.255`, `2048=1.514`, `8192=21.431`, `32768=306.946`;
+  - runtime peak RSS, MiB:
+    `512=45.96`, `2048=46.13`, `8192=47.08`, `32768=52.91`.
+- Conclusion:
+  - FFT internals now use `std::complex<double>` directly and no longer require
+    custom complex layout compatibility at the public FFT entrypoint.
+- Next hypothesis:
+  - replace the private aligned `arr<T>` storage with standard containers or a
+    focused aligned RAII buffer in a separate measured change.
+
 ## 2026-06-19 18:01 KST - Validation Parameter Name String View Cleanup
 
 - Git status:

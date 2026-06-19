@@ -5,7 +5,6 @@
 #include <cstdlib>
 #include <new>
 #include <stdexcept>
-#include <type_traits>
 #include <vector>
 
 #ifndef FFT_IMPL_SUFFIX
@@ -27,13 +26,7 @@
 namespace {
 using std::size_t;
 
-// Always use std:: for <cmath> functions.
-template<typename T>
-T cos(T) = delete;
-template<typename T>
-T sin(T) = delete;
-template<typename T>
-T sqrt(T) = delete;
+using Complex = std::complex<double>;
 
 inline void* aligned_alloc (size_t align, size_t size) {
     // aligned_alloc() requires that the requested size is a multiple of "align".
@@ -84,151 +77,108 @@ class arr {
     size_t size () const { return sz; }
 };
 
-template<typename T>
-struct cmplx {
-    T r, i;
-    cmplx () {}
-    cmplx (T r_, T i_): r(r_), i(i_) {}
-    void Set (T r_, T i_) {
-        r = r_;
-        i = i_;
-    }
-    void Set (T r_) {
-        r = r_;
-        i = T(0);
-    }
-    cmplx& operator +=(const cmplx& other) {
-        r += other.r;
-        i += other.i;
-        return *this;
-    }
-    template<typename T2>
-    cmplx& operator *=(T2 other) {
-        r *= other;
-        i *= other;
-        return *this;
-    }
-    template<typename T2>
-    auto operator *(const T2& other) const -> cmplx<decltype(r * other)> {
-        return {r * other, i * other};
-    }
-    template<typename T2>
-    auto operator +(const cmplx<T2>& other) const -> cmplx<decltype(r + other.r)> {
-        return {r + other.r, i + other.i};
-    }
-    template<typename T2>
-    auto operator -(const cmplx<T2>& other) const -> cmplx<decltype(r + other.r)> {
-        return {r - other.r, i - other.i};
-    }
-};
-
-template<typename T>
-inline void PM (T& a, T& b, T c, T d) {
+inline void PM (Complex& a, Complex& b, Complex c, Complex d) {
     a = c + d;
     b = c - d;
 }
 
-template<typename T>
-inline void PMINPLACE (T& a, T& b) {
-    T t = a;
+inline void PMINPLACE (Complex& a, Complex& b) {
+    Complex t = a;
     a += b;
     b = t - b;
 }
 
-template<bool fwd, typename T, typename T2>
-void special_mul (const cmplx<T>& v1, const cmplx<T2>& v2, cmplx<T>& res) {
-    res = fwd ? cmplx<T>(v1.r * v2.r + v1.i * v2.i, v1.i * v2.r - v1.r * v2.i)
-              : cmplx<T>(v1.r * v2.r - v1.i * v2.i, v1.r * v2.i + v1.i * v2.r);
+template<bool fwd>
+void special_mul (const Complex& v1, const Complex& v2, Complex& res) {
+    res = fwd ? Complex(v1.real() * v2.real() + v1.imag() * v2.imag(), v1.imag() * v2.real() - v1.real() * v2.imag())
+              : Complex(v1.real() * v2.real() - v1.imag() * v2.imag(), v1.real() * v2.imag() + v1.imag() * v2.real());
 }
 
-template<bool fwd, typename T>
-void ROTX90 (cmplx<T>& a) {
-    auto tmp_ = fwd ? -a.r : a.r;
-    a.r       = fwd ? a.i : -a.i;
-    a.i       = tmp_;
+template<bool fwd>
+void ROTX90 (Complex& a) {
+    const auto tmp_ = fwd ? -a.real() : a.real();
+    a.real(fwd ? a.imag() : -a.imag());
+    a.imag(tmp_);
 }
 
-template<typename T>
 class sincos_2pibyn {
   private:
-    using Thigh = typename std::conditional<(sizeof(T) > sizeof(double)), T, double>::type;
-    size_t            N, mask, shift;
-    arr<cmplx<Thigh>> v1, v2;
+    size_t       N, mask, shift;
+    arr<Complex> v1, v2;
 
-    static cmplx<Thigh> calc (size_t x, size_t n, Thigh ang) {
+    static Complex calc (size_t x, size_t n, double ang) {
         x <<= 3;
         if (x < 4 * n) {
             if (x < 2 * n) {
                 if (x < n)
-                    return cmplx<Thigh>(std::cos(Thigh(x) * ang), std::sin(Thigh(x) * ang));
-                return cmplx<Thigh>(std::sin(Thigh(2 * n - x) * ang), std::cos(Thigh(2 * n - x) * ang));
+                    return {std::cos(static_cast<double>(x) * ang), std::sin(static_cast<double>(x) * ang)};
+                return {std::sin(static_cast<double>(2 * n - x) * ang), std::cos(static_cast<double>(2 * n - x) * ang)};
             }
             x -= 2 * n;
             if (x < n)
-                return cmplx<Thigh>(-std::sin(Thigh(x) * ang), std::cos(Thigh(x) * ang));
-            return cmplx<Thigh>(-std::cos(Thigh(2 * n - x) * ang), std::sin(Thigh(2 * n - x) * ang));
+                return {-std::sin(static_cast<double>(x) * ang), std::cos(static_cast<double>(x) * ang)};
+            return {-std::cos(static_cast<double>(2 * n - x) * ang), std::sin(static_cast<double>(2 * n - x) * ang)};
         }
         x = 8 * n - x;
         if (x < 2 * n) {
             if (x < n)
-                return cmplx<Thigh>(std::cos(Thigh(x) * ang), -std::sin(Thigh(x) * ang));
-            return cmplx<Thigh>(std::sin(Thigh(2 * n - x) * ang), -std::cos(Thigh(2 * n - x) * ang));
+                return {std::cos(static_cast<double>(x) * ang), -std::sin(static_cast<double>(x) * ang)};
+            return {std::sin(static_cast<double>(2 * n - x) * ang), -std::cos(static_cast<double>(2 * n - x) * ang)};
         }
         x -= 2 * n;
         if (x < n)
-            return cmplx<Thigh>(-std::sin(Thigh(x) * ang), -std::cos(Thigh(x) * ang));
-        return cmplx<Thigh>(-std::cos(Thigh(2 * n - x) * ang), -std::sin(Thigh(2 * n - x) * ang));
+            return {-std::sin(static_cast<double>(x) * ang), -std::cos(static_cast<double>(x) * ang)};
+        return {-std::cos(static_cast<double>(2 * n - x) * ang), -std::sin(static_cast<double>(2 * n - x) * ang)};
     }
 
   public:
     sincos_2pibyn (size_t n): N(n) {
         constexpr auto pi   = 3.141592653589793238462643383279502884197L;
-        Thigh          ang  = Thigh(0.25L * pi / n);
+        double         ang  = static_cast<double>(0.25L * pi / n);
         size_t         nval = (n + 2) / 2;
         shift               = 1;
         while ((size_t(1) << shift) * (size_t(1) << shift) < nval)
             ++shift;
         mask = (size_t(1) << shift) - 1;
         v1.resize(mask + 1);
-        v1[0].Set(Thigh(1), Thigh(0));
+        v1[0] = {1.0, 0.0};
         for (size_t i = 1; i < v1.size(); ++i)
             v1[i] = calc(i, n, ang);
         v2.resize((nval + mask) / (mask + 1));
-        v2[0].Set(Thigh(1), Thigh(0));
+        v2[0] = {1.0, 0.0};
         for (size_t i = 1; i < v2.size(); ++i)
             v2[i] = calc(i * (mask + 1), n, ang);
     }
 
-    cmplx<T> operator [](size_t idx) const {
+    Complex operator [](size_t idx) const {
         if (2 * idx <= N) {
-            auto x1 = v1[idx & mask], x2 = v2[idx >> shift];
-            return cmplx<T>(T(x1.r * x2.r - x1.i * x2.i), T(x1.r * x2.i + x1.i * x2.r));
+            const auto product = v1[idx & mask] * v2[idx >> shift];
+            return {product.real(), product.imag()};
         }
-        idx     = N - idx;
-        auto x1 = v1[idx & mask], x2 = v2[idx >> shift];
-        return cmplx<T>(T(x1.r * x2.r - x1.i * x2.i), -T(x1.r * x2.i + x1.i * x2.r));
+        idx                = N - idx;
+        const auto product = v1[idx & mask] * v2[idx >> shift];
+        return {product.real(), -product.imag()};
     }
 };
 
-template<typename T0>
 class cfftp {
   private:
     struct fctdata {
-        size_t     fct;
-        cmplx<T0>* tw;
+        size_t   fct;
+        Complex* tw;
     };
 
     size_t               length;
-    arr<cmplx<T0>>       mem;
+    arr<Complex>         mem;
     std::vector<fctdata> fact;
 
     void add_factor (size_t factor) { fact.push_back({factor, nullptr}); }
 
-    template<bool fwd, typename T>
-    void pass2 (size_t ido, size_t l1, const T* FFT_RESTRICT cc, T* FFT_RESTRICT ch,
-                const cmplx<T0>* FFT_RESTRICT wa) const {
-        auto CH = [ch, ido, l1] (size_t a, size_t b, size_t c) -> T& { return ch[a + ido * (b + l1 * c)]; };
-        auto CC = [cc, ido] (size_t a, size_t b, size_t c) -> const T& { return cc[a + ido * (b + 2 * c)]; };
+    template<bool fwd>
+    void pass2 (size_t ido, size_t l1, const Complex* FFT_RESTRICT cc, Complex* FFT_RESTRICT ch,
+                const Complex* FFT_RESTRICT wa) const {
+        auto CH = [ch, ido, l1] (size_t a, size_t b, size_t c) -> Complex& { return ch[a + ido * (b + l1 * c)]; };
+        auto CC = [cc, ido] (size_t a, size_t b, size_t c) -> const Complex& { return cc[a + ido * (b + 2 * c)]; };
         auto WA = [wa, ido] (size_t x, size_t i) { return wa[i - 1 + x * (ido - 1)]; };
 
         if (ido == 1)
@@ -247,16 +197,16 @@ class cfftp {
             }
     }
 
-    template<bool fwd, typename T>
-    void pass4 (size_t ido, size_t l1, const T* FFT_RESTRICT cc, T* FFT_RESTRICT ch,
-                const cmplx<T0>* FFT_RESTRICT wa) const {
-        auto CH = [ch, ido, l1] (size_t a, size_t b, size_t c) -> T& { return ch[a + ido * (b + l1 * c)]; };
-        auto CC = [cc, ido] (size_t a, size_t b, size_t c) -> const T& { return cc[a + ido * (b + 4 * c)]; };
+    template<bool fwd>
+    void pass4 (size_t ido, size_t l1, const Complex* FFT_RESTRICT cc, Complex* FFT_RESTRICT ch,
+                const Complex* FFT_RESTRICT wa) const {
+        auto CH = [ch, ido, l1] (size_t a, size_t b, size_t c) -> Complex& { return ch[a + ido * (b + l1 * c)]; };
+        auto CC = [cc, ido] (size_t a, size_t b, size_t c) -> const Complex& { return cc[a + ido * (b + 4 * c)]; };
         auto WA = [wa, ido] (size_t x, size_t i) { return wa[i - 1 + x * (ido - 1)]; };
 
         if (ido == 1)
             for (size_t k = 0; k < l1; ++k) {
-                T t1, t2, t3, t4;
+                Complex t1, t2, t3, t4;
                 PM(t2, t1, CC(0, 0, k), CC(0, 2, k));
                 PM(t3, t4, CC(0, 1, k), CC(0, 3, k));
                 ROTX90<fwd>(t4);
@@ -266,7 +216,7 @@ class cfftp {
         else
             for (size_t k = 0; k < l1; ++k) {
                 {
-                    T t1, t2, t3, t4;
+                    Complex t1, t2, t3, t4;
                     PM(t2, t1, CC(0, 0, k), CC(0, 2, k));
                     PM(t3, t4, CC(0, 1, k), CC(0, 3, k));
                     ROTX90<fwd>(t4);
@@ -274,8 +224,8 @@ class cfftp {
                     PM(CH(0, k, 1), CH(0, k, 3), t1, t4);
                 }
                 for (size_t i = 1; i < ido; ++i) {
-                    T t1, t2, t3, t4;
-                    T cc0 = CC(i, 0, k), cc1 = CC(i, 1, k), cc2 = CC(i, 2, k), cc3 = CC(i, 3, k);
+                    Complex t1, t2, t3, t4;
+                    Complex cc0 = CC(i, 0, k), cc1 = CC(i, 1, k), cc2 = CC(i, 2, k), cc3 = CC(i, 3, k);
                     PM(t2, t1, cc0, cc2);
                     PM(t3, t4, cc1, cc3);
                     ROTX90<fwd>(t4);
@@ -287,43 +237,43 @@ class cfftp {
             }
     }
 
-    template<bool fwd, typename T>
-    void ROTX45 (T& a) const {
-        constexpr T0 hsqt2 = T0(0.707106781186547524400844362104849L);
+    template<bool fwd>
+    void ROTX45 (Complex& a) const {
+        constexpr double hsqt2 = 0.707106781186547524400844362104849;
         if (fwd) {
-            auto tmp_ = a.r;
-            a.r       = hsqt2 * (a.r + a.i);
-            a.i       = hsqt2 * (a.i - tmp_);
+            const auto tmp_ = a.real();
+            a.real(hsqt2 * (a.real() + a.imag()));
+            a.imag(hsqt2 * (a.imag() - tmp_));
         } else {
-            auto tmp_ = a.r;
-            a.r       = hsqt2 * (a.r - a.i);
-            a.i       = hsqt2 * (a.i + tmp_);
+            const auto tmp_ = a.real();
+            a.real(hsqt2 * (a.real() - a.imag()));
+            a.imag(hsqt2 * (a.imag() + tmp_));
         }
     }
-    template<bool fwd, typename T>
-    void ROTX135 (T& a) const {
-        constexpr T0 hsqt2 = T0(0.707106781186547524400844362104849L);
+    template<bool fwd>
+    void ROTX135 (Complex& a) const {
+        constexpr double hsqt2 = 0.707106781186547524400844362104849;
         if (fwd) {
-            auto tmp_ = a.r;
-            a.r       = hsqt2 * (a.i - a.r);
-            a.i       = hsqt2 * (-tmp_ - a.i);
+            const auto tmp_ = a.real();
+            a.real(hsqt2 * (a.imag() - a.real()));
+            a.imag(hsqt2 * (-tmp_ - a.imag()));
         } else {
-            auto tmp_ = a.r;
-            a.r       = hsqt2 * (-a.r - a.i);
-            a.i       = hsqt2 * (tmp_ - a.i);
+            const auto tmp_ = a.real();
+            a.real(hsqt2 * (-a.real() - a.imag()));
+            a.imag(hsqt2 * (tmp_ - a.imag()));
         }
     }
 
-    template<bool fwd, typename T>
-    void pass8 (size_t ido, size_t l1, const T* FFT_RESTRICT cc, T* FFT_RESTRICT ch,
-                const cmplx<T0>* FFT_RESTRICT wa) const {
-        auto CH = [ch, ido, l1] (size_t a, size_t b, size_t c) -> T& { return ch[a + ido * (b + l1 * c)]; };
-        auto CC = [cc, ido] (size_t a, size_t b, size_t c) -> const T& { return cc[a + ido * (b + 8 * c)]; };
+    template<bool fwd>
+    void pass8 (size_t ido, size_t l1, const Complex* FFT_RESTRICT cc, Complex* FFT_RESTRICT ch,
+                const Complex* FFT_RESTRICT wa) const {
+        auto CH = [ch, ido, l1] (size_t a, size_t b, size_t c) -> Complex& { return ch[a + ido * (b + l1 * c)]; };
+        auto CC = [cc, ido] (size_t a, size_t b, size_t c) -> const Complex& { return cc[a + ido * (b + 8 * c)]; };
         auto WA = [wa, ido] (size_t x, size_t i) { return wa[i - 1 + x * (ido - 1)]; };
 
         if (ido == 1)
             for (size_t k = 0; k < l1; ++k) {
-                T a0, a1, a2, a3, a4, a5, a6, a7;
+                Complex a0, a1, a2, a3, a4, a5, a6, a7;
                 PM(a1, a5, CC(0, 1, k), CC(0, 5, k));
                 PM(a3, a7, CC(0, 3, k), CC(0, 7, k));
                 PMINPLACE(a1, a3);
@@ -345,7 +295,7 @@ class cfftp {
         else
             for (size_t k = 0; k < l1; ++k) {
                 {
-                    T a0, a1, a2, a3, a4, a5, a6, a7;
+                    Complex a0, a1, a2, a3, a4, a5, a6, a7;
                     PM(a1, a5, CC(0, 1, k), CC(0, 5, k));
                     PM(a3, a7, CC(0, 3, k), CC(0, 7, k));
                     PMINPLACE(a1, a3);
@@ -365,7 +315,7 @@ class cfftp {
                     PM(CH(0, k, 3), CH(0, k, 7), a4 - a6, a7);
                 }
                 for (size_t i = 1; i < ido; ++i) {
-                    T a0, a1, a2, a3, a4, a5, a6, a7;
+                    Complex a0, a1, a2, a3, a4, a5, a6, a7;
                     PM(a1, a5, CC(i, 1, k), CC(i, 5, k));
                     PM(a3, a7, CC(i, 3, k), CC(i, 7, k));
                     ROTX90<fwd>(a7);
@@ -391,15 +341,15 @@ class cfftp {
             }
     }
 
-    template<bool fwd, typename T>
-    void pass_all (T c[], T0 fct) const {
+    template<bool fwd>
+    void pass_all (Complex c[], double fct) const {
         if (length == 1) {
             c[0] *= fct;
             return;
         }
-        size_t l1 = 1;
-        arr<T> ch(length);
-        T *    p1 = c, *p2 = ch.data();
+        size_t       l1 = 1;
+        arr<Complex> ch(length);
+        Complex *    p1 = c, *p2 = ch.data();
 
         for (size_t k1 = 0; k1 < fact.size(); k1++) {
             size_t ip  = fact[k1].fct;
@@ -428,10 +378,7 @@ class cfftp {
     }
 
   public:
-    template<typename T>
-    void exec (T c[], T0 fct, bool fwd) const {
-        fwd ? pass_all<true>(c, fct) : pass_all<false>(c, fct);
-    }
+    void exec (Complex c[], double fct, bool fwd) const { fwd ? pass_all<true>(c, fct) : pass_all<false>(c, fct); }
 
   private:
     void factorize () {
@@ -465,9 +412,9 @@ class cfftp {
     }
 
     void comp_twiddle () {
-        sincos_2pibyn<T0> twiddle(length);
-        size_t            l1     = 1;
-        size_t            memofs = 0;
+        sincos_2pibyn twiddle(length);
+        size_t        l1     = 1;
+        size_t        memofs = 0;
         for (size_t k = 0; k < fact.size(); ++k) {
             size_t ip = fact[k].fct, ido = length / (l1 * ip);
             fact[k].tw = mem.data() + memofs;
@@ -500,10 +447,8 @@ void FFT_VARIANT (c2c_power_of_two)(std::complex<double>* data, std::size_t leng
         return;
     if ((length & (length - 1U)) != 0)
         throw std::invalid_argument("complex FFT length must be a power of two");
-    static_assert(sizeof(std::complex<double>) == sizeof(cmplx<double>),
-                  "std::complex storage is incompatible with the local FFT representation");
-    cfftp<double> plan(length);
-    plan.exec(reinterpret_cast<cmplx<double>*>(data), fct, forward);
+    cfftp plan(length);
+    plan.exec(data, fct, forward);
 }
 
 } // namespace fft
