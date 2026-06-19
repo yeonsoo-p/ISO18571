@@ -155,7 +155,7 @@ double curve_scalar_at (const py::buffer_info& info, bool is_float32, Index row,
 
 Index curve_length (const py::buffer_info& info) { return static_cast<Index>(info.shape[0]); }
 
-double time_grid_tolerance (bool is_float32) { return is_float32 ? 1.0e-9 : 1.0e-12; }
+double time_grid_tolerance (bool is_float32) { return is_float32 ? 1.0e-7 : 1.0e-12; }
 
 double derive_uniform_dt (const py::buffer_info& info, bool is_float32, const char* name) {
     const Index n = curve_length(info);

@@ -2893,6 +2893,7 @@
     large-signal runtime, but byte-lane 2-bit packing may lose to bit operation
     overhead.
 - Files changed:
+  - `README.md`;
   - `src/iso18571/engine_impl.hpp`;
   - this experiment log.
 - Commands:
@@ -3030,3 +3031,47 @@
 - Next hypothesis:
   - before publishing, remove any current-version sdists from `dist/` and from
     the public release file set.
+
+## 2026-06-19 15:04 KST - Flat DTW Bitplane Direction Writes
+
+- Git status:
+  - clean at start after wheel-only release policy changes were already present.
+- Hypothesis:
+  - the bitplane direction write path can match the repo's flat helper style by
+    inlining the streaming write state into the DTW row loop, without changing
+    storage layout or scoring behavior.
+- Files changed:
+  - `src/iso18571/engine_impl.hpp`;
+  - this experiment log.
+- Commands:
+  - removed the `DirectionWord` alias and used `std::uint64_t` directly for the
+    direction bitplane vector and row-local words;
+  - removed `BitplaneDirectionWriter` and moved its low/high word, mask, dirty,
+    and flush logic directly into `compute_directions_index_incremental`.
+  - `uv pip install -e .`;
+  - `uv run --extra test ruff check --fix .`;
+  - `uv run --extra test ruff format .`;
+  - `uv run --extra test ruff check .`;
+  - `uv run --extra test ruff format --check .`;
+  - `uv run --extra test mypy iso18571 iso18571_reference tests`;
+  - `uv run --extra test python -m pytest -q`;
+  - `uv run --extra test python -m pytest -q tests/test_iso18571_benchmarks.py -m benchmark -k native --benchmark-warmup off --benchmark-min-rounds 1 --benchmark-max-time 0.05 --benchmark-quiet --benchmark-json .benchmarks/iso18571-bitplanes-flat/benchmarks.json`.
+  - updated the README native benchmark snapshot from
+    `.benchmarks/iso18571-bitplanes-flat/benchmarks.json`.
+- Validation result:
+  - editable build passed and installed `iso18571==1.0.6`;
+  - ruff check/fix and format/check passed with no file changes;
+  - mypy passed for `16 source files`;
+  - pytest passed: `19 passed, 32 deselected`;
+  - native-only benchmark passed: `8 passed, 24 deselected`.
+- Benchmark result:
+  - flat bitplane runtime median at 8192 samples: `0.0299s`, `-11.1%`
+    versus byte cells, peak RSS `49.7 MiB`, `-9.4 MiB`;
+  - flat bitplane runtime median at 32768 samples: `0.4754s`, `-17.3%`
+    versus byte cells, peak RSS `99.3 MiB`, `-151.8 MiB`;
+  - the previous writer-shaped `uint64_t` bitplane run was slightly faster at
+    target sizes (`0.0298s` at 8192 and `0.4709s` at 32768), but the flat
+    refactor preserved the material speed and memory win over byte cells.
+- Conclusion:
+  - the writer abstraction is removed from the native DTW direction path while
+    retaining the selected two-plane `std::uint64_t` storage strategy.

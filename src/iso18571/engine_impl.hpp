@@ -36,8 +36,7 @@ constexpr std::uint8_t DIR_VERTICAL              = 1;
 constexpr std::uint8_t DIR_HORIZONTAL            = 2;
 constexpr std::uint8_t DIR_DIAGONAL              = 3;
 constexpr double       CORRELATION_TIE_TOLERANCE = 1.0e-12;
-using DirectionWord                              = std::uint64_t;
-constexpr std::size_t DIRECTION_WORD_BITS        = sizeof(DirectionWord) * 8U;
+constexpr std::size_t  DIRECTION_WORD_BITS       = sizeof(std::uint64_t) * 8U;
 
 std::size_t offset (Index index) { return static_cast<std::size_t>(index); }
 
@@ -46,10 +45,10 @@ Index span_size (DoubleSpan values) { return static_cast<Index>(values.size()); 
 double value_at (DoubleSpan values, Index index) { return values[offset(index)]; }
 
 struct DtwState {
-    Index                     n          = 0;
-    Index                     radius     = 0;
-    Index                     band_width = 0;
-    std::vector<DirectionWord> directions;
+    Index                      n          = 0;
+    Index                      radius     = 0;
+    Index                      band_width = 0;
+    std::vector<std::uint64_t> directions;
 };
 
 std::size_t direction_cell_count (const DtwState& state) {
@@ -59,59 +58,6 @@ std::size_t direction_cell_count (const DtwState& state) {
 std::size_t direction_word_count (const DtwState& state) {
     return (direction_cell_count(state) + DIRECTION_WORD_BITS - 1U) / DIRECTION_WORD_BITS;
 }
-
-class BitplaneDirectionWriter {
-public:
-    BitplaneDirectionWriter (std::vector<DirectionWord>& directions, std::size_t plane_words, Index cell_index) :
-        directions_(directions),
-        plane_words_(plane_words),
-        word_index_(static_cast<std::size_t>(cell_index) / DIRECTION_WORD_BITS),
-        low_word_(directions_[word_index_]),
-        high_word_(directions_[plane_words_ + word_index_]),
-        mask_(static_cast<DirectionWord>(DirectionWord{1}
-                                         << (static_cast<std::size_t>(cell_index) % DIRECTION_WORD_BITS))) {}
-
-    void put (std::uint8_t direction) {
-        if ((direction & 1U) != 0U) {
-            low_word_ |= mask_;
-        }
-        if ((direction & 2U) != 0U) {
-            high_word_ |= mask_;
-        }
-        dirty_ = true;
-        mask_ = static_cast<DirectionWord>(mask_ << 1U);
-        if (mask_ == DirectionWord{0}) {
-            flush();
-            ++word_index_;
-            mask_ = DirectionWord{1};
-            if (word_index_ < plane_words_) {
-                low_word_  = directions_[word_index_];
-                high_word_ = directions_[plane_words_ + word_index_];
-            }
-        }
-    }
-
-    void finish () {
-        if (dirty_) {
-            flush();
-        }
-    }
-
-private:
-    void flush () {
-        directions_[word_index_]                = low_word_;
-        directions_[plane_words_ + word_index_] = high_word_;
-        dirty_                                  = false;
-    }
-
-    std::vector<DirectionWord>& directions_;
-    std::size_t                 plane_words_;
-    std::size_t                 word_index_;
-    DirectionWord               low_word_;
-    DirectionWord               high_word_;
-    DirectionWord               mask_;
-    bool                        dirty_ = false;
-};
 
 std::uint8_t bitplane_direction_at (const DtwState& state, Index cell_index) {
     const std::size_t index = static_cast<std::size_t>(cell_index);
@@ -150,9 +96,9 @@ Index window_radius (Index n, double window_size) {
 
 DtwState compute_directions_index_incremental (DoubleSpan x, DoubleSpan y, double window_size) {
     DtwState state;
-    state.n          = span_size(x);
-    state.radius     = window_radius(state.n, window_size);
-    state.band_width = 2 * state.radius - 1;
+    state.n                           = span_size(x);
+    state.radius                      = window_radius(state.n, window_size);
+    state.band_width                  = 2 * state.radius - 1;
     const std::size_t direction_words = direction_word_count(state);
     state.directions.assign(direction_words * 2U, DIR_NONE);
 
@@ -168,7 +114,12 @@ DtwState compute_directions_index_incremental (DoubleSpan x, DoubleSpan y, doubl
         const Index previous_start   = i > 0 ? std::max<Index>(0, i - state.radius) : 0;
         const Index previous_stop    = i > 0 ? std::min<Index>(state.n, i + state.radius - 1) : 0;
 
-        BitplaneDirectionWriter direction_writer(state.directions, direction_words, direction_base);
+        std::size_t   direction_word  = static_cast<std::size_t>(direction_base) / DIRECTION_WORD_BITS;
+        std::uint64_t low_word        = state.directions[direction_word];
+        std::uint64_t high_word       = state.directions[direction_words + direction_word];
+        std::uint64_t direction_mask  = std::uint64_t {1}
+                                     << (static_cast<std::size_t>(direction_base) % DIRECTION_WORD_BITS);
+        bool          direction_dirty = false;
         for (Index j = j_start; j < j_stop; ++j) {
             const double delta       = value_at(x, i) - value_at(y, j);
             const double local_cost  = delta * delta;
@@ -207,9 +158,30 @@ DtwState compute_directions_index_incremental (DoubleSpan x, DoubleSpan y, doubl
             }
 
             current[static_cast<std::size_t>(j)] = accumulated;
-            direction_writer.put(direction);
+            if ((direction & 1U) != 0U) {
+                low_word |= direction_mask;
+            }
+            if ((direction & 2U) != 0U) {
+                high_word |= direction_mask;
+            }
+            direction_dirty = true;
+            direction_mask <<= 1U;
+            if (direction_mask == 0U) {
+                state.directions[direction_word]                   = low_word;
+                state.directions[direction_words + direction_word] = high_word;
+                direction_dirty                                    = false;
+                ++direction_word;
+                direction_mask = std::uint64_t {1};
+                if (direction_word < direction_words) {
+                    low_word  = state.directions[direction_word];
+                    high_word = state.directions[direction_words + direction_word];
+                }
+            }
         }
-        direction_writer.finish();
+        if (direction_dirty) {
+            state.directions[direction_word]                   = low_word;
+            state.directions[direction_words + direction_word] = high_word;
+        }
         std::swap(previous, current);
     }
 
