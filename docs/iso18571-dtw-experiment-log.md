@@ -3124,3 +3124,58 @@
 - Next hypothesis:
   - CI can use `uv run --extra test pre-commit run --all-files` as the same
     quality gate entry point used by local commits.
+
+## 2026-06-19 15:24 KST - Direct DTW Magnitude Accumulation
+
+- Git status:
+  - clean at start of this change;
+  - dirty after replacing DTW direction storage in `src/iso18571/engine_impl.hpp`
+    and adding this log entry.
+- Hypothesis:
+  - production magnitude scoring does not need to store the DTW predecessor
+    direction matrix; carrying the selected path's magnitude numerator and
+    denominator through the rolling DTW recurrence should preserve scores while
+    cutting large-input peak RSS.
+- Files changed:
+  - `README.md`;
+  - `src/iso18571/engine_impl.hpp`;
+  - this experiment log.
+- Commands:
+  - removed `DtwState`, direction constants, bitplane helpers, direction writes,
+    and backtracking from the production magnitude path;
+  - added `magnitude_error_from_dtw`, which keeps rolling rows for cumulative
+    squared cost, magnitude numerator, and magnitude denominator;
+  - preserved predecessor selection order as vertical, horizontal, diagonal with
+    strict `<` replacement;
+  - `uv pip install -e .`;
+  - `uv run --extra test pre-commit run --all-files` failed once because
+    `clang-format` modified `src/iso18571/engine_impl.hpp`;
+  - reran `uv run --extra test pre-commit run --all-files`;
+  - `uv run --extra test python -m pytest -q`;
+  - `mkdir -p .benchmarks/iso18571-direct-magnitude`;
+  - `uv run --extra test python -m pytest -q tests/test_iso18571_benchmarks.py
+    -m benchmark -k native --benchmark-warmup off --benchmark-min-rounds 1
+    --benchmark-max-time 0.05 --benchmark-quiet --benchmark-json
+    .benchmarks/iso18571-direct-magnitude/benchmarks.json`;
+  - updated the README native benchmark snapshot from
+    `.benchmarks/iso18571-direct-magnitude/benchmarks.json`;
+  - `git diff --check`.
+- Validation result:
+  - no tests were added;
+  - editable build passed and installed `iso18571==1.0.6`;
+  - final pre-commit all-files run passed Ruff, Mypy, clang-format, whitespace,
+    and config validation hooks;
+  - pytest passed: `19 passed, 32 deselected`;
+  - native-only benchmark passed: `8 passed, 24 deselected`;
+  - `git diff --check` passed.
+- Benchmark result:
+  - 8192-sample native runtime median: `0.0299s`, peak RSS `46.5 MiB`;
+  - 32768-sample native runtime median: `0.4550s`, peak RSS `49.7 MiB`;
+  - compared with the previous README snapshot, 32768-sample peak RSS dropped
+    from about `99.3 MiB` to about `49.7 MiB`.
+- Conclusion:
+  - direct DTW magnitude accumulation removes the production direction matrix
+    without changing the public scorer or existing parity tests.
+- Next hypothesis:
+  - remaining large-signal runtime work should focus on phase cross-correlation,
+    not magnitude path storage.

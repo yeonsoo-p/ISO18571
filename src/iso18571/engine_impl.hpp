@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <cmath>
-#include <cstdint>
 #include <limits>
 #include <stdexcept>
 #include <utility>
@@ -31,40 +30,13 @@ using iso18571::ScoreParams;
 using iso18571::ScoreResult;
 using iso18571::SlopeResult;
 
-constexpr std::uint8_t DIR_NONE                  = 0;
-constexpr std::uint8_t DIR_VERTICAL              = 1;
-constexpr std::uint8_t DIR_HORIZONTAL            = 2;
-constexpr std::uint8_t DIR_DIAGONAL              = 3;
-constexpr double       CORRELATION_TIE_TOLERANCE = 1.0e-12;
-constexpr std::size_t  DIRECTION_WORD_BITS       = sizeof(std::uint64_t) * 8U;
+constexpr double CORRELATION_TIE_TOLERANCE = 1.0e-12;
 
 std::size_t offset (Index index) { return static_cast<std::size_t>(index); }
 
 Index span_size (DoubleSpan values) { return static_cast<Index>(values.size()); }
 
 double value_at (DoubleSpan values, Index index) { return values[offset(index)]; }
-
-struct DtwState {
-    Index                      n          = 0;
-    Index                      radius     = 0;
-    Index                      band_width = 0;
-    std::vector<std::uint64_t> directions;
-};
-
-std::size_t direction_word_count (const DtwState& state) {
-    return (static_cast<std::size_t>(state.n) * static_cast<std::size_t>(state.band_width) + DIRECTION_WORD_BITS - 1U) /
-           DIRECTION_WORD_BITS;
-}
-
-std::uint8_t bitplane_direction_at (const DtwState& state, Index cell_index) {
-    const std::size_t index = static_cast<std::size_t>(cell_index);
-    const std::size_t words = direction_word_count(state);
-    const std::size_t word  = index / DIRECTION_WORD_BITS;
-    const unsigned    shift = static_cast<unsigned>(index % DIRECTION_WORD_BITS);
-    const auto        low   = static_cast<std::uint8_t>((state.directions[word] >> shift) & 1U);
-    const auto        high  = static_cast<std::uint8_t>((state.directions[words + word] >> shift) & 1U);
-    return static_cast<std::uint8_t>(low | static_cast<std::uint8_t>(high << 1U));
-}
 
 struct PhaseCache {
     std::vector<double> reference_sum;
@@ -91,133 +63,90 @@ Index window_radius (Index n, double window_size) {
     return std::min<Index>(n, std::max<Index>(1, raw));
 }
 
-DtwState compute_directions_index_incremental (DoubleSpan x, DoubleSpan y, double window_size) {
-    DtwState state;
-    state.n                           = span_size(x);
-    state.radius                      = window_radius(state.n, window_size);
-    state.band_width                  = 2 * state.radius - 1;
-    const std::size_t direction_words = direction_word_count(state);
-    state.directions.assign(direction_words * 2U, DIR_NONE);
+std::pair<double, double> magnitude_error_from_dtw (DoubleSpan x, DoubleSpan y, double window_size) {
+    const Index  n      = span_size(x);
+    const Index  radius = window_radius(n, window_size);
+    const double inf    = std::numeric_limits<double>::infinity();
 
-    const double        inf = std::numeric_limits<double>::infinity();
-    std::vector<double> previous(static_cast<std::size_t>(state.n), inf);
-    std::vector<double> current(static_cast<std::size_t>(state.n), inf);
+    std::vector<double> previous_cost(static_cast<std::size_t>(n), inf);
+    std::vector<double> current_cost(static_cast<std::size_t>(n), inf);
+    std::vector<double> previous_numerator(static_cast<std::size_t>(n), 0.0);
+    std::vector<double> current_numerator(static_cast<std::size_t>(n), 0.0);
+    std::vector<double> previous_denominator(static_cast<std::size_t>(n), 0.0);
+    std::vector<double> current_denominator(static_cast<std::size_t>(n), 0.0);
 
-    for (Index i = 0; i < state.n; ++i) {
-        const Index j_start          = std::max<Index>(0, i - state.radius + 1);
-        const Index j_stop           = std::min<Index>(state.n, i + state.radius);
-        const Index direction_offset = j_start - (i - state.radius + 1);
-        const Index direction_base   = i * state.band_width + direction_offset;
-        const Index previous_start   = i > 0 ? std::max<Index>(0, i - state.radius) : 0;
-        const Index previous_stop    = i > 0 ? std::min<Index>(state.n, i + state.radius - 1) : 0;
+    for (Index i = 0; i < n; ++i) {
+        const Index previous_start = i > 0 ? std::max<Index>(0, i - radius) : 0;
+        const Index previous_stop  = i > 0 ? std::min<Index>(n, i + radius - 1) : 0;
+        const Index j_start        = std::max<Index>(0, i - radius + 1);
+        const Index j_stop         = std::min<Index>(n, i + radius);
 
-        std::size_t   direction_word  = static_cast<std::size_t>(direction_base) / DIRECTION_WORD_BITS;
-        std::uint64_t low_word        = state.directions[direction_word];
-        std::uint64_t high_word       = state.directions[direction_words + direction_word];
-        std::uint64_t direction_mask  = std::uint64_t {1}
-                                     << (static_cast<std::size_t>(direction_base) % DIRECTION_WORD_BITS);
-        bool          direction_dirty = false;
         for (Index j = j_start; j < j_stop; ++j) {
-            const double delta       = value_at(x, i) - value_at(y, j);
-            const double local_cost  = delta * delta;
-            double       accumulated = inf;
-            std::uint8_t direction   = DIR_NONE;
+            const double delta             = value_at(x, i) - value_at(y, j);
+            const double local_cost        = delta * delta;
+            const double local_numerator   = std::abs(delta);
+            const double local_denominator = std::abs(value_at(y, j));
+            double       accumulated       = inf;
+            double       numerator         = 0.0;
+            double       denominator       = 0.0;
 
             if (i == 0 && j == 0) {
                 accumulated = local_cost;
+                numerator   = local_numerator;
+                denominator = local_denominator;
             } else {
-                double best_previous = inf;
+                double best_previous      = inf;
+                double best_numerator     = 0.0;
+                double best_denominator   = 0.0;
+                auto   select_predecessor = [&best_previous, &best_numerator, &best_denominator] (
+                                                double cost, double candidate_numerator, double candidate_denominator) {
+                    best_previous    = cost;
+                    best_numerator   = candidate_numerator;
+                    best_denominator = candidate_denominator;
+                };
 
                 if (i > 0 && j >= previous_start && j < previous_stop) {
-                    best_previous = previous[static_cast<std::size_t>(j)];
-                    direction     = DIR_VERTICAL;
+                    const std::size_t index = static_cast<std::size_t>(j);
+                    select_predecessor(previous_cost[index], previous_numerator[index], previous_denominator[index]);
                 }
                 if (j > j_start) {
-                    const double candidate = current[static_cast<std::size_t>(j - 1)];
+                    const std::size_t index     = static_cast<std::size_t>(j - 1);
+                    const double      candidate = current_cost[index];
                     if (candidate < best_previous) {
-                        best_previous = candidate;
-                        direction     = DIR_HORIZONTAL;
+                        select_predecessor(candidate, current_numerator[index], current_denominator[index]);
                     }
                 }
                 if (i > 0 && j > 0 && j - 1 >= previous_start && j - 1 < previous_stop) {
-                    const double candidate = previous[static_cast<std::size_t>(j - 1)];
+                    const std::size_t index     = static_cast<std::size_t>(j - 1);
+                    const double      candidate = previous_cost[index];
                     if (candidate < best_previous) {
-                        best_previous = candidate;
-                        direction     = DIR_DIAGONAL;
+                        select_predecessor(candidate, previous_numerator[index], previous_denominator[index]);
                     }
                 }
 
                 if (std::isfinite(best_previous)) {
                     accumulated = local_cost + best_previous;
-                } else {
-                    direction = DIR_NONE;
+                    numerator   = local_numerator + best_numerator;
+                    denominator = local_denominator + best_denominator;
                 }
             }
 
-            current[static_cast<std::size_t>(j)] = accumulated;
-            if ((direction & 1U) != 0U) {
-                low_word |= direction_mask;
-            }
-            if ((direction & 2U) != 0U) {
-                high_word |= direction_mask;
-            }
-            direction_dirty = true;
-            direction_mask <<= 1U;
-            if (direction_mask == 0U) {
-                state.directions[direction_word]                   = low_word;
-                state.directions[direction_words + direction_word] = high_word;
-                direction_dirty                                    = false;
-                ++direction_word;
-                direction_mask = std::uint64_t {1};
-                if (direction_word < direction_words) {
-                    low_word  = state.directions[direction_word];
-                    high_word = state.directions[direction_words + direction_word];
-                }
-            }
+            const std::size_t index    = static_cast<std::size_t>(j);
+            current_cost[index]        = accumulated;
+            current_numerator[index]   = numerator;
+            current_denominator[index] = denominator;
         }
-        if (direction_dirty) {
-            state.directions[direction_word]                   = low_word;
-            state.directions[direction_words + direction_word] = high_word;
-        }
-        std::swap(previous, current);
+
+        std::swap(previous_cost, current_cost);
+        std::swap(previous_numerator, current_numerator);
+        std::swap(previous_denominator, current_denominator);
     }
 
-    if (!std::isfinite(previous[static_cast<std::size_t>(state.n - 1)])) {
+    const std::size_t final_index = static_cast<std::size_t>(n - 1);
+    if (!std::isfinite(previous_cost[final_index])) {
         throw std::runtime_error("No valid ISO DTW path found");
     }
-    return state;
-}
-
-std::pair<double, double> magnitude_error_from_state (DoubleSpan x, DoubleSpan y, const DtwState& state) {
-    double     numerator       = 0.0;
-    double     denominator     = 0.0;
-    Index      i               = state.n - 1;
-    Index      j               = state.n - 1;
-    const auto direction_index = [&state] (Index row, Index column) {
-        const Index row_start = row - state.radius + 1;
-        return row * state.band_width + (column - row_start);
-    };
-
-    while (true) {
-        numerator += std::abs(value_at(x, i) - value_at(y, j));
-        denominator += std::abs(value_at(y, j));
-        if (i == 0 && j == 0) {
-            break;
-        }
-
-        const auto direction = bitplane_direction_at(state, direction_index(i, j));
-        if (direction == DIR_VERTICAL) {
-            --i;
-        } else if (direction == DIR_HORIZONTAL) {
-            --j;
-        } else if (direction == DIR_DIAGONAL) {
-            --i;
-            --j;
-        } else {
-            throw std::runtime_error("No valid ISO DTW predecessor found");
-        }
-    }
-    return {numerator, denominator};
+    return {previous_numerator[final_index], previous_denominator[final_index]};
 }
 
 PhaseCache build_phase_cache (DoubleSpan reference, DoubleSpan comparison) {
@@ -483,8 +412,7 @@ double phase_score (DoubleSpan reference, const ScoreParams& params, const Phase
 
 MagnitudeResult magnitude_score_from_values (DoubleSpan reference_values, DoubleSpan comparison_values,
                                              const ScoreParams& params) {
-    const DtwState state = compute_directions_index_incremental(comparison_values, reference_values, 0.1);
-    const auto [numerator, denominator] = magnitude_error_from_state(comparison_values, reference_values, state);
+    const auto [numerator, denominator] = magnitude_error_from_dtw(comparison_values, reference_values, 0.1);
     if (denominator == 0.0) {
         MagnitudeResult result;
         result.score = numerator == 0.0 ? 1.0 : 0.0;
