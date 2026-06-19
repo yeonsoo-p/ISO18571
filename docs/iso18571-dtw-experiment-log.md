@@ -3179,3 +3179,216 @@
 - Next hypothesis:
   - remaining large-signal runtime work should focus on phase cross-correlation,
     not magnitude path storage.
+
+## 2026-06-19 16:16 KST - FFT Phase Product Backend Shootout
+
+- Git status:
+  - dirty from experimental phase-product backend selectors in `CMakeLists.txt`
+    and `src/iso18571/engine_impl.hpp`;
+  - ignored scratch sources, builds, harnesses, and CSV results under
+    `.benchmarks/fft-candidates/`.
+- Hypothesis:
+  - computing all phase lag products with FFT convolution can remove the
+    remaining quadratic phase-product scan while preserving Annex parity if the
+    final selected and near-tied candidates are recomputed with the direct
+    product path.
+- Files changed:
+  - `CMakeLists.txt`;
+  - `src/iso18571/engine_impl.hpp`;
+  - this experiment log.
+- Commands:
+  - added opt-in `ISO18571_PHASE_BACKEND` CMake values: `direct`, `pocketfft`,
+    `ducc`, `fftw`, and `mkl`, with `direct` as the default;
+  - fetched pinned scratch sources:
+    - pocketfft `5f27d5a8f51c5c25030cb22abf434decc9faf0ff`;
+    - DUCC `8c28af6f4e3513c3b7922eab625fb0ad56152fd9`;
+  - built and parity-tested each backend with `uv pip install -e .
+    --reinstall --config-settings=...` followed by `.venv/bin/python -m pytest
+    -q tests/test_iso18571_parity.py`;
+  - built a scratch `-O3` C++ phase harness at
+    `.benchmarks/fft-candidates/fft_phase_benchmark`;
+  - wrote phase harness results to
+    `.benchmarks/fft-candidates/phase_kernel_results.csv`;
+  - wrote full native scorer timings to
+    `.benchmarks/fft-candidates/native_timing.csv`;
+  - restored the default direct backend;
+  - ran `uv run --extra test python -m pytest -q`;
+  - ran `uv run --extra test pre-commit run --all-files`;
+  - ran `git diff --check`.
+- Validation result:
+  - direct, pocketfft, DUCC, FFTW single-thread, FFTW all-core, oneMKL
+    single-thread, and oneMKL all-core all passed Annex parity:
+    `3 passed` per backend/mode;
+  - default direct pytest passed: `19 passed, 32 deselected`;
+  - pre-commit passed Ruff, Mypy, clang-format, whitespace, and config
+    validation hooks;
+  - `git diff --check` passed.
+- Benchmark result:
+  - phase harness median `phase_ms` at 32768 samples:
+    - direct `147.511`;
+    - pocketfft single `2.631`;
+    - DUCC single `2.176`;
+    - FFTW single `4.018`;
+    - FFTW all-core `3.836`;
+    - oneMKL single `1.301`;
+    - oneMKL all-core `0.889`;
+  - full native scorer median at 32768 samples:
+    - direct `453.064 ms`;
+    - pocketfft single `306.971 ms`;
+    - DUCC single `307.096 ms`;
+    - FFTW single `313.532 ms`;
+    - FFTW all-core `313.810 ms`;
+    - oneMKL single `309.393 ms`;
+    - oneMKL all-core `317.036 ms`;
+  - all FFT backends matched the direct phase alignment and score metadata on
+    the native timing corpus.
+- Conclusion:
+  - the FFT product path is parity-safe with direct near-tie refinement and
+    clearly faster for isolated large phase scans;
+  - in the full scorer, single-thread pocketfft/DUCC were the best practical
+    variants in this run, cutting 32768-sample median runtime from about
+    `453 ms` to about `307 ms`;
+  - oneMKL won the isolated phase harness, but its all-core overhead did not
+    improve full-scorer runtime on this workload.
+- Next hypothesis:
+  - a production FFT path should start with a thresholded single-thread
+    pocketfft/DUCC-style backend or a real-FFT oneMKL prototype, then benchmark
+    with plan reuse before accepting any dependency.
+
+## 2026-06-19 16:23 KST - Single-Thread FFT Backend Load/RSS Benchmark JSON
+
+- Git status:
+  - still dirty from the FFT phase-product backend experiment;
+  - ignored JSON benchmark outputs under `.benchmarks/fft-candidates/json/`.
+- Hypothesis:
+  - the single-thread FFT backend comparison needs the same load-time,
+    runtime, and peak-RSS measurements as the repo's native benchmark harness,
+    not only scratch CSV timings.
+- Files changed:
+  - this experiment log.
+- Commands:
+  - rebuilt `direct`, `pocketfft`, `ducc`, `fftw`, and `mkl` backend variants
+    one at a time with `uv pip install -e . --reinstall --config-settings=...`;
+  - for each variant, ran `.venv/bin/python -m pytest -q
+    tests/test_iso18571_benchmarks.py -m benchmark -k native --benchmark-warmup
+    off --benchmark-quiet --benchmark-json
+    .benchmarks/fft-candidates/json/<backend>.json`;
+  - forced oneMKL single-thread with `MKL_NUM_THREADS=1 OMP_NUM_THREADS=1`;
+  - restored the default `direct` backend after the matrix.
+- Validation result:
+  - every backend benchmark run passed: `8 passed, 24 deselected`;
+  - no swap was recorded in any row.
+- Benchmark result:
+  - 32768-sample load/setup time and load peak RSS:
+    - direct `460.416 ms`, `49.7 MiB`;
+    - pocketfft `317.921 ms`, `52.7 MiB`;
+    - DUCC `314.318 ms`, `52.0 MiB`;
+    - FFTW `318.799 ms`, `53.3 MiB`;
+    - oneMKL `326.821 ms`, `66.8 MiB`;
+  - 32768-sample runtime median and runtime peak RSS:
+    - direct `454.325 ms`, `49.8 MiB`;
+    - pocketfft `308.981 ms`, `53.1 MiB`;
+    - DUCC `306.190 ms`, `51.7 MiB`;
+    - FFTW `309.023 ms`, `53.6 MiB`;
+    - oneMKL `306.568 ms`, `66.8 MiB`.
+- Conclusion:
+  - DUCC had the best single-thread full-scorer 32768-sample runtime and the
+    lowest FFT-backend peak RSS in this run;
+  - pocketfft was nearly tied with DUCC but used about `1.4 MiB` more runtime
+    peak RSS at 32768 samples;
+  - oneMKL matched the fastest runtime but carried about `15 MiB` more peak RSS.
+- Next hypothesis:
+  - if productionizing this path, benchmark a thresholded DUCC/pocketfft
+    real-FFT implementation with plan reuse before accepting a dependency.
+
+## 2026-06-19 16:36 KST - README Native-Only Benchmark Command
+
+- Git status:
+  - dirty at start with pre-existing FFT benchmark work in
+    `docs/iso18571-dtw-experiment-log.md`, `src/iso18571/engine_impl.hpp`, and
+    untracked `src/iso18571/fft.hpp`;
+  - this change only updates `README.md` and appends this log entry.
+- Hypothesis:
+  - documenting the native-only benchmark command beside the full benchmark
+    matrix command makes the common quick benchmark path easier to reproduce.
+- Files changed:
+  - `README.md`;
+  - this experiment log.
+- Commands:
+  - inspected `README.md` benchmark section;
+  - added a native-only benchmark snippet using `-k native` and a dedicated
+    `.benchmarks/iso18571-native/` output directory.
+  - ran `mkdir -p .benchmarks/iso18571-native`;
+  - ran `uv run --extra test python -m pytest -q
+    tests/test_iso18571_benchmarks.py -m benchmark -k native --benchmark-json
+    .benchmarks/iso18571-native/benchmarks.json`.
+- Validation result:
+  - native-only benchmark passed: `8 passed, 24 deselected`;
+  - no swap was recorded in any row;
+  - targeted README whitespace check passed with `git diff --check -- README.md`.
+- Benchmark result:
+  - load/setup median, ms: `512=125.59`, `2048=152.83`, `8192=172.71`,
+    `32768=445.65`;
+  - runtime median, ms: `512=0.21`, `2048=1.98`, `8192=21.45`,
+    `32768=307.39`;
+  - load/setup peak RSS, MiB: `512=51.68`, `2048=46.10`, `8192=47.18`,
+    `32768=53.17`;
+  - runtime peak RSS, MiB: `512=46.02`, `2048=46.07`, `8192=47.11`,
+    `32768=52.48`.
+- Conclusion:
+  - README now documents both the full benchmark matrix command and the
+    native-only benchmark command;
+  - the current dirty checkout's native-only benchmark completed cleanly.
+- Next hypothesis:
+  - once the FFT worktree changes are settled, run the relevant documentation
+    and benchmark validation together.
+
+## 2026-06-19 16:56 KST - Remove Vestigial FFT Threading
+
+- Git status:
+  - dirty at start with pre-existing README benchmark documentation,
+    FFT phase-product experiment changes in `src/iso18571/engine_impl.hpp`,
+    previous experiment-log additions, and untracked `src/iso18571/fft.hpp`;
+  - this change removes single-thread-only threading plumbing from the FFT
+    header and the current engine call site.
+- Hypothesis:
+  - `src/iso18571/fft.hpp` is intentionally single-threaded in this checkout, so
+    removing always-one thread helpers and `nthreads` parameters should simplify
+    the code without changing FFT results.
+- Files changed:
+  - `src/iso18571/fft.hpp`;
+  - `src/iso18571/engine_impl.hpp`;
+  - this experiment log.
+- Commands:
+  - removed `util::thread_count`, `namespace threading`, and the share-splitting
+    branch from `multi_iter`;
+  - removed `nthreads` parameters from FFT internals and wrapper functions;
+  - removed `phase_fft_thread_count`, `<thread>`, and thread-count arguments
+    from `fft_product_sums`;
+  - `uv pip install -e .`;
+  - `uv run --extra test clang-format -i src/iso18571/fft.hpp
+    src/iso18571/engine_impl.hpp`;
+  - `uv run --extra test python -m pytest -q tests/test_iso18571_parity.py`;
+  - `uv run --extra test python -m pytest -q`;
+  - `uv run --extra test pre-commit run --all-files`;
+  - `uv run --extra test clang-format --dry-run -Werror
+    src/iso18571/fft.hpp`;
+  - `git diff --check`;
+  - `rg -n "thread_count|threading::|thread_id|num_threads|thread_map|nthreads|hardware_concurrency|<thread>|PHASE_PRODUCT_ALL_THREADS"
+    src/iso18571/fft.hpp src/iso18571/engine_impl.hpp CMakeLists.txt -S`.
+- Validation result:
+  - no tests were added;
+  - editable build passed and installed `iso18571==1.0.6`;
+  - parity passed: `3 passed`;
+  - default pytest passed: `19 passed, 32 deselected`;
+  - pre-commit all-files passed Ruff, Mypy, clang-format, whitespace, and config
+    validation hooks;
+  - explicit clang-format dry-run passed for untracked `src/iso18571/fft.hpp`;
+  - `git diff --check` passed;
+  - vestigial threading identifier scan found no remaining matches.
+- Conclusion:
+  - the FFT header is now explicitly single-threaded instead of carrying a dead
+    threading-shaped API.
+- Next hypothesis:
+  - benchmark the cleaned single-thread FFT path only after the surrounding FFT
+    experiment is ready for a performance comparison.

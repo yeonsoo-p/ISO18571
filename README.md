@@ -197,6 +197,13 @@ Benchmark tests are excluded from default pytest. They compare `native`, `dtwali
 uv run --extra test python -m pytest -q -m benchmark --benchmark-json .benchmarks/iso18571-readme/benchmarks.json
 ```
 
+To run only the native backend rows:
+
+```bash
+mkdir -p .benchmarks/iso18571-native
+uv run --extra test python -m pytest -q tests/test_iso18571_benchmarks.py -m benchmark -k native --benchmark-json .benchmarks/iso18571-native/benchmarks.json
+```
+
 The benchmark report separates setup/load behavior from dynamic calculation behavior:
 
 - `load_memory` rows measure a fresh spawned Python process importing the backend, generating data, scoring once, and reporting peak process memory and peak swap/pagefile usage.
@@ -225,7 +232,7 @@ Benchmark snapshot from this machine:
 
 | Backend | 512 | 2048 | 8192 | 32768 |
 | --- | ---: | ---: | ---: | ---: |
-| native | 118.22 | 122.75 | 143.07 | 576.83 |
+| native | 125.59 | 152.83 | 172.71 | 445.65 |
 | dtwalign | 3898.99 | 3813.41 | 4897.01 | - |
 | dtw_python | 931.82 | 995.43 | 1803.67 | - |
 | librosa | 1231.87 | 1274.18 | 2253.83 | 17590.40 |
@@ -234,7 +241,7 @@ Benchmark snapshot from this machine:
 
 | Backend | 512 | 2048 | 8192 | 32768 |
 | --- | ---: | ---: | ---: | ---: |
-| native | 46.03 | 46.18 | 46.62 | 49.76 |
+| native | 51.68 | 46.10 | 47.18 | 53.17 |
 | dtwalign | 359.48 | 450.83 | 2105.46 | - |
 | dtw_python | 253.07 | 431.89 | 3278.38 | - |
 | librosa | 312.04 | 385.59 | 1759.17 | 24522.72 |
@@ -243,7 +250,7 @@ Benchmark snapshot from this machine:
 
 | Backend | 512 | 2048 | 8192 | 32768 |
 | --- | ---: | ---: | ---: | ---: |
-| native | 0.26 | 2.04 | 29.91 | 455.03 |
+| native | 0.21 | 1.98 | 21.45 | 307.39 |
 | dtwalign | 6.97 | 87.72 | 1177.31 | - |
 | dtw_python | 7.01 | 62.88 | 936.57 | - |
 | librosa | 7.02 | 77.73 | 1049.70 | 16130.18 |

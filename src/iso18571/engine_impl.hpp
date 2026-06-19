@@ -2,10 +2,14 @@
 
 #include <algorithm>
 #include <cmath>
+#include <complex>
 #include <limits>
 #include <stdexcept>
+#include <string>
 #include <utility>
 #include <vector>
+
+#include <fft.hpp>
 
 #ifndef ISO18571_IMPL_SUFFIX
 #error "ISO18571_IMPL_SUFFIX must be defined before including engine_impl.hpp"
@@ -31,6 +35,7 @@ using iso18571::ScoreResult;
 using iso18571::SlopeResult;
 
 constexpr double CORRELATION_TIE_TOLERANCE = 1.0e-12;
+constexpr double CORRELATION_REFINE_MARGIN = 1.0e-9;
 
 std::size_t offset (Index index) { return static_cast<std::size_t>(index); }
 
@@ -43,6 +48,10 @@ struct PhaseCache {
     std::vector<double> comparison_sum;
     std::vector<double> reference_square_sum;
     std::vector<double> comparison_square_sum;
+};
+
+struct PhaseProductSums {
+    std::vector<double> products;
 };
 
 void append_warning (std::vector<Diagnostic>& diagnostics, DiagnosticComponent component, DiagnosticCode code) {
@@ -242,6 +251,50 @@ double product_sum_for_shift (DoubleSpan reference, DoubleSpan comparison, Index
     return out;
 }
 
+std::size_t next_power_of_two (std::size_t value) {
+    std::size_t out = 1;
+    while (out < value) {
+        out <<= 1U;
+    }
+    return out;
+}
+
+PhaseProductSums fft_product_sums (DoubleSpan reference, DoubleSpan comparison) {
+    const auto        n         = static_cast<std::size_t>(span_size(reference));
+    const std::size_t conv_size = 2U * n - 1U;
+    const std::size_t fft_size  = next_power_of_two(conv_size);
+
+    std::vector<std::complex<double>> reference_fft(fft_size);
+    std::vector<std::complex<double>> comparison_fft(fft_size);
+    for (std::size_t idx = 0; idx < n; ++idx) {
+        reference_fft[idx]  = {value_at(reference, static_cast<Index>(idx)), 0.0};
+        comparison_fft[idx] = {value_at(comparison, static_cast<Index>(n - idx - 1U)), 0.0};
+    }
+
+    const fft::shape_t  shape {fft_size};
+    const fft::stride_t stride {static_cast<std::ptrdiff_t>(sizeof(std::complex<double>))};
+    const fft::shape_t  axes {0};
+    fft::c2c(shape, stride, stride, axes, fft::FORWARD, reference_fft.data(), reference_fft.data(), 1.0);
+    fft::c2c(shape, stride, stride, axes, fft::FORWARD, comparison_fft.data(), comparison_fft.data(), 1.0);
+    for (std::size_t idx = 0; idx < fft_size; ++idx) {
+        reference_fft[idx] *= comparison_fft[idx];
+    }
+    fft::c2c(shape, stride, stride, axes, fft::BACKWARD, reference_fft.data(), reference_fft.data(),
+             1.0 / static_cast<double>(fft_size));
+
+    PhaseProductSums sums;
+    sums.products.assign(conv_size, 0.0);
+    for (std::size_t idx = 0; idx < conv_size; ++idx) {
+        sums.products[idx] = reference_fft[idx].real();
+    }
+    return sums;
+}
+
+double product_sum_from_fft (const PhaseProductSums& sums, Index n, Index reference_start, Index comparison_start) {
+    const Index lag = reference_start - comparison_start;
+    return sums.products[static_cast<std::size_t>(n - 1 + lag)];
+}
+
 double correlation_from_cached_product (const PhaseCache& cache, Index reference_start, Index comparison_start,
                                         Index length, double product_sum) {
     const double n                     = static_cast<double>(length);
@@ -295,33 +348,61 @@ PhaseResult phase_candidate_from_correlation (Index reference_start, Index compa
     return result;
 }
 
-std::pair<PhaseResult, PhaseResult> dual_phase_candidates_for_shift (DoubleSpan reference, DoubleSpan comparison,
-                                                                     const PhaseCache& cache, Index shift, Index length,
-                                                                     double max_shift) {
+PhaseResult phase_candidate_from_fft_product (DoubleSpan reference, DoubleSpan comparison, const PhaseCache& cache,
+                                              const PhaseProductSums& sums, Index n, Index reference_start,
+                                              Index comparison_start, Index length, Index n_eps, double max_shift) {
     if (length < 32) {
-        return {
-            phase_candidate_for_shift(reference, comparison, 0, shift, length, shift, max_shift),
-            phase_candidate_for_shift(reference, comparison, shift, 0, length, shift, max_shift),
-        };
+        return phase_candidate_for_shift(reference, comparison, reference_start, comparison_start, length, n_eps,
+                                         max_shift);
+    }
+    const double product_sum = product_sum_from_fft(sums, n, reference_start, comparison_start);
+    const double rho_e = correlation_from_cached_product(cache, reference_start, comparison_start, length, product_sum);
+    if (std::isnan(rho_e)) {
+        return phase_candidate_for_shift(reference, comparison, reference_start, comparison_start, length, n_eps,
+                                         max_shift);
+    }
+    return phase_candidate_from_correlation(reference_start, comparison_start, length, n_eps, max_shift, rho_e);
+}
+
+void select_phase_candidate (PhaseResult& result, double& ccr_max, const PhaseResult& candidate) {
+    if (candidate.correlation.rho_e > ccr_max + CORRELATION_TIE_TOLERANCE) {
+        ccr_max = candidate.correlation.rho_e;
+        result  = candidate;
+    }
+}
+
+PhaseResult refine_fft_phase_result (DoubleSpan reference, DoubleSpan comparison, const PhaseCache& cache,
+                                     const PhaseProductSums& sums, Index bounded_window_size, double max_shift,
+                                     double fft_ccr_max) {
+    PhaseResult refined = phase_candidate_for_shift(reference, comparison, 0, 0, span_size(reference), 0, max_shift);
+    double      refined_ccr = refined.correlation.rho_e;
+
+    for (Index idx = 1; idx < bounded_window_size; ++idx) {
+        const Index length = span_size(reference) - idx;
+        if (length < 32) {
+            select_phase_candidate(refined, refined_ccr,
+                                   phase_candidate_for_shift(reference, comparison, 0, idx, length, idx, max_shift));
+            select_phase_candidate(refined, refined_ccr,
+                                   phase_candidate_for_shift(reference, comparison, idx, 0, length, idx, max_shift));
+            continue;
+        }
+
+        const double left_product_sum = product_sum_from_fft(sums, span_size(reference), 0, idx);
+        const double left             = correlation_from_cached_product(cache, 0, idx, length, left_product_sum);
+        if (left >= fft_ccr_max - CORRELATION_REFINE_MARGIN) {
+            select_phase_candidate(refined, refined_ccr,
+                                   phase_candidate_for_shift(reference, comparison, 0, idx, length, idx, max_shift));
+        }
+
+        const double right_product_sum = product_sum_from_fft(sums, span_size(reference), idx, 0);
+        const double right             = correlation_from_cached_product(cache, idx, 0, length, right_product_sum);
+        if (right >= fft_ccr_max - CORRELATION_REFINE_MARGIN) {
+            select_phase_candidate(refined, refined_ccr,
+                                   phase_candidate_for_shift(reference, comparison, idx, 0, length, idx, max_shift));
+        }
     }
 
-    const double left_product_sum  = product_sum_for_shift(reference, comparison, 0, shift, length);
-    const double right_product_sum = product_sum_for_shift(reference, comparison, shift, 0, length);
-    double       left              = correlation_from_cached_product(cache, 0, shift, length, left_product_sum);
-    double       right             = correlation_from_cached_product(cache, shift, 0, length, right_product_sum);
-    PhaseResult  left_result;
-    PhaseResult  right_result;
-    if (std::isnan(left)) {
-        left_result = phase_candidate_for_shift(reference, comparison, 0, shift, length, shift, max_shift);
-    } else {
-        left_result = phase_candidate_from_correlation(0, shift, length, shift, max_shift, left);
-    }
-    if (std::isnan(right)) {
-        right_result = phase_candidate_for_shift(reference, comparison, shift, 0, length, shift, max_shift);
-    } else {
-        right_result = phase_candidate_from_correlation(shift, 0, length, shift, max_shift, right);
-    }
-    return {left_result, right_result};
+    return refined;
 }
 
 PhaseResult compute_phase_alignment (DoubleSpan reference, DoubleSpan comparison, const ScoreParams& params) {
@@ -338,21 +419,19 @@ PhaseResult compute_phase_alignment (DoubleSpan reference, DoubleSpan comparison
     const PhaseCache cache               = build_phase_cache(reference, comparison);
     double           ccr_max             = result.correlation.rho_e;
 
+    const PhaseProductSums sums = fft_product_sums(reference, comparison);
     for (Index idx = 1; idx < bounded_window_size; ++idx) {
-        const Index length     = reference_n - idx;
-        const auto  candidates = dual_phase_candidates_for_shift(reference, comparison, cache, idx, length, max_shift);
-        const PhaseResult left_candidate = candidates.first;
-        if (left_candidate.correlation.rho_e > ccr_max + CORRELATION_TIE_TOLERANCE) {
-            ccr_max = left_candidate.correlation.rho_e;
-            result  = left_candidate;
-        }
+        const Index       length         = reference_n - idx;
+        const PhaseResult left_candidate = phase_candidate_from_fft_product(
+            reference, comparison, cache, sums, reference_n, 0, idx, length, idx, max_shift);
+        select_phase_candidate(result, ccr_max, left_candidate);
 
-        const PhaseResult right_candidate = candidates.second;
-        if (right_candidate.correlation.rho_e > ccr_max + CORRELATION_TIE_TOLERANCE) {
-            ccr_max = right_candidate.correlation.rho_e;
-            result  = right_candidate;
-        }
+        const PhaseResult right_candidate = phase_candidate_from_fft_product(
+            reference, comparison, cache, sums, reference_n, idx, 0, length, idx, max_shift);
+        select_phase_candidate(result, ccr_max, right_candidate);
     }
+
+    result = refine_fft_phase_result(reference, comparison, cache, sums, bounded_window_size, max_shift, ccr_max);
 
     if (result.alignment.length < 9) {
         result = phase_candidate_for_shift(reference, comparison, 0, 0, reference_n, 0, max_shift);
