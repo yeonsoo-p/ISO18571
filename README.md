@@ -52,6 +52,12 @@ print(backend_info())
 
 Install `uv` first; all project commands below assume it is available on `PATH`.
 
+Production releases are wheel-only and intentionally support only CPython 3.12,
+3.13, and 3.14 on Linux x86_64 and Windows AMD64. ARM/aarch64, macOS,
+musllinux, and other targets are unsupported. Source builds from a checkout use
+the same x86_64/AMD64-only native engine; unsupported architectures fail during
+native configuration.
+
 Native builds need one of these build environments:
 
 - local build tools for editable installs and single-interpreter wheels: a C++20 compiler, CMake-compatible build tooling, and Python development headers;
@@ -120,11 +126,9 @@ For a full local release build:
 uv run python tools/build_wheels.py --platform all
 ```
 
-To also publish a source distribution, add:
-
-```bash
-uv build --sdist
-```
+Do not publish source distributions for release. The PyPI release artifact set is
+wheel-only so unsupported architectures fail fast with no compatible
+distribution instead of attempting an unsupported native source build.
 
 For Windows wheels:
 
@@ -150,7 +154,7 @@ uv run python tools/build_wheels.py --platform linux
 
 The same Linux-wheel command is supported from Windows when Docker Desktop is running.
 
-`uv build` and `tools/build_wheels.py` both write to `dist/` in the examples above. That is also the default input path for `uv publish`.
+`uv build --wheel` and `tools/build_wheels.py` both write to `dist/` in the examples above. That is also the default input path for `uv publish`.
 
 ## Testing
 

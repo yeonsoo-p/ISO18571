@@ -633,13 +633,20 @@ def validate_release_archive(archive: Path) -> None:
 
 
 def validate_release_artifacts(out_dir: Path, version: str) -> None:
+    forbidden_sdists = sorted(out_dir.glob(f"iso18571-{version}.tar.gz"))
+    if forbidden_sdists:
+        names = ", ".join(path.name for path in forbidden_sdists)
+        raise SystemExit(
+            "Release artifacts must be wheel-only; remove current-version "
+            f"source distributions before publishing: {names}"
+        )
+
     artifacts = sorted(out_dir.glob(f"iso18571-{version}-*.whl"))
-    artifacts.extend(sorted(out_dir.glob(f"iso18571-{version}.tar.gz")))
     if not artifacts:
-        raise SystemExit(f"No iso18571 {version} release artifacts found in {out_dir}.")
+        raise SystemExit(f"No iso18571 {version} wheel artifacts found in {out_dir}.")
     for artifact in artifacts:
         validate_release_archive(artifact)
-    print(f"Validated {len(artifacts)} iso18571 {version} release artifact(s).")
+    print(f"Validated {len(artifacts)} iso18571 {version} wheel artifact(s).")
 
 
 def cp_tag(version: str) -> str:
