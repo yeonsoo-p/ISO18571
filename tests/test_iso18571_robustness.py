@@ -4,10 +4,10 @@ import math
 import warnings
 from collections.abc import Sequence
 from importlib.metadata import version
-from typing import Final, cast
+from typing import Final
 
 import numpy as np
-from numpy.typing import NDArray
+from numpy.typing import ArrayLike, NDArray
 
 import iso18571
 import iso18571._core as native_core
@@ -100,8 +100,8 @@ def sparse_spikes_pair(n: int) -> tuple[NDArray[np.float64], NDArray[np.float64]
 
 
 def score_with_warnings(
-    reference_curve: NDArray[np.float32 | np.float64],
-    comparison_curve: NDArray[np.float32 | np.float64],
+    reference_curve: ArrayLike,
+    comparison_curve: ArrayLike,
 ) -> tuple[ISO18571, list[str]]:
     with warnings.catch_warnings(record=True) as records:
         warnings.simplefilter("always", RuntimeWarning)
@@ -383,10 +383,7 @@ def test_numeric_non_float_curve_inputs_are_force_cast_to_float64() -> None:
     values = ((time * time + 3) % 17) - 8
     curve = np.column_stack((time, values)).astype(np.int64, copy=False)
 
-    iso, messages = score_with_warnings(
-        cast("NDArray[np.float64]", curve),
-        cast("NDArray[np.float64]", curve.copy()),
-    )
+    iso, messages = score_with_warnings(curve, curve.copy())
 
     assert messages == []
     assert_scores_close(

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TypedDict
 import numpy as np
-from numpy.typing import NDArray
+from numpy.typing import ArrayLike
 
 from ._core import _score_components
 
@@ -23,8 +23,8 @@ class ScoreComponents(TypedDict):
 class ISO18571:
     def __init__(
         self,
-        reference_curve: NDArray[np.float32 | np.float64],
-        comparison_curve: NDArray[np.float32 | np.float64],
+        reference_curve: ArrayLike,
+        comparison_curve: ArrayLike,
         k_z: int | float = 2,
         k_p: int | float = 1,
         k_m: int | float = 1,
@@ -38,13 +38,15 @@ class ISO18571:
         w_m: float = 0.2,
         w_s: float = 0.2,
     ) -> None:
-        if reference_curve.shape != comparison_curve.shape:
+        reference_array = np.asarray(reference_curve)
+        comparison_array = np.asarray(comparison_curve)
+        if reference_array.shape != comparison_array.shape:
             raise ValueError("Curves are not equal in size/dimension")
 
         self._scores: ScoreComponents
         self._scores = _score_components(
-            reference_curve,
-            comparison_curve,
+            reference_array,
+            comparison_array,
             {
                 "k_z": k_z,
                 "k_p": k_p,

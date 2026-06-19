@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from typing import cast
 
 import numpy as np
@@ -36,9 +37,14 @@ class BaseISO18571:
                 "Curves are not equal in size/dimension.\nInterpolation not implemented. "
             )
 
-        self._k_z = k_z
-        if self._k_z not in [1, 2, 3]:
-            raise ValueError("k_z has to be 1, 2, or 3")
+        k_z_float = float(k_z)
+        if (
+            not math.isfinite(k_z_float)
+            or k_z_float < 1.0
+            or math.floor(k_z_float) != k_z_float
+        ):
+            raise ValueError("k_z must be a positive integer")
+        self._k_z = int(k_z_float)
 
         self._k_p = k_p
         if self._k_p not in [1, 2, 3]:

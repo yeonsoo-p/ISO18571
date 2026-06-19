@@ -18,6 +18,7 @@ import numpy as np
 import numpy.typing as npt
 
 FloatArray = npt.NDArray[np.float64]
+CsvDataRows = list[tuple[int, list[str]]]
 
 ANNEX_ZIP_URL = (
     "https://standards.iso.org/iso/ts/18571/ed-2/en/"
@@ -34,6 +35,13 @@ DEFAULT_EXAMPLE_DIR = Path("examples")
 DEFAULT_ANNEX_ROOT = DEFAULT_EXAMPLE_DIR / "data" / "annex"
 DEFAULT_OFFICIAL_ANNEX_DIR = DEFAULT_ANNEX_ROOT / "official"
 DEFAULT_GENERATED_ANNEX_DIR = DEFAULT_ANNEX_ROOT / "generated"
+OFFICIAL_UNIT_FIELDS = {
+    "Time": "[s]",
+    "Test": "[m/s2]",
+    "CAE": "[m/s2]",
+    "Test_Phase_Shifted": "[m/s2]",
+    "CAE_Phase_Shifted": "[m/s2]",
+}
 
 SIGNAL_FAMILIES = (
     "ramp",
@@ -108,6 +116,134 @@ def load_curve_csv(path: Path, delimiter: str = ",") -> FloatArray:
     if curve.ndim != 2 or curve.shape[1] != 2:
         raise ValueError(f"{path} must contain exactly two columns: time,value")
     return curve.astype(np.float64, copy=False)
+
+
+def read_csv_header_and_rows(path: Path) -> tuple[list[str], CsvDataRows]:
+    with path.open(newline="") as csv_file:
+        reader = csv.reader(csv_file)
+        try:
+            header = next(reader)
+        except StopIteration as exc:
+            raise ValueError(f"{path} is empty") from exc
+        rows = [(line_no, row) for line_no, row in enumerate(reader, start=2)]
+    return header, rows
+
+
+def split_official_units_row(
+    path: Path, rows: CsvDataRows
+) -> tuple[list[str], CsvDataRows]:
+    if not rows:
+        raise ValueError(f"{path} is missing the official Annex units row")
+    _, units = rows[0]
+    return units, rows[1:]
+
+
+def require_field_indices(
+    path: Path, header: list[str], fields: tuple[str, ...]
+) -> list[int]:
+    missing = [field for field in fields if field not in header]
+    if missing:
+        raise ValueError(
+            f"{path} is missing required CSV columns: {', '.join(missing)}"
+        )
+    return [header.index(field) for field in fields]
+
+
+def validate_official_units_row(
+    path: Path, header: list[str], units: list[str]
+) -> None:
+    for field, expected in OFFICIAL_UNIT_FIELDS.items():
+        index = require_field_indices(path, header, (field,))[0]
+        actual = units[index].strip() if index < len(units) else ""
+        if actual != expected:
+            raise ValueError(
+                f"{path}:2: expected unit {expected!r} for {field!r}, got {actual!r}"
+            )
+
+
+def csv_row_value(row: list[str], index: int) -> str:
+    if index >= len(row):
+        return ""
+    return row[index].strip()
+
+
+def parse_numeric_prefix(
+    path: Path,
+    header: list[str],
+    rows: CsvDataRows,
+    fields: tuple[str, ...],
+    *,
+    allow_trailing_blank_rows: bool,
+) -> list[tuple[float, ...]]:
+    indices = require_field_indices(path, header, fields)
+    parsed: list[tuple[float, ...]] = []
+    trailing_blank = False
+    for line_no, row in rows:
+        if len(row) > len(header):
+            raise ValueError(f"{path}:{line_no}: row has more columns than the header")
+        values = [csv_row_value(row, index) for index in indices]
+        if all(value == "" for value in values):
+            if not allow_trailing_blank_rows:
+                raise ValueError(
+                    f"{path}:{line_no}: blank row in required columns {', '.join(fields)}"
+                )
+            trailing_blank = True
+            continue
+        if trailing_blank:
+            raise ValueError(
+                f"{path}:{line_no}: nonblank values after trailing blanks in "
+                f"{', '.join(fields)}"
+            )
+        if any(value == "" for value in values):
+            raise ValueError(
+                f"{path}:{line_no}: columns {', '.join(fields)} must be all numeric or all blank"
+            )
+        try:
+            parsed.append(tuple(float(value) for value in values))
+        except ValueError as exc:
+            raise ValueError(
+                f"{path}:{line_no}: invalid numeric value in columns {', '.join(fields)}"
+            ) from exc
+    return parsed
+
+
+def load_official_annex_arrays(path: Path) -> tuple[FloatArray, FloatArray | None]:
+    header, rows_with_units = read_csv_header_and_rows(path)
+    units, rows = split_official_units_row(path, rows_with_units)
+    validate_official_units_row(path, header, units)
+    signal_rows = parse_numeric_prefix(
+        path,
+        header,
+        rows,
+        ("Time", "Test", "CAE"),
+        allow_trailing_blank_rows=True,
+    )
+    shifted_rows = parse_numeric_prefix(
+        path,
+        header,
+        rows,
+        ("Test_Phase_Shifted", "CAE_Phase_Shifted"),
+        allow_trailing_blank_rows=True,
+    )
+    if not signal_rows:
+        raise ValueError(f"No signal data found in {path}")
+    signal_array = np.asarray(signal_rows, dtype=np.float64)
+    shifted_array = np.asarray(shifted_rows, dtype=np.float64) if shifted_rows else None
+    return signal_array, shifted_array
+
+
+def load_generated_annex_array(path: Path) -> FloatArray:
+    header, rows = read_csv_header_and_rows(path)
+    signal_rows = parse_numeric_prefix(
+        path,
+        header,
+        rows,
+        ("Time", "Reference", "Comparison"),
+        allow_trailing_blank_rows=False,
+    )
+    if not signal_rows:
+        raise ValueError(f"No generated signal data found in {path}")
+    return np.asarray(signal_rows, dtype=np.float64)
 
 
 def write_demo_csvs(output_dir: Path = DEFAULT_EXAMPLE_DIR) -> tuple[Path, Path]:
@@ -483,16 +619,7 @@ def download_annex_csvs(
 
 
 def load_official_annex_curve_pair(path: Path) -> CurvePair:
-    rows: list[tuple[float, float, float]] = []
-    with path.open(newline="") as csv_file:
-        for row in list(csv.DictReader(csv_file))[1:]:
-            try:
-                rows.append((float(row["Time"]), float(row["Test"]), float(row["CAE"])))
-            except (KeyError, TypeError, ValueError):
-                continue
-    if not rows:
-        raise ValueError(f"No signal data found in {path}")
-    array = np.asarray(rows, dtype=np.float64)
+    array, _ = load_official_annex_arrays(path)
     return CurvePair(
         name=path.stem,
         reference_curve=np.column_stack((array[:, 0], array[:, 1])),
@@ -501,22 +628,7 @@ def load_official_annex_curve_pair(path: Path) -> CurvePair:
 
 
 def load_generated_annex_curve_pair(path: Path) -> CurvePair:
-    rows: list[tuple[float, float, float]] = []
-    with path.open(newline="") as csv_file:
-        for row in csv.DictReader(csv_file):
-            try:
-                rows.append(
-                    (
-                        float(row["Time"]),
-                        float(row["Reference"]),
-                        float(row["Comparison"]),
-                    )
-                )
-            except (KeyError, TypeError, ValueError):
-                continue
-    if not rows:
-        raise ValueError(f"No generated signal data found in {path}")
-    array = np.asarray(rows, dtype=np.float64)
+    array = load_generated_annex_array(path)
     return CurvePair(
         name=path.stem,
         reference_curve=np.column_stack((array[:, 0], array[:, 1])),

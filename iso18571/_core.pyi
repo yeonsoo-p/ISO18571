@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-import numpy as np
-from numpy.typing import NDArray
+from numpy.typing import ArrayLike
 
 from . import ScoreComponents
 
 def backend_info() -> dict[str, str]: ...
 def _score_components(
-    reference_curve: NDArray[np.float32 | np.float64],
-    comparison_curve: NDArray[np.float32 | np.float64],
+    reference_curve: ArrayLike,
+    comparison_curve: ArrayLike,
     params: dict[str, float | int],
 ) -> ScoreComponents: ...

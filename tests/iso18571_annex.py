@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import csv
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -117,31 +116,7 @@ def load_downloaded_annex_cases(annex_dir: Path) -> list[AnnexCase]:
             continue
         table_key = match[1]
         cae_no = int(match.group(2))
-        rows: list[tuple[float, float, float]] = []
-        shifted_rows: list[tuple[float, float]] = []
-        with path.open(newline="") as csv_file:
-            for row in list(csv.DictReader(csv_file))[1:]:
-                try:
-                    rows.append(
-                        (float(row["Time"]), float(row["Test"]), float(row["CAE"]))
-                    )
-                except (KeyError, TypeError, ValueError):
-                    pass
-                try:
-                    shifted_rows.append(
-                        (
-                            float(row["Test_Phase_Shifted"]),
-                            float(row["CAE_Phase_Shifted"]),
-                        )
-                    )
-                except (KeyError, TypeError, ValueError):
-                    pass
-        if not rows:
-            raise ValueError(f"No signal data found in {path}")
-        array = np.asarray(rows, dtype=np.float64)
-        shifted_array = (
-            np.asarray(shifted_rows, dtype=np.float64) if shifted_rows else None
-        )
+        array, shifted_array = example_data.load_official_annex_arrays(path)
         expected = dict(
             zip(SCORE_NAMES, EXPECTED_SCORES[table_key][cae_no], strict=True)
         )
@@ -171,22 +146,7 @@ def load_generated_annex_cases(annex_dir: Path) -> list[AnnexCase]:
         match = example_data.GENERATED_FILE_RE.match(path.name)
         if match is None:
             continue
-        rows: list[tuple[float, float, float]] = []
-        with path.open(newline="") as csv_file:
-            for row in csv.DictReader(csv_file):
-                try:
-                    rows.append(
-                        (
-                            float(row["Time"]),
-                            float(row["Reference"]),
-                            float(row["Comparison"]),
-                        )
-                    )
-                except (KeyError, TypeError, ValueError):
-                    continue
-        if not rows:
-            raise ValueError(f"No generated signal data found in {path}")
-        array = np.asarray(rows, dtype=np.float64)
+        array = example_data.load_generated_annex_array(path)
         cases.append(
             AnnexCase(
                 name=path.stem,

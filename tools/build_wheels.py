@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import tomllib
 import urllib.request
 import zipfile
 from dataclasses import dataclass
@@ -19,6 +20,24 @@ from typing import Sequence, TypedDict
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_PYTHONS = ("3.12", "3.13", "3.14")
 WINDOWS_ARCH = "win_amd64"
+FORBIDDEN_ARCHIVE_PREFIXES = ("iso18571_reference", "tests", "ref")
+PRODUCTION_PACKAGE_FILES = frozenset(
+    {
+        "iso18571/__init__.py",
+        "iso18571/rating.py",
+        "iso18571/_core.pyi",
+        "iso18571/py.typed",
+    }
+)
+SDIST_REQUIRED_FILES = PRODUCTION_PACKAGE_FILES | frozenset(
+    {
+        "CMakeLists.txt",
+        "LICENSE",
+        "pyproject.toml",
+        "src/iso18571/_core.cpp",
+    }
+)
+NATIVE_EXTENSION_SUFFIXES = (".so", ".pyd")
 
 
 class VersionParts(TypedDict):
@@ -89,6 +108,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "the native MSVC/cibuildwheel lane."
             )
 
+    validate_release_artifacts(out_dir, project_version())
     return 0
 
 
@@ -481,6 +501,7 @@ def select_built_wheel(out_dir: Path, tag: str, before: set[Path]) -> Path:
 def validate_windows_wheel(
     objdump: Path, wheel: Path, target_python: WindowsPython
 ) -> None:
+    validate_release_archive(wheel)
     expected_pyd = f"iso18571/_core{target_python.extension_suffix}"
     with zipfile.ZipFile(wheel) as wheel_file:
         names = set(wheel_file.namelist())
@@ -519,6 +540,106 @@ def validate_windows_wheel(
     if missing:
         raise SystemExit(f"{wheel} is missing expected DLL imports: {sorted(missing)}")
     print(f"Validated {wheel.name}: {', '.join(sorted(required))}")
+
+
+def project_version() -> str:
+    with (PROJECT_ROOT / "pyproject.toml").open("rb") as file:
+        data = tomllib.load(file)
+    project = data.get("project")
+    if not isinstance(project, dict):
+        raise SystemExit("pyproject.toml is missing [project] metadata.")
+    version = project.get("version")
+    if not isinstance(version, str):
+        raise SystemExit("pyproject.toml is missing project.version.")
+    return version
+
+
+def archive_member_names(archive: Path) -> set[str]:
+    if archive.suffix == ".whl":
+        with zipfile.ZipFile(archive) as wheel_file:
+            raw_names = wheel_file.namelist()
+    elif archive.name.endswith(".tar.gz"):
+        with tarfile.open(archive) as sdist_file:
+            raw_names = sdist_file.getnames()
+    else:
+        raise SystemExit(f"Unsupported release artifact type: {archive}")
+    return {
+        normalized_archive_member(name)
+        for name in raw_names
+        if normalized_archive_member(name)
+    }
+
+
+def normalized_archive_member(name: str) -> str:
+    parts = tuple(part for part in name.replace("\\", "/").split("/") if part)
+    if not parts:
+        return ""
+    if len(parts) > 1 and parts[0].startswith("iso18571-"):
+        parts = parts[1:]
+    return "/".join(parts).rstrip("/")
+
+
+def validate_no_forbidden_members(archive: Path, names: set[str]) -> None:
+    forbidden = [
+        name
+        for name in sorted(names)
+        for prefix in FORBIDDEN_ARCHIVE_PREFIXES
+        if name == prefix or name.startswith(f"{prefix}/")
+    ]
+    if forbidden:
+        raise SystemExit(
+            f"{archive} contains non-production archive members: {forbidden[:10]}"
+        )
+
+
+def validate_wheel_archive(archive: Path, names: set[str]) -> None:
+    missing = sorted(PRODUCTION_PACKAGE_FILES - names)
+    if missing:
+        raise SystemExit(f"{archive} is missing production package files: {missing}")
+    native_extensions = sorted(
+        name
+        for name in names
+        if name.startswith("iso18571/_core.")
+        and name.endswith(NATIVE_EXTENSION_SUFFIXES)
+    )
+    if len(native_extensions) != 1:
+        raise SystemExit(
+            f"{archive} must contain exactly one native extension, found {native_extensions}"
+        )
+
+
+def validate_sdist_archive(archive: Path, names: set[str]) -> None:
+    missing = sorted(SDIST_REQUIRED_FILES - names)
+    if missing:
+        raise SystemExit(f"{archive} is missing source distribution files: {missing}")
+    native_extensions = sorted(
+        name for name in names if name.endswith(NATIVE_EXTENSION_SUFFIXES)
+    )
+    if native_extensions:
+        raise SystemExit(
+            f"{archive} source distribution contains built extensions: {native_extensions}"
+        )
+
+
+def validate_release_archive(archive: Path) -> None:
+    names = archive_member_names(archive)
+    validate_no_forbidden_members(archive, names)
+    if archive.suffix == ".whl":
+        validate_wheel_archive(archive, names)
+    elif archive.name.endswith(".tar.gz"):
+        validate_sdist_archive(archive, names)
+    else:
+        raise SystemExit(f"Unsupported release artifact type: {archive}")
+
+
+def validate_release_artifacts(out_dir: Path, version: str) -> None:
+    artifacts = sorted(out_dir.glob(f"iso18571-{version}-*.whl"))
+    artifacts.extend(sorted(out_dir.glob(f"iso18571-{version}.tar.gz")))
+    if not artifacts:
+        raise SystemExit(f"No iso18571 {version} release artifacts found in {out_dir}.")
+    for artifact in artifacts:
+        validate_release_archive(artifact)
+    print(f"Validated {len(artifacts)} iso18571 {version} release artifact(s).")
 
 
 def cp_tag(version: str) -> str:

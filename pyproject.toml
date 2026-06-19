@@ -7,6 +7,7 @@ name = "iso18571"
 version = "1.0.6"
 description = "ISO/TS 18571 validation tooling"
 readme = "README.md"
+license = { text = "MIT" }
 requires-python = ">=3.12"
 dependencies = ["numpy"]
 
@@ -18,7 +19,9 @@ test = ["dtw-python", "dtwalign", "librosa", "mypy", "pytest", "pytest-benchmark
 [tool.scikit-build]
 build-dir = "build/{wheel_tag}"
 cmake.version = ">=3.21"
+sdist.exclude = ["iso18571_reference", "iso18571_reference/**", "tests", "tests/**", "ref", "ref/**"]
 wheel.packages = []
+wheel.license-files = ["LICENSE"]
 
 [[tool.scikit-build.overrides]]
 if.env.ISO18571_CROSS_WINDOWS_TAG = "cp312-cp312-win_amd64"

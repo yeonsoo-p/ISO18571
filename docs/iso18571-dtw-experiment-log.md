@@ -2801,3 +2801,53 @@
 - Next hypothesis:
   - keep future native type aliases in `engine.hpp` only when they are part of
     the internal scorer interface shared across translation units.
+
+## 2026-06-19 14:24 KST - Production Artifact Cleanup
+
+- Git status:
+  - dirty with packaging metadata, public typing, reference validation, Annex
+    loader strictness, release artifact validation, robustness/Annex test helper
+    updates, and this experiment log entry;
+  - an unrelated `.gitignore` change was present and left unstaged.
+- Hypothesis:
+  - excluding reference/test material from sdists, validating release archives,
+    aligning reference `k_z` with the native positive-integer contract, and
+    typing public curve inputs as `ArrayLike` can clean up the production
+    packaging and runtime contract without changing scorer behavior.
+- Files changed:
+  - `pyproject.toml`;
+  - `iso18571/rating.py`;
+  - `iso18571/_core.pyi`;
+  - `iso18571_reference/_common.py`;
+  - `tools/build_wheels.py`;
+  - `tools/example_data.py`;
+  - `tests/iso18571_annex.py`;
+  - `tests/test_iso18571_robustness.py`;
+  - this experiment log.
+- Commands:
+  - `.venv/bin/ruff check .`;
+  - `.venv/bin/ruff format tools/build_wheels.py tools/example_data.py`;
+  - `.venv/bin/ruff check .`;
+  - `.venv/bin/ruff format --check .`;
+  - `.venv/bin/mypy iso18571 iso18571_reference tests tools/build_wheels.py`;
+  - `.venv/bin/python -m pytest -q`;
+  - `env UV_CACHE_DIR=/tmp/iso18571-uv-cache uv build --sdist`;
+  - `env UV_CACHE_DIR=/tmp/iso18571-uv-cache uv build --wheel`;
+  - `env UV_CACHE_DIR=/tmp/iso18571-uv-cache uv run --no-project --with cibuildwheel python tools/build_wheels.py --platform all --cache-dir /tmp/iso18571-wheel-build --xwin-root /tmp/iso18571-xwin`.
+- Validation result:
+  - final ruff check and format check passed;
+  - mypy passed for `17 source files`;
+  - pytest passed: `19 passed, 32 deselected`;
+  - sdist and local CPython 3.13 Linux wheel builds passed;
+  - full wheel-builder run passed for Linux CPython 3.12/3.13/3.14
+    manylinux wheels and Windows CPython 3.12/3.13/3.14 cross-built wheels;
+  - release artifact validation passed for `8` current-version artifacts with
+    no `iso18571_reference`, `tests`, or `ref` archive members.
+- Conclusion:
+  - production sdists and wheels now have explicit clean-package intent and an
+    automated archive guard, while the public Python contract accepts
+    NumPy-compatible inputs and the reference scorer follows the documented
+    positive-integer `k_z` behavior.
+- Next hypothesis:
+  - handle DTW allocation failure behavior separately after deciding whether a
+    deliberate memory check is preferable to relying on allocator failure.
