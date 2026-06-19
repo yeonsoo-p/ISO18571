@@ -3776,3 +3776,60 @@
 - Next hypothesis:
   - if validation cleanup continues, consider moving private validation helpers
     into an anonymous namespace separately from the string type cleanup.
+
+## 2026-06-19 18:39 KST - FFT Vector Storage Replacement
+
+- Git status:
+  - clean at start from commit `7a0cce5`;
+  - implementation changed `src/iso18571/fft.cpp`.
+- Hypothesis:
+  - after replacing FFT internals with `std::complex<double>`, the remaining
+    custom `arr<T>` raw-storage container is less safe than standard container
+    storage because it bypasses object lifetime management; replacing it with
+    `std::vector<Complex>` should preserve behavior while removing the private
+    64-byte allocation contract.
+- Files changed:
+  - `src/iso18571/fft.cpp`;
+  - this experiment log.
+- Commands:
+  - removed private `aligned_alloc`, `aligned_dealloc`, and `arr<T>`;
+  - replaced sine/cosine caches, FFT twiddle storage, and per-exec scratch
+    storage with `std::vector<Complex>`;
+  - changed factor metadata from twiddle pointers to offsets into the twiddle
+    vector;
+  - used `reserve`/`push_back` for fully overwritten cache and twiddle vectors
+    to avoid avoidable zero-initialization during plan construction;
+  - `uv run --extra test clang-format -i src/iso18571/fft.cpp`;
+  - `uv pip install -e .`;
+  - `uv run --extra test python -m pytest -q`;
+  - `mkdir -p .benchmarks/iso18571-fft-vector-storage`;
+  - `uv run --extra test python -m pytest -q tests/test_iso18571_benchmarks.py
+    -m benchmark -k native --benchmark-json
+    .benchmarks/iso18571-fft-vector-storage/benchmarks.json`;
+  - summarized benchmark JSON with `uv run python`.
+  - `rg -n "\\barr\\b|aligned_alloc|aligned_dealloc|::aligned_alloc|malloc|free\\("
+    src/iso18571/fft.cpp`;
+  - `git diff --check`;
+  - `uv run --extra test pre-commit run --all-files`.
+- Validation result:
+  - editable native rebuild passed and installed `iso18571==1.0.7`;
+  - full pytest passed: `19 passed, 32 deselected`;
+  - native-only benchmark passed: `8 passed, 24 deselected`;
+  - stale allocation scan found no remaining matches;
+  - `git diff --check` passed;
+  - pre-commit passed.
+- Benchmark result:
+  - load/setup elapsed, ms:
+    `512=123.898`, `2048=155.843`, `8192=145.363`, `32768=447.003`;
+  - load/setup peak RSS, MiB:
+    `512=45.95`, `2048=46.10`, `8192=46.95`, `32768=52.60`;
+  - runtime median, ms:
+    `512=0.237`, `2048=2.016`, `8192=21.269`, `32768=308.423`;
+  - runtime peak RSS, MiB:
+    `512=45.96`, `2048=46.07`, `8192=46.93`, `32768=52.90`.
+- Conclusion:
+  - FFT storage no longer depends on custom aligned raw allocation;
+  - the implementation uses constructed `std::complex<double>` objects
+    throughout private FFT caches and scratch buffers;
+  - no README benchmark refresh was made because this was not promoted as a new
+    published benchmark baseline.
