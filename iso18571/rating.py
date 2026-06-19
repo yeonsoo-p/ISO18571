@@ -42,7 +42,7 @@ class ISO18571:
             raise ValueError("Curves are not equal in size/dimension")
 
         self._scores: ScoreComponents
-        self._scores, self._t_ts, self._cae_ts = _score_components(
+        self._scores = _score_components(
             reference_curve,
             comparison_curve,
             {
@@ -75,14 +75,6 @@ class ISO18571:
     @property
     def rho_e(self) -> float:
         return self._rho_e
-
-    @property
-    def shifted_reference_curve(self) -> NDArray[np.float32 | np.float64]:
-        return self._t_ts.copy()
-
-    @property
-    def shifted_comparison_curve(self) -> NDArray[np.float32 | np.float64]:
-        return self._cae_ts.copy()
 
     @property
     def reference_start(self) -> int:

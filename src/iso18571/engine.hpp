@@ -45,13 +45,10 @@ struct CurveView {
 };
 
 struct SignalView {
-    std::span<const double> time_values;
     std::span<const double> signal_values;
     Index                   n = 0;
 
     double value (Index index) const { return signal_values[static_cast<std::size_t>(index)]; }
-
-    double time (Index index) const { return time_values[static_cast<std::size_t>(index)]; }
 
     ArrayView value_slice (Index start, Index length) const {
         return {

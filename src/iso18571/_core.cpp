@@ -38,12 +38,10 @@ struct ValidatedCurves {
 };
 
 struct OwnedCurve {
-    std::vector<double> time;
     std::vector<double> value;
 
     SignalView view () const {
         return {
-            std::span<const double>(time.data(), time.size()),
             std::span<const double>(value.data(), value.size()),
             static_cast<Index>(value.size()),
         };
@@ -256,11 +254,9 @@ ValidatedCurves validate_curves (py::array reference_curve, py::array comparison
 
 OwnedCurve copy_curve (const CurveView& curve) {
     OwnedCurve out;
-    out.time.resize(static_cast<std::size_t>(curve.n));
     out.value.resize(static_cast<std::size_t>(curve.n));
     for (Index idx = 0; idx < curve.n; ++idx) {
         const std::size_t offset = static_cast<std::size_t>(idx);
-        out.time[offset]        = curve.time(idx);
         out.value[offset]       = curve.value(idx);
     }
     return out;
@@ -315,27 +311,7 @@ void add_score_fields (py::dict& out, const ScoreResult& result) {
     out["shift_length"]     = result.phase.alignment.length;
 }
 
-template<typename T>
-py::array shifted_curve_array_as (const OwnedCurve& curve, Index start, Index length) {
-    py::array_t<T> out({static_cast<py::ssize_t>(length), py::ssize_t{2}});
-    auto           view = out.template mutable_unchecked<2>();
-    for (Index idx = 0; idx < length; ++idx) {
-        const std::size_t source_offset = static_cast<std::size_t>(start + idx);
-        const py::ssize_t row           = static_cast<py::ssize_t>(idx);
-        view(row, 0)                    = static_cast<T>(curve.time[source_offset]);
-        view(row, 1)                    = static_cast<T>(curve.value[source_offset]);
-    }
-    return out;
-}
-
-py::array shifted_curve_array (const OwnedCurve& curve, CurveDType dtype, Index start, Index length) {
-    if (dtype == CurveDType::Float32) {
-        return shifted_curve_array_as<float>(curve, start, length);
-    }
-    return shifted_curve_array_as<double>(curve, start, length);
-}
-
-py::tuple score_components (py::array reference_curve, py::array comparison_curve, py::dict params) {
+py::dict score_components (py::array reference_curve, py::array comparison_curve, py::dict params) {
     const ValidatedCurves curves       = validate_curves(reference_curve, comparison_curve);
     ScoreParams           score_params = score_params_from_dict(params);
     iso18571::validate_score_params(score_params);
@@ -354,12 +330,7 @@ py::tuple score_components (py::array reference_curve, py::array comparison_curv
 
     py::dict out;
     add_score_fields(out, result);
-    return py::make_tuple(
-        out,
-        shifted_curve_array(reference_snapshot, curves.reference.view.dtype, result.phase.alignment.reference_start,
-                            result.phase.alignment.length),
-        shifted_curve_array(comparison_snapshot, curves.comparison.view.dtype, result.phase.alignment.comparison_start,
-                            result.phase.alignment.length));
+    return out;
 }
 
 py::dict backend_info () {

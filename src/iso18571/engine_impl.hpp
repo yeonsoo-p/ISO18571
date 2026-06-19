@@ -70,11 +70,6 @@ Index window_radius (Index n, double window_size) {
     return std::min<Index>(n, std::max<Index>(1, raw));
 }
 
-Index direction_index (Index i, Index j, Index radius, Index band_width) {
-    const Index row_start = i - radius + 1;
-    return i * band_width + (j - row_start);
-}
-
 DtwState compute_directions_index_incremental (const ArrayView& x, const ArrayView& y, double window_size) {
     DtwState state;
     state.n          = x.n;
@@ -149,6 +144,10 @@ std::pair<double, double> magnitude_error_from_state (const ArrayView& x, const 
     double denominator = 0.0;
     Index  i           = state.n - 1;
     Index  j           = state.n - 1;
+    const auto direction_index = [&state] (Index row, Index column) {
+        const Index row_start = row - state.radius + 1;
+        return row * state.band_width + (column - row_start);
+    };
 
     while (true) {
         numerator += std::abs(x.value(i) - y.value(j));
@@ -157,8 +156,7 @@ std::pair<double, double> magnitude_error_from_state (const ArrayView& x, const 
             break;
         }
 
-        const auto direction =
-            state.directions[static_cast<std::size_t>(direction_index(i, j, state.radius, state.band_width))];
+        const auto direction = state.directions[static_cast<std::size_t>(direction_index(i, j))];
         if (direction == DIR_VERTICAL) {
             --i;
         } else if (direction == DIR_HORIZONTAL) {
@@ -171,11 +169,6 @@ std::pair<double, double> magnitude_error_from_state (const ArrayView& x, const 
         }
     }
     return {numerator, denominator};
-}
-
-std::pair<double, double> magnitude_error_impl (const ArrayView& x, const ArrayView& y, double window_size) {
-    const DtwState state = compute_directions_index_incremental(x, y, window_size);
-    return magnitude_error_from_state(x, y, state);
 }
 
 template<typename Series>
@@ -444,7 +437,8 @@ double phase_score (const SignalView& reference, const ScoreParams& params, cons
 
 MagnitudeResult magnitude_score_from_values (const ArrayView& reference_values, const ArrayView& comparison_values,
                                              const ScoreParams& params) {
-    const auto [numerator, denominator] = magnitude_error_impl(comparison_values, reference_values, 0.1);
+    const DtwState state = compute_directions_index_incremental(comparison_values, reference_values, 0.1);
+    const auto [numerator, denominator] = magnitude_error_from_state(comparison_values, reference_values, state);
     if (denominator == 0.0) {
         MagnitudeResult result;
         result.score = numerator == 0.0 ? 1.0 : 0.0;

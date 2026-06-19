@@ -2624,3 +2624,58 @@
 - Next hypothesis:
   - compare native benchmark memory rows against the previous run to quantify
     the expected full-curve snapshot overhead.
+
+## 2026-06-19 13:23 KST - Shifted Output as Indices Only
+
+- Git status:
+  - dirty with production scorer binding/wrapper changes, native engine cleanup,
+    parity helper updates, robustness surface assertions, backend docs, and
+    quickstart notebook wording/output cleanup.
+- Hypothesis:
+  - returning only phase-alignment indices from the production scorer can remove
+    eager shifted-curve array ownership and the redundant native time snapshot
+    while preserving scoring, start/length parity, and official shifted-value
+    validation through source curve slicing.
+- Files changed:
+  - `docs/iso18571-dtw-backends.md`;
+  - `examples/quickstart.ipynb`;
+  - `iso18571/_core.pyi`;
+  - `iso18571/rating.py`;
+  - `src/iso18571/_core.cpp`;
+  - `src/iso18571/engine.hpp`;
+  - `src/iso18571/engine_impl.hpp`;
+  - `tests/iso18571_test_helpers.py`;
+  - `tests/test_iso18571_robustness.py`;
+  - this experiment log.
+- Commands:
+  - removed shifted `(n, 2)` arrays from native `_score_components` and the
+    public `ISO18571` object;
+  - removed `OwnedCurve::time`, `SignalView::time_values`, shifted-array
+    helpers, the `magnitude_error_impl` wrapper, and the file-scope
+    `direction_index` helper;
+  - updated parity helpers to compare scores and phase indices only, while
+    checking official Annex shifted values by slicing the original curves;
+  - updated quickstart guidance to derive aligned curves from
+    `reference_start`, `comparison_start`, and `shift_length`;
+  - rebuilt the editable native package and ran the requested native-only
+    benchmark.
+- Validation result:
+  - `uv run --extra test ruff check --fix .` passed;
+  - `uv run --extra test ruff format .` passed with one file reformatted;
+  - `uv run --extra test ruff check .` passed;
+  - `uv run --extra test ruff format --check .` passed with
+    `21 files already formatted`;
+  - `uv run --extra test mypy iso18571 iso18571_reference tests` passed:
+    `16 source files`;
+  - `uv run --extra test python -m pytest -q` passed:
+    `17 passed, 32 deselected`;
+  - `uv pip install -e .` passed and installed `iso18571==1.0.5`;
+  - `uv run --extra test python -m pytest -q tests/test_iso18571_benchmarks.py -m benchmark -k native --benchmark-json .benchmarks/iso18571-native-only/benchmarks.json`
+    passed: `8 passed, 24 deselected`;
+  - `git diff --check` passed.
+- Conclusion:
+  - the production scorer now records shifted alignment by indices only, native
+    scoring keeps only the value snapshot needed for GIL-free scoring, and
+    validation plus native-only benchmarks are green.
+- Next hypothesis:
+  - commit this indices-only shifted-output API change.

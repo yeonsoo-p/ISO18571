@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from typing import Protocol, TypeVar
 
 import numpy as np
-from numpy.typing import NDArray
 
 import iso18571
 from iso18571_reference import rating_dtwalign, rating_dtw_python, rating_librosa
@@ -48,8 +47,6 @@ class AnnexParityResult:
     reference_start: int
     comparison_start: int
     shift_length: int
-    shifted_reference_curve: NDArray[np.float32 | np.float64]
-    shifted_comparison_curve: NDArray[np.float32 | np.float64]
 
 
 class Scorer(Protocol):
@@ -67,12 +64,6 @@ class Scorer(Protocol):
 
     @property
     def shift_length(self) -> int: ...
-
-    @property
-    def shifted_reference_curve(self) -> NDArray[np.float32 | np.float64]: ...
-
-    @property
-    def shifted_comparison_curve(self) -> NDArray[np.float32 | np.float64]: ...
 
     def corridor_rating(self, ndigits: int = 3) -> float: ...
 
@@ -158,8 +149,6 @@ def scores_for_case(case: AnnexCase, backend: str) -> AnnexParityResult:
         reference_start=iso.reference_start,
         comparison_start=iso.comparison_start,
         shift_length=iso.shift_length,
-        shifted_reference_curve=iso.shifted_reference_curve,
-        shifted_comparison_curve=iso.shifted_comparison_curve,
     )
 
 
@@ -205,29 +194,6 @@ def assert_scores_close(
             equal_nan=True,
             err_msg=f"{case_name} {backend} {key}",
         )
-    assert (
-        observed.shifted_reference_curve.shape == expected.shifted_reference_curve.shape
-    ), f"{case_name} {backend} shifted_reference_curve shape"
-    assert (
-        observed.shifted_comparison_curve.shape
-        == expected.shifted_comparison_curve.shape
-    ), f"{case_name} {backend} shifted_comparison_curve shape"
-    np.testing.assert_allclose(
-        observed.shifted_reference_curve,
-        expected.shifted_reference_curve,
-        rtol=0.0,
-        atol=0.0,
-        equal_nan=True,
-        err_msg=f"{case_name} {backend} shifted_reference_curve",
-    )
-    np.testing.assert_allclose(
-        observed.shifted_comparison_curve,
-        expected.shifted_comparison_curve,
-        rtol=0.0,
-        atol=0.0,
-        equal_nan=True,
-        err_msg=f"{case_name} {backend} shifted_comparison_curve",
-    )
 
 
 def assert_downloaded_expected_scores(
@@ -250,8 +216,10 @@ def assert_downloaded_expected_shifted_values(
 ) -> None:
     assert case.expected_shifted_reference_values is not None
     assert case.expected_shifted_comparison_values is not None
+    reference_stop = result.reference_start + result.shift_length
+    comparison_stop = result.comparison_start + result.shift_length
     np.testing.assert_allclose(
-        result.shifted_reference_curve[:, 1],
+        case.reference_curve[result.reference_start : reference_stop, 1],
         case.expected_shifted_reference_values,
         rtol=0.0,
         atol=0.001,
@@ -259,7 +227,7 @@ def assert_downloaded_expected_shifted_values(
         err_msg=f"{case.name} {backend} official shifted reference",
     )
     np.testing.assert_allclose(
-        result.shifted_comparison_curve[:, 1],
+        case.comparison_curve[result.comparison_start : comparison_stop, 1],
         case.expected_shifted_comparison_values,
         rtol=0.0,
         atol=0.001,

@@ -10,8 +10,4 @@ def _score_components(
     reference_curve: NDArray[np.float32 | np.float64],
     comparison_curve: NDArray[np.float32 | np.float64],
     params: dict[str, float | int],
-) -> tuple[
-    ScoreComponents,
-    NDArray[np.float32 | np.float64],
-    NDArray[np.float32 | np.float64],
-]: ...
+) -> ScoreComponents: ...

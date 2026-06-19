@@ -68,8 +68,8 @@ Parity covers:
   official expected scores;
 - one parity-safe generated Annex set combining fixed signal families and
   analytic phase-shift families, also written into the pytest cache;
-- `n_eps`, `rho_e`, phase start/length fields, shifted curves, unrounded `Z`,
-  `EP`, `EM`, `ES`, and `R`;
+- `n_eps`, `rho_e`, phase start/length fields, unrounded `Z`, `EP`, `EM`,
+  `ES`, and `R`;
 - rounded three-decimal score outputs;
 - official Annex phase-shifted columns within `0.001`.
 

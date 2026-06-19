@@ -116,7 +116,8 @@ def test_native_surface_is_small_and_accepts_numpy_arrays(
     case = next(
         case for case in generated_annex_cases if "sine_amp_offset" in case.name
     )
-    scores = ISO18571(case.reference_curve, case.comparison_curve).scores
+    iso = ISO18571(case.reference_curve, case.comparison_curve)
+    scores = iso.scores
     assert set(scores) == {
         "Z",
         "EP",
@@ -133,6 +134,8 @@ def test_native_surface_is_small_and_accepts_numpy_arrays(
     assert not hasattr(iso18571, "score_components")
     assert not hasattr(iso18571, "magnitude_ratio")
     assert not hasattr(iso18571, "warp_path")
+    assert not hasattr(iso, "shifted_reference_curve")
+    assert not hasattr(iso, "shifted_comparison_curve")
     assert not hasattr(native_core, "score_components")
     assert not hasattr(native_core, "magnitude_ratio")
     assert not hasattr(native_core, "warp_path")
@@ -296,8 +299,9 @@ def test_float32_uniform_time_grid_is_accepted_by_native_validation() -> None:
         {"Z": 1.0, "EP": 1.0, "EM": 1.0, "ES": 1.0, "R": 1.0},
         "float32 uniform grid",
     )
-    assert iso.shifted_reference_curve.dtype == np.float32
-    assert iso.shifted_comparison_curve.dtype == np.float32
+    assert iso.reference_start == 0
+    assert iso.comparison_start == 0
+    assert iso.shift_length == 32
 
 
 def test_mixed_float32_float64_time_grids_are_accepted() -> None:
