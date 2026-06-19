@@ -1,33 +1,12 @@
-#include "fft.h"
-
 #include "dispatch.h"
+#include "fft.h"
 
 namespace fft {
 
 namespace {
 
-dispatch::CompiledX86_64Levels compiled_levels () {
-    return {
-#if defined(ISO18571_FFT_COMPILED_X86_64_V2)
-        true,
-#else
-        false,
-#endif
-#if defined(ISO18571_FFT_COMPILED_X86_64_V3)
-        true,
-#else
-        false,
-#endif
-#if defined(ISO18571_FFT_COMPILED_X86_64_V4)
-        true,
-#else
-        false,
-#endif
-    };
-}
-
 DispatchTable make_dispatch_table () {
-    switch (dispatch::best_x86_64_level(compiled_levels())) {
+    switch (dispatch::best_x86_64_level(dispatch::compiled_levels())) {
     case dispatch::X86_64Level::V4:
 #if defined(ISO18571_FFT_COMPILED_X86_64_V4)
         return {c2c_power_of_two_v4, dispatch::level_name(dispatch::X86_64Level::V4)};
@@ -59,7 +38,7 @@ const DispatchTable& dispatch_table () {
     return table;
 }
 
-void c2c_power_of_two (std::complex<double>* data, std::size_t length, bool forward, double fct) {
+void c2c_power_of_two (Complex* data, std::size_t length, bool forward, double fct) {
     dispatch_table().c2c_power_of_two(data, length, forward, fct);
 }
 

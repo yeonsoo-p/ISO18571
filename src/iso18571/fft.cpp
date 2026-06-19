@@ -1,30 +1,19 @@
 #include "fft.h"
+#include "dispatch.h"
 
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
 #include <vector>
 
-#ifndef FFT_IMPL_SUFFIX
-#error "FFT_IMPL_SUFFIX must be defined before including fft.cpp"
-#endif
-
-#define FFT_PASTE_INNER(a, b) a##b
-#define FFT_PASTE(a, b) FFT_PASTE_INNER(a, b)
-#define FFT_VARIANT(name) FFT_PASTE(name, FFT_IMPL_SUFFIX)
-
-#if defined(__GNUC__)
-#define FFT_RESTRICT __restrict__
-#elif defined(_MSC_VER)
-#define FFT_RESTRICT __restrict
-#else
-#define FFT_RESTRICT
+#ifndef IMPL_SUFFIX
+#error "IMPL_SUFFIX must be defined before including fft.cpp"
 #endif
 
 namespace {
-using std::size_t;
 
-using Complex = std::complex<double>;
+using fft::Complex;
+using std::size_t;
 
 inline void PM (Complex& a, Complex& b, Complex c, Complex d) {
     a = c + d;
@@ -129,8 +118,7 @@ class cfftp {
     }
 
     template<bool fwd>
-    void pass2 (size_t ido, size_t l1, const Complex* FFT_RESTRICT cc, Complex* FFT_RESTRICT ch,
-                const Complex* FFT_RESTRICT wa) const {
+    void pass2 (size_t ido, size_t l1, const Complex* cc, Complex* ch, const Complex* wa) const {
         auto CH = [ch, ido, l1] (size_t a, size_t b, size_t c) -> Complex& { return ch[a + ido * (b + l1 * c)]; };
         auto CC = [cc, ido] (size_t a, size_t b, size_t c) -> const Complex& { return cc[a + ido * (b + 2 * c)]; };
         auto WA = [wa, ido] (size_t x, size_t i) { return wa[i - 1 + x * (ido - 1)]; };
@@ -152,8 +140,7 @@ class cfftp {
     }
 
     template<bool fwd>
-    void pass4 (size_t ido, size_t l1, const Complex* FFT_RESTRICT cc, Complex* FFT_RESTRICT ch,
-                const Complex* FFT_RESTRICT wa) const {
+    void pass4 (size_t ido, size_t l1, const Complex* cc, Complex* ch, const Complex* wa) const {
         auto CH = [ch, ido, l1] (size_t a, size_t b, size_t c) -> Complex& { return ch[a + ido * (b + l1 * c)]; };
         auto CC = [cc, ido] (size_t a, size_t b, size_t c) -> const Complex& { return cc[a + ido * (b + 4 * c)]; };
         auto WA = [wa, ido] (size_t x, size_t i) { return wa[i - 1 + x * (ido - 1)]; };
@@ -219,8 +206,7 @@ class cfftp {
     }
 
     template<bool fwd>
-    void pass8 (size_t ido, size_t l1, const Complex* FFT_RESTRICT cc, Complex* FFT_RESTRICT ch,
-                const Complex* FFT_RESTRICT wa) const {
+    void pass8 (size_t ido, size_t l1, const Complex* cc, Complex* ch, const Complex* wa) const {
         auto CH = [ch, ido, l1] (size_t a, size_t b, size_t c) -> Complex& { return ch[a + ido * (b + l1 * c)]; };
         auto CC = [cc, ido] (size_t a, size_t b, size_t c) -> const Complex& { return cc[a + ido * (b + 8 * c)]; };
         auto WA = [wa, ido] (size_t x, size_t i) { return wa[i - 1 + x * (ido - 1)]; };
@@ -395,7 +381,7 @@ class cfftp {
 
 namespace fft {
 
-void FFT_VARIANT (c2c_power_of_two)(std::complex<double>* data, std::size_t length, bool forward, double fct) {
+void VARIANT (c2c_power_of_two)(Complex* data, std::size_t length, bool forward, double fct) {
     if (length == 0)
         return;
     if ((length & (length - 1U)) != 0)
@@ -405,8 +391,3 @@ void FFT_VARIANT (c2c_power_of_two)(std::complex<double>* data, std::size_t leng
 }
 
 } // namespace fft
-
-#undef FFT_RESTRICT
-#undef FFT_VARIANT
-#undef FFT_PASTE
-#undef FFT_PASTE_INNER

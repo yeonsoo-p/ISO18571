@@ -11,7 +11,25 @@
 #endif
 
 namespace dispatch {
-
+dispatch::CompiledX86_64Levels compiled_levels () {
+    return {
+#if defined(ISO18571_FFT_COMPILED_X86_64_V2)
+        true,
+#else
+        false,
+#endif
+#if defined(ISO18571_FFT_COMPILED_X86_64_V3)
+        true,
+#else
+        false,
+#endif
+#if defined(ISO18571_FFT_COMPILED_X86_64_V4)
+        true,
+#else
+        false,
+#endif
+    };
+}
 #if defined(__GNUC__) && (defined(__x86_64__) || defined(__i386__))
 void cpuid (unsigned int leaf, unsigned int subleaf, unsigned int (&registers)[4]) {
     __cpuid_count(leaf, subleaf, registers[0], registers[1], registers[2], registers[3]);

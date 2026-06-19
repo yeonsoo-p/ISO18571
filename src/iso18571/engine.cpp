@@ -1,4 +1,5 @@
 #include "engine.h"
+#include "dispatch.h"
 
 #include <algorithm>
 #include <cmath>
@@ -11,13 +12,9 @@
 
 #include "fft.h"
 
-#ifndef ISO18571_IMPL_SUFFIX
-#error "ISO18571_IMPL_SUFFIX must be defined before including engine.cpp"
+#ifndef IMPL_SUFFIX
+#error "IMPL_SUFFIX must be defined before including engine.cpp"
 #endif
-
-#define ISO18571_PASTE_INNER(a, b) a##b
-#define ISO18571_PASTE(a, b) ISO18571_PASTE_INNER(a, b)
-#define ISO18571_VARIANT(name) ISO18571_PASTE(name, ISO18571_IMPL_SUFFIX)
 
 namespace {
 
@@ -33,6 +30,7 @@ using engine::PhaseResult;
 using engine::ScoreParams;
 using engine::ScoreResult;
 using engine::SlopeResult;
+using fft::Complex;
 
 constexpr double CORRELATION_TIE_TOLERANCE = 1.0e-12;
 constexpr double CORRELATION_REFINE_MARGIN = 1.0e-9;
@@ -255,8 +253,8 @@ PhaseProductSums fft_product_sums (DoubleSpan reference, DoubleSpan comparison) 
     const std::size_t conv_size = 2U * n - 1U;
     const std::size_t fft_size  = next_power_of_two(conv_size);
 
-    std::vector<std::complex<double>> reference_fft(fft_size);
-    std::vector<std::complex<double>> comparison_fft(fft_size);
+    std::vector<Complex> reference_fft(fft_size);
+    std::vector<Complex> comparison_fft(fft_size);
     for (std::size_t idx = 0; idx < n; ++idx) {
         reference_fft[idx]  = {value_at(reference, static_cast<Index>(idx)), 0.0};
         comparison_fft[idx] = {value_at(comparison, static_cast<Index>(n - idx - 1U)), 0.0};
@@ -599,13 +597,9 @@ ScoreResult score_components_impl (DoubleSpan reference, DoubleSpan comparison, 
 
 namespace engine {
 
-ScoreResult ISO18571_VARIANT (score_components)(DoubleSpan reference, DoubleSpan comparison, const ScoreParams& params,
-                                                double dt) {
+ScoreResult VARIANT (score_components)(DoubleSpan reference, DoubleSpan comparison, const ScoreParams& params,
+                                       double dt) {
     return score_components_impl(reference, comparison, params, dt);
 }
 
 } // namespace engine
-
-#undef ISO18571_VARIANT
-#undef ISO18571_PASTE
-#undef ISO18571_PASTE_INNER

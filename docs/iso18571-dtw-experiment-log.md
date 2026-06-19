@@ -3833,3 +3833,48 @@
     throughout private FFT caches and scratch buffers;
   - no README benchmark refresh was made because this was not promoted as a new
     published benchmark baseline.
+
+## 2026-06-19 20:24 KST - Native-Only Benchmark Snapshot
+
+- Git status:
+  - dirty on `main` at commit `51ac236`;
+  - modified native dispatch/engine/FFT source files were already present before
+    this run.
+- Hypothesis:
+  - a native-only benchmark run against the current editable build should provide
+    quick load/memory and warm-runtime numbers without spending time on reference
+    backend rows.
+- Files changed:
+  - this experiment log.
+- Commands:
+  - `uv pip install -e .`;
+  - `mkdir -p .benchmarks/native-only`;
+  - `uv run --extra test python -m pytest -q -m benchmark -k native
+    tests/test_iso18571_benchmarks.py --benchmark-json
+    .benchmarks/native-only/benchmarks.json`;
+  - `uv run python -c "import iso18571, json;
+    print(json.dumps(iso18571.backend_info(), indent=2, sort_keys=True))"`;
+  - summarized `.benchmarks/native-only/benchmarks.json` with `jq`.
+- Validation result:
+  - editable native rebuild passed and installed `iso18571==1.0.7`;
+  - native-only benchmark passed: `8 passed, 24 deselected`;
+  - backend reported `C++20` with `x86-64-v3` optimization.
+- Benchmark result:
+  - load/setup elapsed, ms:
+    `512=134.391`, `2048=123.189`, `8192=153.124`, `32768=438.235`;
+  - load/setup peak RSS, MiB:
+    `512=45.53`, `2048=45.64`, `8192=46.27`, `32768=52.68`;
+  - runtime mean, ms:
+    `512=0.228`, `2048=1.518`, `8192=21.414`, `32768=309.200`;
+  - runtime peak RSS, MiB:
+    `512=45.37`, `2048=45.62`, `8192=46.43`, `32768=52.58`;
+  - peak swap was `0.0 MiB` for all rows.
+- Conclusion:
+  - native-only benchmark selection worked and produced all four length rows for
+    both load/memory and runtime metrics;
+  - the current dirty checkout is slightly faster than the immediately previous
+    native snapshot at `2048` in this single run, while other rows are broadly
+    similar.
+- Next hypothesis:
+  - if these numbers are promoted to a baseline, rerun from a clean checkout and
+    collect repeated benchmark JSON files before updating published docs.
