@@ -2851,3 +2851,106 @@
 - Next hypothesis:
   - handle DTW allocation failure behavior separately after deciding whether a
     deliberate memory check is preferable to relying on allocator failure.
+
+## 2026-06-19 14:44 KST - DTW Direction Bitplane Storage
+
+- Git status:
+  - dirty with a pre-existing experiment-log entry and the direction-storage
+    experiment in `src/iso18571/engine_impl.hpp`.
+- Hypothesis:
+  - sub-byte direction storage may reduce DTW memory traffic enough to improve
+    large-signal runtime, but byte-lane 2-bit packing may lose to bit operation
+    overhead.
+- Files changed:
+  - `src/iso18571/engine_impl.hpp`;
+  - this experiment log.
+- Commands:
+  - reused same-machine native byte-cell baseline at
+    `.benchmarks/iso18571-bitpack-baseline/benchmarks.json`;
+  - reused 2-bit byte-lane result at
+    `.benchmarks/iso18571-bitpack-packed/benchmarks.json`;
+  - built and benchmarked 2-bit `uint64_t` lanes:
+    `.benchmarks/iso18571-bitpack-wordlanes/benchmarks.json`;
+  - built and benchmarked branchy streaming `uint64_t` bitplanes:
+    `.benchmarks/iso18571-bitpack-bitplanes/benchmarks.json`;
+  - built and benchmarked direct `uint64_t` bitplanes:
+    `.benchmarks/iso18571-bitpack-bitplanes-direct/benchmarks.json`;
+  - built and benchmarked branchless streaming `uint64_t` bitplanes:
+    `.benchmarks/iso18571-bitpack-bitplanes-branchless/benchmarks.json`;
+  - each candidate rebuild used `uv pip install -e .`;
+  - each candidate passed `uv run --extra test python -m pytest -q`;
+  - final candidate passed `git diff --check`.
+- Validation result:
+  - final branchy streaming bitplane code passed: `19 passed, 32 deselected`;
+  - final `git diff --check` passed.
+- Benchmark result:
+  - runtime medians versus byte cells:
+    - 512 samples: byte cells best, bitplanes `+8.0%`;
+    - 2048 samples: byte cells best, bitplanes `+1.5%`;
+    - 8192 samples: branchy streaming bitplanes best, `-12.1%`;
+    - 32768 samples: branchy streaming bitplanes best, `-18.0%`;
+  - peak RSS versus byte cells:
+    - 8192 samples: bitplanes saved about `9.5 MiB`;
+    - 32768 samples: bitplanes saved about `151.8 MiB`;
+  - 2-bit byte lanes and 2-bit `uint64_t` lanes were slower than byte cells at
+    8192 and 32768 despite the same memory savings;
+  - direct bitplanes were faster than byte cells at 8192 and 32768, but slower
+    than the streaming writer;
+  - branchless streaming bitplanes were close to branchy streaming at large
+    sizes, but branchy was consistently faster in this run.
+- Conclusion:
+  - keep the branchy streaming `uint64_t` bitplane direction storage as the
+    current candidate: it trades a small short-signal regression for a clear
+    large-signal runtime and memory win.
+- Next hypothesis:
+  - if the short-signal regression matters, add a size threshold that keeps
+    byte-cell directions below about 4096 samples and uses bitplanes for larger
+    cases.
+
+## 2026-06-19 14:50 KST - DTW Bitplane Word Size Sweep
+
+- Git status:
+  - dirty with the streaming bitplane direction candidate, previous experiment
+    log additions, and this word-size sweep.
+- Hypothesis:
+  - narrower bitplane words might improve the streaming writer by using cheaper
+    stores or less register pressure, while wider words might reduce flushes and
+    backtracking index work.
+- Files changed:
+  - `src/iso18571/engine_impl.hpp`;
+  - this experiment log.
+- Commands:
+  - refactored bitplane storage to a `DirectionWord` alias plus
+    `DIRECTION_WORD_BITS`;
+  - benchmarked streaming bitplanes with `std::uint8_t`, `std::uint16_t`,
+    `std::uint32_t`, `std::uint64_t`, and GNU/Clang `unsigned __int128`;
+  - wrote benchmark JSON to `.benchmarks/iso18571-bitplanes-wordsize-u8`,
+    `u16`, `u32`, `u64`, and `u128`;
+  - each candidate rebuild used `uv pip install -e .`;
+  - each candidate passed `uv run --extra test python -m pytest -q`;
+  - final `std::uint64_t` candidate passed `git diff --check`.
+- Validation result:
+  - final `std::uint64_t` candidate passed: `19 passed, 32 deselected`;
+  - final `git diff --check` passed.
+- Benchmark result:
+  - runtime medians versus byte cells at 32768 samples:
+    - `uint8_t`: `0.4721s`, `-17.8%`;
+    - `uint16_t`: `0.5603s`, `-2.5%`;
+    - `uint32_t`: `0.5055s`, `-12.0%`;
+    - `uint64_t`: `0.4709s`, `-18.0%`;
+    - `unsigned __int128`: `0.4762s`, `-17.1%`;
+  - runtime medians at 8192 samples:
+    - `uint8_t`: `0.0299s`, `-11.0%`;
+    - `uint16_t`: `0.0352s`, `+4.8%`;
+    - `uint32_t`: `0.0323s`, `-4.1%`;
+    - `uint64_t`: `0.0298s`, `-11.3%`;
+    - `unsigned __int128`: `0.0303s`, `-10.0%`;
+  - `uint64_t` was the best target-size runtime in this sweep and remains
+    portable across GCC/Clang/MSVC;
+  - `unsigned __int128` built and passed on this Linux compiler, but is not a
+    portable production type for MSVC wheels and did not beat `uint64_t`.
+- Conclusion:
+  - keep `std::uint64_t` for streaming bitplane direction storage.
+- Next hypothesis:
+  - any further direction-storage tuning should focus on a byte-cell/bitplane
+    threshold for short inputs rather than wider or narrower bitplane words.

@@ -36,6 +36,8 @@ constexpr std::uint8_t DIR_VERTICAL              = 1;
 constexpr std::uint8_t DIR_HORIZONTAL            = 2;
 constexpr std::uint8_t DIR_DIAGONAL              = 3;
 constexpr double       CORRELATION_TIE_TOLERANCE = 1.0e-12;
+using DirectionWord                              = std::uint64_t;
+constexpr std::size_t DIRECTION_WORD_BITS        = sizeof(DirectionWord) * 8U;
 
 std::size_t offset (Index index) { return static_cast<std::size_t>(index); }
 
@@ -47,8 +49,79 @@ struct DtwState {
     Index                     n          = 0;
     Index                     radius     = 0;
     Index                     band_width = 0;
-    std::vector<std::uint8_t> directions;
+    std::vector<DirectionWord> directions;
 };
+
+std::size_t direction_cell_count (const DtwState& state) {
+    return static_cast<std::size_t>(state.n) * static_cast<std::size_t>(state.band_width);
+}
+
+std::size_t direction_word_count (const DtwState& state) {
+    return (direction_cell_count(state) + DIRECTION_WORD_BITS - 1U) / DIRECTION_WORD_BITS;
+}
+
+class BitplaneDirectionWriter {
+public:
+    BitplaneDirectionWriter (std::vector<DirectionWord>& directions, std::size_t plane_words, Index cell_index) :
+        directions_(directions),
+        plane_words_(plane_words),
+        word_index_(static_cast<std::size_t>(cell_index) / DIRECTION_WORD_BITS),
+        low_word_(directions_[word_index_]),
+        high_word_(directions_[plane_words_ + word_index_]),
+        mask_(static_cast<DirectionWord>(DirectionWord{1}
+                                         << (static_cast<std::size_t>(cell_index) % DIRECTION_WORD_BITS))) {}
+
+    void put (std::uint8_t direction) {
+        if ((direction & 1U) != 0U) {
+            low_word_ |= mask_;
+        }
+        if ((direction & 2U) != 0U) {
+            high_word_ |= mask_;
+        }
+        dirty_ = true;
+        mask_ = static_cast<DirectionWord>(mask_ << 1U);
+        if (mask_ == DirectionWord{0}) {
+            flush();
+            ++word_index_;
+            mask_ = DirectionWord{1};
+            if (word_index_ < plane_words_) {
+                low_word_  = directions_[word_index_];
+                high_word_ = directions_[plane_words_ + word_index_];
+            }
+        }
+    }
+
+    void finish () {
+        if (dirty_) {
+            flush();
+        }
+    }
+
+private:
+    void flush () {
+        directions_[word_index_]                = low_word_;
+        directions_[plane_words_ + word_index_] = high_word_;
+        dirty_                                  = false;
+    }
+
+    std::vector<DirectionWord>& directions_;
+    std::size_t                 plane_words_;
+    std::size_t                 word_index_;
+    DirectionWord               low_word_;
+    DirectionWord               high_word_;
+    DirectionWord               mask_;
+    bool                        dirty_ = false;
+};
+
+std::uint8_t bitplane_direction_at (const DtwState& state, Index cell_index) {
+    const std::size_t index = static_cast<std::size_t>(cell_index);
+    const std::size_t words = direction_word_count(state);
+    const std::size_t word  = index / DIRECTION_WORD_BITS;
+    const unsigned    shift = static_cast<unsigned>(index % DIRECTION_WORD_BITS);
+    const auto        low   = static_cast<std::uint8_t>((state.directions[word] >> shift) & 1U);
+    const auto        high  = static_cast<std::uint8_t>((state.directions[words + word] >> shift) & 1U);
+    return static_cast<std::uint8_t>(low | static_cast<std::uint8_t>(high << 1U));
+}
 
 struct PhaseCache {
     std::vector<double> reference_sum;
@@ -80,7 +153,8 @@ DtwState compute_directions_index_incremental (DoubleSpan x, DoubleSpan y, doubl
     state.n          = span_size(x);
     state.radius     = window_radius(state.n, window_size);
     state.band_width = 2 * state.radius - 1;
-    state.directions.assign(static_cast<std::size_t>(state.n * state.band_width), DIR_NONE);
+    const std::size_t direction_words = direction_word_count(state);
+    state.directions.assign(direction_words * 2U, DIR_NONE);
 
     const double        inf = std::numeric_limits<double>::infinity();
     std::vector<double> previous(static_cast<std::size_t>(state.n), inf);
@@ -94,8 +168,8 @@ DtwState compute_directions_index_incremental (DoubleSpan x, DoubleSpan y, doubl
         const Index previous_start   = i > 0 ? std::max<Index>(0, i - state.radius) : 0;
         const Index previous_stop    = i > 0 ? std::min<Index>(state.n, i + state.radius - 1) : 0;
 
-        Index direction_idx = direction_base;
-        for (Index j = j_start; j < j_stop; ++j, ++direction_idx) {
+        BitplaneDirectionWriter direction_writer(state.directions, direction_words, direction_base);
+        for (Index j = j_start; j < j_stop; ++j) {
             const double delta       = value_at(x, i) - value_at(y, j);
             const double local_cost  = delta * delta;
             double       accumulated = inf;
@@ -132,9 +206,10 @@ DtwState compute_directions_index_incremental (DoubleSpan x, DoubleSpan y, doubl
                 }
             }
 
-            current[static_cast<std::size_t>(j)]                      = accumulated;
-            state.directions[static_cast<std::size_t>(direction_idx)] = direction;
+            current[static_cast<std::size_t>(j)] = accumulated;
+            direction_writer.put(direction);
         }
+        direction_writer.finish();
         std::swap(previous, current);
     }
 
@@ -161,7 +236,7 @@ std::pair<double, double> magnitude_error_from_state (DoubleSpan x, DoubleSpan y
             break;
         }
 
-        const auto direction = state.directions[static_cast<std::size_t>(direction_index(i, j))];
+        const auto direction = bitplane_direction_at(state, direction_index(i, j));
         if (direction == DIR_VERTICAL) {
             --i;
         } else if (direction == DIR_HORIZONTAL) {
