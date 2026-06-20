@@ -1,27 +1,11 @@
 #pragma once
 
+#include <complex>
 #include <cstddef>
 #include <span>
-#include <string_view>
 #include <vector>
 
 namespace engine {
-inline constexpr int kScoreExponentMinimum = 1;
-inline constexpr int kScoreExponentMaximum = 3;
-
-inline constexpr double kInitMinMinimum          = 0.0;
-inline constexpr double kInitMinExclusiveMaximum = 1.0;
-
-inline constexpr double kA0Minimum = 0.0;
-inline constexpr double kA0Maximum = 1.0;
-
-inline constexpr double kB0Minimum = 0.0;
-inline constexpr double kB0Maximum = 1.0;
-
-inline constexpr double kWeightMinimum              = 0.0;
-inline constexpr double kExpectedWeightSum          = 1.0;
-inline constexpr double kWeightSumAbsoluteTolerance = 1.0e-12;
-
 using Index      = std::ptrdiff_t;
 using DoubleSpan = std::span<const double>;
 
@@ -39,10 +23,6 @@ struct ScoreParams {
     double w_m;
     double w_s;
 };
-
-int  score_exponent_from_double (double value, std::string_view name);
-int  positive_integer_from_double (double value, std::string_view name);
-void validate_score_params (const ScoreParams& params);
 
 struct PhaseAlignment {
     Index  reference_start  = 0;
@@ -134,3 +114,12 @@ ScoreResult score_components_v4 (DoubleSpan reference, DoubleSpan comparison, co
 const DispatchTable& dispatch_table ();
 
 } // namespace engine
+
+namespace fft {
+
+inline constexpr bool kForward  = true;
+inline constexpr bool kBackward = false;
+
+using Complex = std::complex<double>;
+
+} // namespace fft

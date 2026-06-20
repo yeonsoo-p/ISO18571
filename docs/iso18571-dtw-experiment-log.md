@@ -4502,3 +4502,222 @@
     backend;
   - reference backend rows remain as comparison baselines from the existing full
     benchmark snapshot.
+
+## 2026-06-20 12:15 KST - Native Engine Source Consolidation
+
+- Git status:
+  - dirty on `main` at commit `a074e8b`;
+  - build wiring changed after the selected exp3+exp5 optimization commit;
+  - worktree already contained the validation split requested during source
+    consolidation.
+- Hypothesis:
+  - runtime dispatch can keep the same per-ISA engine variants with fewer
+    checked-in `.cpp` files by compiling `engine.cpp` repeatedly through CMake
+    object libraries, each with a different `IMPL_SUFFIX` and architecture
+    flag;
+  - the FFT implementation can be folded into `engine.cpp` as an unnamed
+    namespace helper so `c2c_power_of_two` no longer has separate variants or
+    runtime dispatch;
+  - score-parameter validation can remain separate in `validation.cpp` and
+    `validation.h`.
+- Files changed:
+  - `CMakeLists.txt`;
+  - `src/iso18571/_core.cpp`;
+  - `src/iso18571/engine.cpp`;
+  - `src/iso18571/engine.h`;
+  - deleted `src/iso18571/engine_dispatch.cpp`;
+  - deleted `src/iso18571/engine_v1.cpp`;
+  - deleted `src/iso18571/engine_v2.cpp`;
+  - deleted `src/iso18571/engine_v3.cpp`;
+  - deleted `src/iso18571/engine_v4.cpp`;
+  - deleted `src/iso18571/engine_validation.cpp`;
+  - deleted `src/iso18571/fft.cpp`;
+  - deleted `src/iso18571/fft.h`;
+  - deleted `src/iso18571/fft_dispatch.cpp`;
+  - deleted `src/iso18571/fft_v1.cpp`;
+  - deleted `src/iso18571/fft_v2.cpp`;
+  - deleted `src/iso18571/fft_v3.cpp`;
+  - deleted `src/iso18571/fft_v4.cpp`;
+  - added `src/iso18571/validation.cpp`;
+  - added `src/iso18571/validation.h`;
+  - this experiment log.
+- Commands:
+  - `rg -n "fft\\.h|fft\\.cpp|fft_dispatch|fft_v|c2c_power_of_two_v|fft::dispatch|ISO18571_FFT|ISO18571_FFT_DISPATCH|engine_validation" CMakeLists.txt src/iso18571`;
+  - `rg -n "auto\\b|class\\b" src/iso18571/engine.cpp`;
+  - `uv pip install -e .`;
+  - `uv run python - <<'PY' ... iso18571.backend_info() ... PY`;
+  - `nm -D -C .venv/lib/python3.13/site-packages/iso18571/_core*.so
+    | rg "(c2c_power|score_components|dispatch_table)"`;
+  - `uv run --extra test python -m pytest -q`;
+  - `uv build --wheel`;
+  - `uv run --extra test pre-commit run --all-files`;
+  - repeated `uv pip install -e .` and
+    `uv run --extra test python -m pytest -q` after clang-format rewrote
+    native files;
+  - repeated backend-info, dynamic-symbol, and wheel-build checks after the
+    final rebuild.
+- Validation result:
+  - stale FFT dispatch/source search found no remaining references;
+  - no `auto` or `class` tokens were found in `src/iso18571/engine.cpp`;
+  - editable rebuild passed;
+  - `backend_info()` reported active optimization `x86-64-v3`;
+  - dynamic symbol inspection showed defined `engine::score_components_v1`
+    through `engine::score_components_v4` and `engine::dispatch_table`;
+  - dynamic symbol inspection showed no exported `c2c_power_of_two` symbols;
+  - full pytest passed: `19 passed, 32 deselected`;
+  - first pre-commit pass let clang-format modify native source files; second
+    pre-commit pass completed cleanly;
+  - final rebuild from formatted sources passed;
+  - final full pytest passed: `19 passed, 32 deselected`;
+  - final `backend_info()` reported active optimization `x86-64-v3`;
+  - final dynamic symbol inspection again showed only
+    `engine::dispatch_table` and `engine::score_components_v1` through
+    `engine::score_components_v4` among the queried symbols;
+  - final wheel build passed and compiled seven native objects:
+    `_core.cpp`, `dispatch.cpp`, `validation.cpp`,
+    `iso18571_engine_dispatch`, and `iso18571_engine_v1` through
+    `iso18571_engine_v4`.
+- Conclusion:
+  - dispatch behavior is preserved while removing standalone engine/FFT variant
+    wrapper sources;
+  - FFT is now compiled as part of each engine variant and is no longer a
+    separately selected implementation;
+  - validation is a separate source/header pair instead of part of the engine
+    API surface.
+
+## 2026-06-20 12:19 KST - FFT Plan Exec Template Cleanup
+
+- Git status:
+  - dirty on `main` at commit `a074e8b`;
+  - active worktree already contains the native engine source consolidation.
+- Hypothesis:
+  - `fft_plan_pass_all` and the non-template `fft_plan_exec` wrapper can be
+    consolidated by making `fft_plan_exec` the templated implementation and
+    selecting `<true>` or `<false>` directly in `c2c_power_of_two`.
+- Files changed:
+  - `src/iso18571/engine.cpp`;
+  - this experiment log.
+- Commands:
+  - `rg -n "fft_plan_(pass_all|exec)|auto\\b|class\\b" src/iso18571/engine.cpp`;
+  - `uv pip install -e .`;
+  - `uv run --extra test python -m pytest -q`;
+  - `uv run --extra test pre-commit run --all-files`;
+  - `uv run --extra test pre-commit run --files
+    src/iso18571/validation.cpp src/iso18571/validation.h`.
+- Validation result:
+  - no `fft_plan_pass_all` references remain;
+  - no `auto` or `class` tokens were found in `src/iso18571/engine.cpp`;
+  - editable rebuild passed;
+  - full pytest passed: `19 passed, 32 deselected`;
+  - pre-commit completed cleanly, including an explicit clang-format check for
+    the untracked validation files.
+- Conclusion:
+  - the FFT execution path now has one templated plan executor instead of a
+    templated pass function plus a non-template wrapper.
+
+## 2026-06-20 12:21 KST - FFT C2C Template Cleanup
+
+- Git status:
+  - dirty on `main` at commit `a074e8b`;
+  - active worktree already contains the native engine source consolidation and
+    the prior FFT plan-exec cleanup.
+- Hypothesis:
+  - `c2c_power_of_two` can own the forward/backward template parameter and
+    inline the plan execution loop, removing the separate `fft_plan_exec`
+    helper.
+- Files changed:
+  - `src/iso18571/engine.cpp`;
+  - this experiment log.
+- Commands:
+  - `rg -n "fft_plan_exec|c2c_power_of_two|auto\\b|class\\b"
+    src/iso18571/engine.cpp`;
+  - `uv pip install -e .`;
+  - `uv run --extra test python -m pytest -q`;
+  - `uv run --extra test pre-commit run --all-files`;
+  - `uv run --extra test pre-commit run --files
+    src/iso18571/validation.cpp src/iso18571/validation.h`.
+- Validation result:
+  - no `fft_plan_exec` references remain;
+  - no `auto` or `class` tokens were found in `src/iso18571/engine.cpp`;
+  - editable rebuild passed;
+  - full pytest passed: `19 passed, 32 deselected`;
+  - pre-commit completed cleanly, including an explicit clang-format check for
+    the untracked validation files.
+- Conclusion:
+  - the FFT call sites now instantiate `c2c_power_of_two<fft::kForward>` or
+    `c2c_power_of_two<fft::kBackward>` directly, with the plan execution loop
+    folded into that templated helper.
+
+## 2026-06-20 12:27 KST - FFT Setup Inline Cleanup And Native Benchmark
+
+- Git status:
+  - dirty on `main` at commit `a074e8b`;
+  - active worktree already contains the native engine source consolidation and
+    prior FFT helper cleanups.
+- Hypothesis:
+  - `sincos_2pi_by_n_init` and `fft_plan_init` can be folded into the templated
+    `c2c_power_of_two` helper without changing native benchmark behavior.
+- Files changed:
+  - `src/iso18571/engine.cpp`;
+  - this experiment log.
+- Commands:
+  - `rg -n "sincos_2pi_by_n_init|fft_plan_init|fft_plan_(factorize|twiddle_size|compute_twiddles)|auto\\b|class\\b" src/iso18571/engine.cpp`;
+  - `uv pip install -e .`;
+  - `uv run --extra test python -m pytest -q`;
+  - `uv run --extra test pre-commit run --all-files`;
+  - `uv pip install -e .`;
+  - `uv run --extra test python -m pytest -q
+    tests/test_iso18571_benchmarks.py -m benchmark -k native
+    --benchmark-json
+    .benchmarks/native-inline-rebuild-202606201224/benchmarks.json`.
+- Validation result:
+  - no stale `sincos_2pi_by_n_init`, `fft_plan_init`,
+    `fft_plan_factorize`, `fft_plan_twiddle_size`, or
+    `fft_plan_compute_twiddles` references remain;
+  - no `auto` or `class` tokens were found in `src/iso18571/engine.cpp`;
+  - editable rebuild passed;
+  - full pytest passed: `19 passed, 32 deselected`;
+  - first pre-commit pass let clang-format modify native source files;
+  - native-only benchmark passed: `8 passed, 24 deselected`.
+- Native benchmark result from
+  `.benchmarks/native-inline-rebuild-202606201224/benchmarks.json`:
+  - load time median, ms:
+    `512=115.94`, `2048=154.17`, `8192=167.20`,
+    `32768=377.03`;
+  - runtime median, ms:
+    `512=0.174`, `2048=1.506`, `8192=15.835`,
+    `32768=226.882`;
+  - load-memory peak RSS, MiB:
+    `512=45.91`, `2048=46.05`, `8192=46.79`,
+    `32768=52.92`;
+  - runtime peak RSS, MiB:
+    `512=45.88`, `2048=45.96`, `8192=46.70`,
+    `32768=52.28`;
+  - peak swap was `0.00 MiB` for all native rows.
+- Conclusion:
+  - FFT setup is now folded into `c2c_power_of_two`;
+  - the rebuilt native benchmark completed successfully with large-row runtime
+    median `226.882 ms` at length `32768`.
+
+## 2026-06-20 12:28 KST - README Native Benchmark Refresh
+
+- Git status:
+  - dirty on `main` at commit `a074e8b`;
+  - active worktree contains native engine/FFT source consolidation.
+- Hypothesis:
+  - the README native benchmark snapshot should match the latest rebuilt
+    native-only benchmark.
+- Files changed:
+  - `README.md`;
+  - this experiment log.
+- Commands:
+  - reused
+    `.benchmarks/native-inline-rebuild-202606201224/benchmarks.json`;
+  - `uv run python - <<'PY' ... parse benchmark JSON ... PY`.
+- Validation result:
+  - README native rows now match the latest benchmark JSON:
+    load time, peak RSS, and runtime medians for lengths `512`, `2048`,
+    `8192`, and `32768`.
+- Conclusion:
+  - README native benchmark rows reflect the rebuilt consolidated native
+    backend.

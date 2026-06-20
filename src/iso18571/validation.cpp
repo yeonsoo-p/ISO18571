@@ -1,4 +1,4 @@
-#include "engine.h"
+#include "validation.h"
 
 #include <cmath>
 #include <limits>
@@ -6,9 +6,25 @@
 #include <string>
 #include <string_view>
 
-namespace engine {
+namespace validation {
 
 namespace {
+
+constexpr int kScoreExponentMinimum = 1;
+constexpr int kScoreExponentMaximum = 3;
+
+constexpr double kInitMinMinimum          = 0.0;
+constexpr double kInitMinExclusiveMaximum = 1.0;
+
+constexpr double kA0Minimum = 0.0;
+constexpr double kA0Maximum = 1.0;
+
+constexpr double kB0Minimum = 0.0;
+constexpr double kB0Maximum = 1.0;
+
+constexpr double kWeightMinimum              = 0.0;
+constexpr double kExpectedWeightSum          = 1.0;
+constexpr double kWeightSumAbsoluteTolerance = 1.0e-12;
 
 [[noreturn]] void throw_score_exponent_error (std::string_view name) {
     throw std::invalid_argument(std::string(name) + " has to be 1, 2, or 3");
@@ -83,7 +99,7 @@ int positive_integer_from_double (double value, std::string_view name) {
     return static_cast<int>(value);
 }
 
-void validate_score_params (const ScoreParams& params) {
+void validate_score_params (const engine::ScoreParams& params) {
     require_positive_integer(params.k_z, "k_z");
     require_score_exponent(params.k_p, "k_p");
     require_score_exponent(params.k_m, "k_m");
@@ -112,4 +128,4 @@ void validate_score_params (const ScoreParams& params) {
     }
 }
 
-} // namespace engine
+} // namespace validation

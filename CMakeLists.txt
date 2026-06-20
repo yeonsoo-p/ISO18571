@@ -32,34 +32,56 @@ find_package(pybind11 CONFIG REQUIRED)
 set(ISO18571_SOURCES
     src/iso18571/_core.cpp
     src/iso18571/dispatch.cpp
-    src/iso18571/engine_dispatch.cpp
-    src/iso18571/engine_v1.cpp
-    src/iso18571/engine_validation.cpp
-    src/iso18571/fft_dispatch.cpp
-    src/iso18571/fft_v1.cpp
+    src/iso18571/validation.cpp
 )
+set(ISO18571_VARIANT_OBJECTS)
 set(ISO18571_DEFINITIONS
     ISO18571_COMPILED_X86_64_V1=1
-    ISO18571_FFT_COMPILED_X86_64_V1=1
 )
 
-function(iso18571_try_add_level_source level source flag definition)
-    if("${flag}" STREQUAL "")
-        list(APPEND ISO18571_SOURCES "${source}")
-        list(APPEND ISO18571_DEFINITIONS "${definition}=1")
-        set(ISO18571_SOURCES "${ISO18571_SOURCES}" PARENT_SCOPE)
-        set(ISO18571_DEFINITIONS "${ISO18571_DEFINITIONS}" PARENT_SCOPE)
-        return()
+function(iso18571_add_variant_object target_name source suffix flag)
+    add_library("${target_name}" OBJECT "${source}")
+    target_compile_features("${target_name}" PRIVATE cxx_std_20)
+    target_include_directories("${target_name}" PRIVATE src/iso18571)
+    target_compile_definitions("${target_name}" PRIVATE "IMPL_SUFFIX=${suffix}")
+    set_target_properties("${target_name}" PROPERTIES POSITION_INDEPENDENT_CODE ON)
+    if(MSVC)
+        target_compile_options("${target_name}" PRIVATE /O2 /fp:precise /W4 /permissive-)
+    else()
+        target_compile_options("${target_name}" PRIVATE -O3 -Wall -Wextra -Wpedantic)
     endif()
+    if(NOT "${flag}" STREQUAL "")
+        target_compile_options("${target_name}" PRIVATE "${flag}")
+    endif()
+    list(APPEND ISO18571_VARIANT_OBJECTS "$<TARGET_OBJECTS:${target_name}>")
+    set(ISO18571_VARIANT_OBJECTS "${ISO18571_VARIANT_OBJECTS}" PARENT_SCOPE)
+endfunction()
 
+iso18571_add_variant_object("iso18571_engine_v1" "src/iso18571/engine.cpp" "_v1" "")
+
+function(iso18571_add_dispatch_object target_name source definition)
+    add_library("${target_name}" OBJECT "${source}")
+    target_compile_features("${target_name}" PRIVATE cxx_std_20)
+    target_include_directories("${target_name}" PRIVATE src/iso18571)
+    target_compile_definitions("${target_name}" PRIVATE "${definition}" ${ISO18571_DEFINITIONS})
+    set_target_properties("${target_name}" PROPERTIES POSITION_INDEPENDENT_CODE ON)
+    if(MSVC)
+        target_compile_options("${target_name}" PRIVATE /O2 /fp:precise /W4 /permissive-)
+    else()
+        target_compile_options("${target_name}" PRIVATE -O3 -Wall -Wextra -Wpedantic)
+    endif()
+    list(APPEND ISO18571_VARIANT_OBJECTS "$<TARGET_OBJECTS:${target_name}>")
+    set(ISO18571_VARIANT_OBJECTS "${ISO18571_VARIANT_OBJECTS}" PARENT_SCOPE)
+endfunction()
+
+function(iso18571_try_add_level_source level target_name source suffix flag definition)
     string(MAKE_C_IDENTIFIER "ISO18571_HAS_${level}_${source}_${flag}" check_name)
     check_cxx_compiler_flag("${flag}" "${check_name}")
     if(${check_name})
-        list(APPEND ISO18571_SOURCES "${source}")
+        iso18571_add_variant_object("${target_name}" "${source}" "${suffix}" "${flag}")
         list(APPEND ISO18571_DEFINITIONS "${definition}=1")
-        set_source_files_properties("${source}" PROPERTIES COMPILE_OPTIONS "${flag}")
     endif()
-    set(ISO18571_SOURCES "${ISO18571_SOURCES}" PARENT_SCOPE)
+    set(ISO18571_VARIANT_OBJECTS "${ISO18571_VARIANT_OBJECTS}" PARENT_SCOPE)
     set(ISO18571_DEFINITIONS "${ISO18571_DEFINITIONS}" PARENT_SCOPE)
 endfunction()
 
@@ -69,20 +91,27 @@ if(NOT ISO18571_PROCESSOR MATCHES "x86_64|amd64|x64")
 endif()
 
 if(MSVC)
-    iso18571_try_add_level_source("ENGINE_X86_64_V3" "src/iso18571/engine_v3.cpp" "/arch:AVX2" "ISO18571_COMPILED_X86_64_V3")
-    iso18571_try_add_level_source("FFT_X86_64_V3" "src/iso18571/fft_v3.cpp" "/arch:AVX2" "ISO18571_FFT_COMPILED_X86_64_V3")
-    iso18571_try_add_level_source("ENGINE_X86_64_V4" "src/iso18571/engine_v4.cpp" "/arch:AVX512" "ISO18571_COMPILED_X86_64_V4")
-    iso18571_try_add_level_source("FFT_X86_64_V4" "src/iso18571/fft_v4.cpp" "/arch:AVX512" "ISO18571_FFT_COMPILED_X86_64_V4")
+    iso18571_try_add_level_source(
+        "ENGINE_X86_64_V3" "iso18571_engine_v3" "src/iso18571/engine.cpp" "_v3" "/arch:AVX2"
+        "ISO18571_COMPILED_X86_64_V3")
+    iso18571_try_add_level_source(
+        "ENGINE_X86_64_V4" "iso18571_engine_v4" "src/iso18571/engine.cpp" "_v4" "/arch:AVX512"
+        "ISO18571_COMPILED_X86_64_V4")
 else()
-    iso18571_try_add_level_source("ENGINE_X86_64_V2" "src/iso18571/engine_v2.cpp" "-march=x86-64-v2" "ISO18571_COMPILED_X86_64_V2")
-    iso18571_try_add_level_source("FFT_X86_64_V2" "src/iso18571/fft_v2.cpp" "-march=x86-64-v2" "ISO18571_FFT_COMPILED_X86_64_V2")
-    iso18571_try_add_level_source("ENGINE_X86_64_V3" "src/iso18571/engine_v3.cpp" "-march=x86-64-v3" "ISO18571_COMPILED_X86_64_V3")
-    iso18571_try_add_level_source("FFT_X86_64_V3" "src/iso18571/fft_v3.cpp" "-march=x86-64-v3" "ISO18571_FFT_COMPILED_X86_64_V3")
-    iso18571_try_add_level_source("ENGINE_X86_64_V4" "src/iso18571/engine_v4.cpp" "-march=x86-64-v4" "ISO18571_COMPILED_X86_64_V4")
-    iso18571_try_add_level_source("FFT_X86_64_V4" "src/iso18571/fft_v4.cpp" "-march=x86-64-v4" "ISO18571_FFT_COMPILED_X86_64_V4")
+    iso18571_try_add_level_source(
+        "ENGINE_X86_64_V2" "iso18571_engine_v2" "src/iso18571/engine.cpp" "_v2" "-march=x86-64-v2"
+        "ISO18571_COMPILED_X86_64_V2")
+    iso18571_try_add_level_source(
+        "ENGINE_X86_64_V3" "iso18571_engine_v3" "src/iso18571/engine.cpp" "_v3" "-march=x86-64-v3"
+        "ISO18571_COMPILED_X86_64_V3")
+    iso18571_try_add_level_source(
+        "ENGINE_X86_64_V4" "iso18571_engine_v4" "src/iso18571/engine.cpp" "_v4" "-march=x86-64-v4"
+        "ISO18571_COMPILED_X86_64_V4")
 endif()
 
-pybind11_add_module(_core MODULE ${ISO18571_SOURCES})
+iso18571_add_dispatch_object("iso18571_engine_dispatch" "src/iso18571/engine.cpp" "ISO18571_ENGINE_DISPATCH=1")
+
+pybind11_add_module(_core MODULE ${ISO18571_SOURCES} ${ISO18571_VARIANT_OBJECTS})
 set(ISO18571_EXTENSION_SUFFIX "" CACHE STRING "Override native extension suffix for cross-built wheels")
 if(ISO18571_EXTENSION_SUFFIX)
     set_target_properties(_core PROPERTIES SUFFIX "${ISO18571_EXTENSION_SUFFIX}")
