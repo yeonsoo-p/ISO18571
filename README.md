@@ -45,7 +45,7 @@ The package also exposes a native diagnostic helper:
 from iso18571 import backend_info
 
 print(backend_info())
-# {'name': 'iso18571', 'implementation': 'C++20', 'version': '1.0.9', 'optimization': 'x86-64-v3'}
+# {'name': 'iso18571', 'implementation': 'C++20', 'version': '1.0.10', 'optimization': 'x86-64-v3'}
 ```
 
 ## Prerequisites
@@ -233,7 +233,7 @@ are retained as comparison baselines from the existing full benchmark snapshot.
 
 | Backend | 512 | 2048 | 8192 | 32768 |
 | --- | ---: | ---: | ---: | ---: |
-| native | 115.94 | 154.17 | 167.20 | 377.03 |
+| native | 144.96 | 152.99 | 144.14 | 388.89 |
 | dtwalign | 3898.99 | 3813.41 | 4897.01 | - |
 | dtw_python | 931.82 | 995.43 | 1803.67 | - |
 | librosa | 1231.87 | 1274.18 | 2253.83 | 17590.40 |
@@ -242,7 +242,7 @@ are retained as comparison baselines from the existing full benchmark snapshot.
 
 | Backend | 512 | 2048 | 8192 | 32768 |
 | --- | ---: | ---: | ---: | ---: |
-| native | 45.91 | 46.05 | 46.79 | 52.92 |
+| native | 45.85 | 45.95 | 46.79 | 52.38 |
 | dtwalign | 359.48 | 450.83 | 2105.46 | - |
 | dtw_python | 253.07 | 431.89 | 3278.38 | - |
 | librosa | 312.04 | 385.59 | 1759.17 | 24522.72 |
@@ -251,7 +251,7 @@ are retained as comparison baselines from the existing full benchmark snapshot.
 
 | Backend | 512 | 2048 | 8192 | 32768 |
 | --- | ---: | ---: | ---: | ---: |
-| native | 0.17 | 1.51 | 15.83 | 226.88 |
+| native | 0.17 | 1.27 | 15.79 | 225.06 |
 | dtwalign | 6.97 | 87.72 | 1177.31 | - |
 | dtw_python | 7.01 | 62.88 | 936.57 | - |
 | librosa | 7.02 | 77.73 | 1049.70 | 16130.18 |

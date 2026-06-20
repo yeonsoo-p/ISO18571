@@ -4721,3 +4721,142 @@
 - Conclusion:
   - README native benchmark rows reflect the rebuilt consolidated native
     backend.
+
+## 2026-06-20 12:51 KST - Isolated Native Optimization Experiments
+
+- Git status:
+  - clean on `main` at commit `3b6efc6` before the experiments;
+  - source edits were applied one at a time against that baseline, benchmarked,
+    saved as patches under `.benchmarks/targeted-optimization-experiments-20260620/`,
+    and reverted before the next experiment.
+- Hypothesis:
+  - after flattening the native scorer, isolated changes to scoring powers,
+    FFT setup reuse, DTW row buffers, and slope smoothing may reveal direct
+    performance wins versus the current baseline.
+- Files changed:
+  - temporary isolated edits to `src/iso18571/engine.cpp`;
+  - this experiment log.
+- Commands:
+  - `uv pip install -e .`;
+  - `uv run --extra test python -m pytest -q
+    tests/test_iso18571_benchmarks.py -m benchmark -k native
+    --benchmark-json
+    .benchmarks/targeted-optimization-experiments-20260620/baseline/benchmarks.json`;
+  - for each isolated patch:
+    `uv pip install -e .`;
+  - for the DTW band-buffer and slope-prefix patches:
+    `uv run --extra test python -m pytest -q`;
+  - for each isolated patch:
+    `uv run --extra test python -m pytest -q
+    tests/test_iso18571_benchmarks.py -m benchmark -k native
+    --benchmark-json
+    .benchmarks/targeted-optimization-experiments-20260620/<experiment>/benchmarks.json`;
+  - after each isolated patch:
+    `git diff > .benchmarks/targeted-optimization-experiments-20260620/<experiment>.patch`;
+    `git apply -R .benchmarks/targeted-optimization-experiments-20260620/<experiment>.patch`;
+  - final baseline rebuild:
+    `uv pip install -e .`;
+    `uv run python - <<'PY' ... iso18571.backend_info() ... PY`.
+- Validation result:
+  - baseline native benchmark passed: `8 passed, 24 deselected`;
+  - integer-power benchmark passed: `8 passed, 24 deselected`;
+  - FFT plan-reuse benchmark passed: `8 passed, 24 deselected`;
+  - DTW band-buffer full tests passed: `19 passed, 32 deselected`;
+  - DTW band-buffer benchmark passed: `8 passed, 24 deselected`;
+  - slope-prefix full tests passed: `19 passed, 32 deselected`;
+  - slope-prefix benchmark passed: `8 passed, 24 deselected`;
+  - final editable rebuild reported `x86-64-v3`.
+- Native runtime median, ms, with delta versus same-run baseline:
+  - baseline:
+    `512=0.145`, `2048=1.240`, `8192=15.782`,
+    `32768=236.677`;
+  - integer-power helper:
+    `512=0.238 (+63.9%)`, `2048=1.170 (-5.6%)`,
+    `8192=16.091 (+2.0%)`, `32768=226.470 (-4.3%)`;
+  - FFT plan reuse:
+    `512=0.190 (+31.0%)`, `2048=1.184 (-4.5%)`,
+    `8192=15.776 (-0.0%)`, `32768=226.739 (-4.2%)`;
+  - DTW band buffer:
+    `512=0.273 (+88.3%)`, `2048=1.548 (+24.8%)`,
+    `8192=21.621 (+37.0%)`, `32768=324.672 (+37.2%)`;
+  - slope prefix sums:
+    `512=0.252 (+73.7%)`, `2048=2.201 (+77.5%)`,
+    `8192=16.222 (+2.8%)`, `32768=226.780 (-4.2%)`.
+- Native load-time median, ms, with delta versus same-run baseline:
+  - baseline:
+    `512=127.138`, `2048=163.305`, `8192=159.306`,
+    `32768=420.074`;
+  - integer-power helper:
+    `512=126.643 (-0.4%)`, `2048=154.587 (-5.3%)`,
+    `8192=159.624 (+0.2%)`, `32768=366.765 (-12.7%)`;
+  - FFT plan reuse:
+    `512=134.575 (+5.8%)`, `2048=146.180 (-10.5%)`,
+    `8192=175.078 (+9.9%)`, `32768=380.896 (-9.3%)`;
+  - DTW band buffer:
+    `512=124.032 (-2.4%)`, `2048=113.080 (-30.8%)`,
+    `8192=173.623 (+9.0%)`, `32768=489.278 (+16.5%)`;
+  - slope prefix sums:
+    `512=126.600 (-0.4%)`, `2048=133.789 (-18.1%)`,
+    `8192=165.951 (+4.2%)`, `32768=383.185 (-8.8%)`.
+- Conclusion:
+  - integer-power and FFT plan reuse are the only isolated source changes with
+    useful large-row runtime improvements in this run, both around `4.2%` to
+    `4.3%` at length `32768`;
+  - DTW band-buffering should be rejected because it regresses runtime by about
+    `25%` to `37%` for non-trivial rows despite passing correctness tests;
+  - slope prefix sums should also be rejected in this form because the large-row
+    result is likely noise-equivalent to the other `32768` wins while small and
+    medium rows regress materially.
+
+## 2026-06-20 12:54 KST - Combined Integer-Power And FFT Plan-Reuse Experiment
+
+- Git status:
+  - source baseline is `main` at commit `3b6efc6`;
+  - the experiment log was already dirty from the isolated experiment entry;
+  - applied only
+    `.benchmarks/targeted-optimization-experiments-20260620/integer-pow.patch`
+    and
+    `.benchmarks/targeted-optimization-experiments-20260620/fft-plan-reuse.patch`,
+    then reverted both source patches after benchmarking.
+- Hypothesis:
+  - combining the two isolated large-row wins may improve the length `32768`
+    native runtime more than either change alone.
+- Files changed:
+  - temporary isolated edit to `src/iso18571/engine.cpp`;
+  - this experiment log.
+- Commands:
+  - `git apply .benchmarks/targeted-optimization-experiments-20260620/integer-pow.patch`;
+  - `git apply .benchmarks/targeted-optimization-experiments-20260620/fft-plan-reuse.patch`;
+  - `uv pip install -e .`;
+  - `uv run --extra test python -m pytest -q`;
+  - `uv run --extra test python -m pytest -q
+    tests/test_iso18571_benchmarks.py -m benchmark -k native
+    --benchmark-json
+    .benchmarks/targeted-optimization-experiments-20260620/integer-pow-plus-fft-plan/benchmarks.json`;
+  - `git apply -R .benchmarks/targeted-optimization-experiments-20260620/fft-plan-reuse.patch`;
+  - `git apply -R .benchmarks/targeted-optimization-experiments-20260620/integer-pow.patch`;
+  - `uv pip install -e .`;
+  - `uv run python - <<'PY' ... iso18571.backend_info() ... PY`.
+- Validation result:
+  - full tests passed with the combined patch: `19 passed, 32 deselected`;
+  - native benchmark passed with the combined patch:
+    `8 passed, 24 deselected`;
+  - final editable rebuild reported `x86-64-v3`.
+- Native runtime median, ms, with delta versus same-run baseline:
+  - baseline:
+    `512=0.145`, `2048=1.240`, `8192=15.782`,
+    `32768=236.677`;
+  - integer-power plus FFT plan reuse:
+    `512=0.165 (+13.8%)`, `2048=1.267 (+2.2%)`,
+    `8192=15.792 (+0.1%)`, `32768=225.063 (-4.9%)`.
+- Native load-time median, ms, with delta versus same-run baseline:
+  - baseline:
+    `512=127.138`, `2048=163.305`, `8192=159.306`,
+    `32768=420.074`;
+  - integer-power plus FFT plan reuse:
+    `512=144.960 (+14.0%)`, `2048=152.989 (-6.3%)`,
+    `8192=144.139 (-9.5%)`, `32768=388.889 (-7.4%)`.
+- Conclusion:
+  - the combination improves length `32768` runtime by `4.9%`, slightly better
+    than either isolated change, but the effect is not additive;
+  - small and medium runtime rows do not improve in this benchmark run.

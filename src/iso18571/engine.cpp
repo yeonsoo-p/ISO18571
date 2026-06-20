@@ -329,10 +329,9 @@ void pass8 (size_t ido, size_t l1, const Complex* cc, Complex* ch, const Complex
     }
 }
 
-template<bool fwd>
-void c2c_power_of_two (Complex* data, std::size_t length, double fct) {
+FftPlan fft_plan_init (std::size_t length) {
     if (length == 0) {
-        return;
+        return {};
     }
     if ((length & (length - 1U)) != 0) {
         throw std::invalid_argument("complex FFT length must be a power of two");
@@ -340,8 +339,7 @@ void c2c_power_of_two (Complex* data, std::size_t length, double fct) {
     FftPlan plan = {};
     plan.length  = length;
     if (plan.length == 1) {
-        data[0] *= fct;
-        return;
+        return plan;
     }
 
     size_t len = plan.length;
@@ -408,7 +406,20 @@ void c2c_power_of_two (Complex* data, std::size_t length, double fct) {
         l1 *= ip;
     }
 
-    l1 = 1;
+    return plan;
+}
+
+template<bool fwd>
+void fft_plan_exec (const FftPlan& plan, Complex* data, double fct) {
+    if (plan.length == 0) {
+        return;
+    }
+    if (plan.length == 1) {
+        data[0] *= fct;
+        return;
+    }
+
+    size_t               l1 = 1;
     std::vector<Complex> ch(plan.length);
     Complex*             p1 = data;
     Complex*             p2 = ch.data();
@@ -445,6 +456,12 @@ void c2c_power_of_two (Complex* data, std::size_t length, double fct) {
     }
 }
 
+template<bool fwd>
+void c2c_power_of_two (Complex* data, std::size_t length, double fct) {
+    const FftPlan plan = fft_plan_init(length);
+    fft_plan_exec<fwd>(plan, data, fct);
+}
+
 constexpr double CORRELATION_TIE_TOLERANCE = 1.0e-12;
 constexpr double CORRELATION_REFINE_MARGIN = 1.0e-9;
 
@@ -453,6 +470,30 @@ std::size_t offset (Index index) { return static_cast<std::size_t>(index); }
 Index span_size (DoubleSpan values) { return static_cast<Index>(values.size()); }
 
 double value_at (DoubleSpan values, Index index) { return values[offset(index)]; }
+
+double integer_power (double value, int exponent) {
+    if (exponent == 1) {
+        return value;
+    }
+    if (exponent == 2) {
+        return value * value;
+    }
+    if (exponent == 3) {
+        return value * value * value;
+    }
+
+    double result = 1.0;
+    double base   = value;
+    int    power  = exponent;
+    while (power > 0) {
+        if ((power & 1) != 0) {
+            result *= base;
+        }
+        base *= base;
+        power >>= 1;
+    }
+    return result;
+}
 
 struct PhaseCache {
     std::vector<double> reference_sum;
@@ -774,6 +815,7 @@ PhaseProductSums fft_product_sums (DoubleSpan reference, DoubleSpan comparison) 
     const std::size_t n         = static_cast<std::size_t>(span_size(reference));
     const std::size_t conv_size = 2U * n - 1U;
     const std::size_t fft_size  = next_power_of_two(conv_size);
+    const FftPlan     fft_plan  = fft_plan_init(fft_size);
 
     std::vector<Complex> reference_fft(fft_size);
     std::vector<Complex> comparison_fft(fft_size);
@@ -782,12 +824,12 @@ PhaseProductSums fft_product_sums (DoubleSpan reference, DoubleSpan comparison) 
         comparison_fft[idx] = {value_at(comparison, static_cast<Index>(n - idx - 1U)), 0.0};
     }
 
-    c2c_power_of_two<fft::kForward>(reference_fft.data(), fft_size, 1.0);
-    c2c_power_of_two<fft::kForward>(comparison_fft.data(), fft_size, 1.0);
+    fft_plan_exec<fft::kForward>(fft_plan, reference_fft.data(), 1.0);
+    fft_plan_exec<fft::kForward>(fft_plan, comparison_fft.data(), 1.0);
     for (std::size_t idx = 0; idx < fft_size; ++idx) {
         reference_fft[idx] *= comparison_fft[idx];
     }
-    c2c_power_of_two<fft::kBackward>(reference_fft.data(), fft_size, 1.0 / static_cast<double>(fft_size));
+    fft_plan_exec<fft::kBackward>(fft_plan, reference_fft.data(), 1.0 / static_cast<double>(fft_size));
 
     PhaseProductSums sums;
     sums.products.assign(conv_size, 0.0);
@@ -978,8 +1020,7 @@ double corridor_score (DoubleSpan reference, DoubleSpan comparison, const ScoreP
     double       sum            = 0.0;
     for (Index idx = 0; idx < n; ++idx) {
         const double diff = std::abs(value_at(reference, idx) - value_at(comparison, idx));
-        double       c_i =
-            std::pow((outer_corridor - diff) / (outer_corridor - inner_corridor), static_cast<double>(params.k_z));
+        double       c_i  = integer_power((outer_corridor - diff) / (outer_corridor - inner_corridor), params.k_z);
         if (diff < inner_corridor) {
             c_i = 1.0;
         }
@@ -999,9 +1040,9 @@ double phase_score (DoubleSpan reference, const ScoreParams& params, const Phase
     if (std::abs(static_cast<double>(alignment.n_eps)) >= max_allowable_time_shift_threshold) {
         return 0.0;
     }
-    return std::pow((max_allowable_time_shift_threshold - std::abs(static_cast<double>(alignment.n_eps))) /
-                        max_allowable_time_shift_threshold,
-                    static_cast<double>(params.k_p));
+    return integer_power((max_allowable_time_shift_threshold - std::abs(static_cast<double>(alignment.n_eps))) /
+                             max_allowable_time_shift_threshold,
+                         params.k_p);
 }
 
 MagnitudeResult magnitude_score_from_values (DoubleSpan reference_values, DoubleSpan comparison_values,
@@ -1026,7 +1067,7 @@ MagnitudeResult magnitude_score_from_values (DoubleSpan reference_values, Double
         return {0.0, {}};
     }
     return {
-        std::pow((params.eps_m - e_mag) / params.eps_m, static_cast<double>(params.k_m)),
+        integer_power((params.eps_m - e_mag) / params.eps_m, params.k_m),
         {},
     };
 }
