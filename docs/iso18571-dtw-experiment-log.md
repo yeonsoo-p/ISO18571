@@ -4021,3 +4021,75 @@
   - the native-only benchmark suite completed without swap-invalidated rows;
   - results remain in the same range as the previous native-after-flattening
     run.
+
+## 2026-06-20 11:06 KST - Native Helper Internal Linkage Cleanup
+
+- Git status:
+  - dirty on `main` at commit `54f0a9f`;
+  - modified `dispatch.cpp` and `engine_validation.cpp` before this log entry.
+- Hypothesis:
+  - moving private native helper functions into unnamed namespaces should reduce
+    accidental external linkage without changing scorer behavior.
+- Files changed:
+  - `src/iso18571/dispatch.cpp`;
+  - `src/iso18571/engine_validation.cpp`;
+  - this experiment log.
+- Commands:
+  - `uv pip install -e .`;
+  - `uv run --extra test python -m pytest -q`;
+  - `uv run --extra test pre-commit run --all-files`;
+  - `nm -C build/cp313-cp313-linux_x86_64/CMakeFiles/_core.dir/src/iso18571/dispatch.cpp.o | awk '$2 == "T" {print}'`;
+  - `nm -C build/cp313-cp313-linux_x86_64/CMakeFiles/_core.dir/src/iso18571/engine_validation.cpp.o | awk '$2 == "T" {print}'`.
+- Validation result:
+  - editable native rebuild passed and installed `iso18571==1.0.8`;
+  - full pytest passed: `19 passed, 32 deselected`;
+  - pre-commit passed;
+  - symbol checks showed only public/header-declared functions remain as global
+    `T` symbols in the two touched object files.
+- Conclusion:
+  - private CPU-dispatch and validation helpers now have internal linkage;
+  - public native dispatch and validation entry points are unchanged.
+- Next hypothesis:
+  - no further linkage-only changes are needed unless symbol inspection finds
+    another accidental external helper.
+
+## 2026-06-20 11:13 KST - Native Optimization Investigation
+
+- Git status:
+  - dirty on `main` at commit `54f0a9f`;
+  - dirty files from the unnamed-namespace cleanup were present before this
+    investigation.
+- Hypothesis:
+  - native runtime bottlenecks should be visible from algorithmic complexity,
+    GCC vectorization reports, and generated v3 assembly even when perf hardware
+    counters are unavailable.
+- Files changed:
+  - this experiment log;
+  - temporary assembly/vectorization reports under `/tmp/iso18571-asm/`.
+- Commands:
+  - inspected `src/iso18571/engine.cpp`, `src/iso18571/fft.cpp`,
+    `src/iso18571/_core.cpp`, benchmark data, and CMake flags;
+  - `uv run python` timing loop over native mixed-signal scores for lengths
+    `512`, `2048`, `8192`, and `32768`;
+  - `perf stat -e cycles,instructions,branches,branch-misses,cache-references,cache-misses -- uv run python ...`;
+  - `c++ -std=c++20 -O3 -Wall -Wextra -Wpedantic -fPIC -march=x86-64-v3 -I src/iso18571 -S -fverbose-asm -masm=intel src/iso18571/engine_v3.cpp -o /tmp/iso18571-asm/engine_v3.s`;
+  - `c++ -std=c++20 -O3 -Wall -Wextra -Wpedantic -fPIC -march=x86-64-v3 -I src/iso18571 -S -fverbose-asm -masm=intel src/iso18571/fft_v3.cpp -o /tmp/iso18571-asm/fft_v3.s`;
+  - generated GCC `-fopt-info-vec-all` reports for `engine_v3.cpp` and
+    `fft_v3.cpp`;
+  - inspected linked `_core` PLT calls with `objdump` and `readelf`.
+- Validation result:
+  - backend selected `x86-64-v3`;
+  - direct native timing, ms per score:
+    `512=0.132`, `2048=1.464`, `8192=20.884`, `32768=308.855`;
+  - `perf` hardware counters were unavailable because
+    `perf_event_paranoid=4`;
+  - current CMake object files are GCC LTO payloads, so line-level assembly was
+    generated separately in `/tmp`.
+- Conclusion:
+  - large-size runtime scales close to the banded DTW quadratic term;
+  - assembly and vectorization reports point to branch-heavy DTW, repeated FFT
+    plan/twiddle setup, `pow` calls for small integer exponents, and
+    non-vectorized slope smoothing as the main optimization candidates.
+- Next hypothesis:
+  - specialize integer-exponent scoring and reuse FFT plan/workspace first,
+    then benchmark before attempting higher-risk DTW loop reshaping.

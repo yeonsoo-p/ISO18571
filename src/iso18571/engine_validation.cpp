@@ -8,6 +8,8 @@
 
 namespace engine {
 
+namespace {
+
 [[noreturn]] void throw_score_exponent_error (std::string_view name) {
     throw std::invalid_argument(std::string(name) + " has to be 1, 2, or 3");
 }
@@ -54,6 +56,8 @@ void require_closed_interval (double value, std::string_view name, double minimu
         throw std::invalid_argument(std::string(name) + " must satisfy 0 <= " + std::string(name) + " <= 1");
     }
 }
+
+} // namespace
 
 int score_exponent_from_double (double value, std::string_view name) {
     if (!std::isfinite(value)) {

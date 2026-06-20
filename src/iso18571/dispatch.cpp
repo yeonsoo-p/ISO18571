@@ -30,6 +30,9 @@ dispatch::CompiledX86_64Levels compiled_levels () {
 #endif
     };
 }
+
+namespace {
+
 #if defined(__GNUC__) && (defined(__x86_64__) || defined(__i386__))
 void cpuid (unsigned int leaf, unsigned int subleaf, unsigned int (&registers)[4]) {
     __cpuid_count(leaf, subleaf, registers[0], registers[1], registers[2], registers[3]);
@@ -202,6 +205,8 @@ bool supports_v4 () {
     return false;
 #endif
 }
+
+} // namespace
 
 const char* level_name (X86_64Level level) {
     switch (level) {
