@@ -8,19 +8,19 @@ namespace {
 DispatchTable make_dispatch_table () {
     switch (dispatch::best_x86_64_level(dispatch::compiled_levels())) {
     case dispatch::X86_64Level::V4:
-#if defined(ISO18571_FFT_COMPILED_X86_64_V4)
+#if defined(ISO18571_COMPILED_X86_64_V4)
         return {c2c_power_of_two_v4, dispatch::level_name(dispatch::X86_64Level::V4)};
 #else
         break;
 #endif
     case dispatch::X86_64Level::V3:
-#if defined(ISO18571_FFT_COMPILED_X86_64_V3)
+#if defined(ISO18571_COMPILED_X86_64_V3)
         return {c2c_power_of_two_v3, dispatch::level_name(dispatch::X86_64Level::V3)};
 #else
         break;
 #endif
     case dispatch::X86_64Level::V2:
-#if defined(ISO18571_FFT_COMPILED_X86_64_V2)
+#if defined(ISO18571_COMPILED_X86_64_V2)
         return {c2c_power_of_two_v2, dispatch::level_name(dispatch::X86_64Level::V2)};
 #else
         break;

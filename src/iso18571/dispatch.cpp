@@ -13,17 +13,17 @@
 namespace dispatch {
 dispatch::CompiledX86_64Levels compiled_levels () {
     return {
-#if defined(ISO18571_FFT_COMPILED_X86_64_V2)
+#if defined(ISO18571_COMPILED_X86_64_V2)
         true,
 #else
         false,
 #endif
-#if defined(ISO18571_FFT_COMPILED_X86_64_V3)
+#if defined(ISO18571_COMPILED_X86_64_V3)
         true,
 #else
         false,
 #endif
-#if defined(ISO18571_FFT_COMPILED_X86_64_V4)
+#if defined(ISO18571_COMPILED_X86_64_V4)
         true,
 #else
         false,

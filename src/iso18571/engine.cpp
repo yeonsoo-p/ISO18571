@@ -56,6 +56,13 @@ void append_warning (std::vector<Diagnostic>& diagnostics, DiagnosticComponent c
     diagnostics.push_back({DiagnosticSeverity::Warning, component, code});
 }
 
+void select_dtw_predecessor (double cost, double candidate_numerator, double candidate_denominator,
+                             double& best_previous, double& best_numerator, double& best_denominator) {
+    best_previous    = cost;
+    best_numerator   = candidate_numerator;
+    best_denominator = candidate_denominator;
+}
+
 Index window_radius (Index n, double window_size) {
     if (n <= 0) {
         throw std::invalid_argument("DTW input arrays must not be empty");
@@ -66,7 +73,7 @@ Index window_radius (Index n, double window_size) {
     if (window_size >= 1.0) {
         return n;
     }
-    const auto raw = static_cast<Index>(std::ceil(window_size * static_cast<double>(n)));
+    const Index raw = static_cast<Index>(std::ceil(window_size * static_cast<double>(n)));
     return std::min<Index>(n, std::max<Index>(1, raw));
 }
 
@@ -102,32 +109,29 @@ std::pair<double, double> magnitude_error_from_dtw (DoubleSpan x, DoubleSpan y, 
                 numerator   = local_numerator;
                 denominator = local_denominator;
             } else {
-                double best_previous      = inf;
-                double best_numerator     = 0.0;
-                double best_denominator   = 0.0;
-                auto   select_predecessor = [&best_previous, &best_numerator, &best_denominator] (
-                                                double cost, double candidate_numerator, double candidate_denominator) {
-                    best_previous    = cost;
-                    best_numerator   = candidate_numerator;
-                    best_denominator = candidate_denominator;
-                };
+                double best_previous    = inf;
+                double best_numerator   = 0.0;
+                double best_denominator = 0.0;
 
                 if (i > 0 && j >= previous_start && j < previous_stop) {
                     const std::size_t index = static_cast<std::size_t>(j);
-                    select_predecessor(previous_cost[index], previous_numerator[index], previous_denominator[index]);
+                    select_dtw_predecessor(previous_cost[index], previous_numerator[index], previous_denominator[index],
+                                           best_previous, best_numerator, best_denominator);
                 }
                 if (j > j_start) {
                     const std::size_t index     = static_cast<std::size_t>(j - 1);
                     const double      candidate = current_cost[index];
                     if (candidate < best_previous) {
-                        select_predecessor(candidate, current_numerator[index], current_denominator[index]);
+                        select_dtw_predecessor(candidate, current_numerator[index], current_denominator[index],
+                                               best_previous, best_numerator, best_denominator);
                     }
                 }
                 if (i > 0 && j > 0 && j - 1 >= previous_start && j - 1 < previous_stop) {
                     const std::size_t index     = static_cast<std::size_t>(j - 1);
                     const double      candidate = previous_cost[index];
                     if (candidate < best_previous) {
-                        select_predecessor(candidate, previous_numerator[index], previous_denominator[index]);
+                        select_dtw_predecessor(candidate, previous_numerator[index], previous_denominator[index],
+                                               best_previous, best_numerator, best_denominator);
                     }
                 }
 
@@ -249,7 +253,7 @@ std::size_t next_power_of_two (std::size_t value) {
 }
 
 PhaseProductSums fft_product_sums (DoubleSpan reference, DoubleSpan comparison) {
-    const auto        n         = static_cast<std::size_t>(span_size(reference));
+    const std::size_t n         = static_cast<std::size_t>(span_size(reference));
     const std::size_t conv_size = 2U * n - 1U;
     const std::size_t fft_size  = next_power_of_two(conv_size);
 
@@ -260,12 +264,12 @@ PhaseProductSums fft_product_sums (DoubleSpan reference, DoubleSpan comparison) 
         comparison_fft[idx] = {value_at(comparison, static_cast<Index>(n - idx - 1U)), 0.0};
     }
 
-    fft::c2c_power_of_two(reference_fft.data(), fft_size, fft::FORWARD, 1.0);
-    fft::c2c_power_of_two(comparison_fft.data(), fft_size, fft::FORWARD, 1.0);
+    fft::c2c_power_of_two(reference_fft.data(), fft_size, fft::kForward, 1.0);
+    fft::c2c_power_of_two(comparison_fft.data(), fft_size, fft::kForward, 1.0);
     for (std::size_t idx = 0; idx < fft_size; ++idx) {
         reference_fft[idx] *= comparison_fft[idx];
     }
-    fft::c2c_power_of_two(reference_fft.data(), fft_size, fft::BACKWARD, 1.0 / static_cast<double>(fft_size));
+    fft::c2c_power_of_two(reference_fft.data(), fft_size, fft::kBackward, 1.0 / static_cast<double>(fft_size));
 
     PhaseProductSums sums;
     sums.products.assign(conv_size, 0.0);
@@ -476,7 +480,10 @@ double phase_score (DoubleSpan reference, const ScoreParams& params, const Phase
 
 MagnitudeResult magnitude_score_from_values (DoubleSpan reference_values, DoubleSpan comparison_values,
                                              const ScoreParams& params) {
-    const auto [numerator, denominator] = magnitude_error_from_dtw(comparison_values, reference_values, 0.1);
+    const std::pair<double, double> magnitude_error =
+        magnitude_error_from_dtw(comparison_values, reference_values, 0.1);
+    const double numerator   = magnitude_error.first;
+    const double denominator = magnitude_error.second;
     if (denominator == 0.0) {
         MagnitudeResult result;
         result.score = numerator == 0.0 ? 1.0 : 0.0;

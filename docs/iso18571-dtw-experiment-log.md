@@ -3878,3 +3878,146 @@
 - Next hypothesis:
   - if these numbers are promoted to a baseline, rerun from a clean checkout and
     collect repeated benchmark JSON files before updating published docs.
+
+## 2026-06-20 10:38 KST - FFT Flattening And Explicit Native Types
+
+- Git status:
+  - dirty on `main` at commit `187324b`;
+  - modified `src/iso18571/fft.cpp` and `src/iso18571/engine.cpp`.
+- Hypothesis:
+  - replacing FFT helper classes/methods with data-only structs plus free
+    functions, and spelling out all native `auto` uses in FFT and engine code,
+    should preserve scorer behavior.
+- Files changed:
+  - `src/iso18571/fft.cpp`;
+  - `src/iso18571/engine.cpp`;
+  - this experiment log.
+- Commands:
+  - `rg -n "\\bauto\\b|\\bclass\\b" src/iso18571/fft.cpp src/iso18571/engine.cpp`;
+  - `uv pip install -e .`;
+  - `uv run --extra test python -m pytest -q`;
+  - `uv run --extra test pre-commit run --all-files`;
+  - `uv pip install -e .`;
+  - `uv run --extra test python -m pytest -q`.
+- Validation result:
+  - forbidden-token scan found no `auto` or `class` in the target files;
+  - editable native rebuild passed and installed `iso18571==1.0.8`;
+  - full pytest passed twice: `19 passed, 32 deselected`;
+  - pre-commit passed after clang-format updated native formatting.
+- Conclusion:
+  - FFT internals are flattened to structs and free functions;
+  - the engine and FFT target files no longer use `auto`;
+  - existing Annex/parity-focused tests still pass after the refactor.
+- Next hypothesis:
+  - if further native cleanup is needed, apply the same explicit-type style in
+    smaller files after confirming the intended scope.
+
+## 2026-06-20 10:40 KST - Native Benchmark After FFT Flattening
+
+- Git status:
+  - dirty on `main` at commit `187324b`;
+  - modified `src/iso18571/fft.cpp`, `src/iso18571/engine.cpp`, and this log.
+- Hypothesis:
+  - the flattened FFT/native explicit-type refactor should keep native benchmark
+    behavior in the same range as recent native-only snapshots.
+- Files changed:
+  - this experiment log;
+  - ignored benchmark JSON under `.benchmarks/native-after-flatten/`.
+- Commands:
+  - `mkdir -p .benchmarks/native-after-flatten`;
+  - `uv run --extra test python -m pytest -q -m benchmark -k native
+    tests/test_iso18571_benchmarks.py --benchmark-json
+    .benchmarks/native-after-flatten/benchmarks.json`;
+  - summarized `.benchmarks/native-after-flatten/benchmarks.json` with `jq`.
+- Validation result:
+  - native-only benchmark passed: `8 passed, 24 deselected`;
+  - peak swap was `0.0 MiB` for all rows.
+- Benchmark result:
+  - load/setup elapsed, ms:
+    `512=128.991`, `2048=153.165`, `8192=143.241`, `32768=428.274`;
+  - load/setup child elapsed, ms:
+    `512=5.580`, `2048=5.983`, `8192=29.625`, `32768=320.084`;
+  - load/setup peak RSS, MiB:
+    `512=45.84`, `2048=46.09`, `8192=46.93`, `32768=52.39`;
+  - runtime median, ms:
+    `512=0.226`, `2048=1.518`, `8192=21.476`, `32768=313.356`;
+  - runtime mean, ms:
+    `512=0.228`, `2048=1.526`, `8192=21.453`, `32768=313.344`;
+  - runtime peak RSS, MiB:
+    `512=45.89`, `2048=45.95`, `8192=46.81`, `32768=52.56`.
+- Conclusion:
+  - the native-only benchmark suite completed without swap-invalidated rows;
+  - timings and memory remain broadly aligned with recent native-only snapshots.
+
+## 2026-06-20 10:50 KST - Native C++ Naming Consistency Pass
+
+- Git status:
+  - dirty on `main` at commit `187324b`;
+  - existing dirty changes included the FFT flattening, explicit native type
+    cleanup, benchmark log entries, and macro-name fixes.
+- Hypothesis:
+  - applying PascalCase to FFT data structs and snake_case to FFT helper names
+    should improve consistency without changing native scorer behavior.
+- Files changed:
+  - `src/iso18571/fft.cpp`;
+  - `src/iso18571/fft.h`;
+  - `src/iso18571/engine.cpp`;
+  - this experiment log.
+- Commands:
+  - `rg -n "\\b(PM|PMINPLACE|ROTX|CH\\s*\\(|CC\\s*\\(|WA\\s*\\(|sincos_2pibyn|fctdata|cfftp|FORWARD|BACKWARD|twsize|comp_twiddle)\\b" src/iso18571 --glob "*.{cpp,h}"`;
+  - `rg -n "\\bauto\\b|\\bclass\\b" src/iso18571/fft.cpp src/iso18571/engine.cpp`;
+  - `uv pip install -e .`;
+  - `uv run --extra test python -m pytest -q`;
+  - `uv run --extra test pre-commit run --all-files`;
+  - `uv pip install -e .`;
+  - `uv run --extra test python -m pytest -q`.
+- Validation result:
+  - targeted old-name scans found no stale FFT helper/type/constant names;
+  - forbidden-token scan still found no `auto` or `class` in the target files;
+  - editable native rebuild passed and installed `iso18571==1.0.8`;
+  - full pytest passed twice: `19 passed, 32 deselected`;
+  - pre-commit passed after clang-format updated native formatting.
+- Conclusion:
+  - FFT internal type names now follow PascalCase;
+  - FFT helper functions and constants now follow the repo's snake_case /
+    `kPascalCase` style;
+  - existing tests still pass after the naming-only refactor.
+
+## 2026-06-20 10:52 KST - Native Benchmark After Naming Pass
+
+- Git status:
+  - dirty on `main` at commit `187324b`;
+  - modified native source files and this log from the flattening and naming
+    cleanup were present before the benchmark run.
+- Hypothesis:
+  - the PascalCase/snake_case-only naming cleanup should not materially change
+    native benchmark behavior.
+- Files changed:
+  - this experiment log;
+  - ignored benchmark JSON under `.benchmarks/native-after-naming/`.
+- Commands:
+  - `mkdir -p .benchmarks/native-after-naming`;
+  - `uv run --extra test python -m pytest -q -m benchmark -k native
+    tests/test_iso18571_benchmarks.py --benchmark-json
+    .benchmarks/native-after-naming/benchmarks.json`;
+  - summarized `.benchmarks/native-after-naming/benchmarks.json` with `jq`.
+- Validation result:
+  - native-only benchmark passed: `8 passed, 24 deselected`;
+  - peak swap was `0.0 MiB` for all rows.
+- Benchmark result:
+  - load/setup elapsed, ms:
+    `512=137.928`, `2048=134.034`, `8192=163.584`, `32768=437.493`;
+  - load/setup child elapsed, ms:
+    `512=5.615`, `2048=6.464`, `8192=30.078`, `32768=318.586`;
+  - load/setup peak RSS, MiB:
+    `512=45.91`, `2048=46.11`, `8192=46.79`, `32768=52.32`;
+  - runtime median, ms:
+    `512=0.164`, `2048=1.548`, `8192=21.021`, `32768=311.980`;
+  - runtime mean, ms:
+    `512=0.192`, `2048=1.550`, `8192=21.094`, `32768=311.092`;
+  - runtime peak RSS, MiB:
+    `512=45.79`, `2048=45.92`, `8192=46.75`, `32768=52.40`.
+- Conclusion:
+  - the native-only benchmark suite completed without swap-invalidated rows;
+  - results remain in the same range as the previous native-after-flattening
+    run.
