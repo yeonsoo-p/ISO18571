@@ -4093,3 +4093,412 @@
 - Next hypothesis:
   - specialize integer-exponent scoring and reuse FFT plan/workspace first,
     then benchmark before attempting higher-risk DTW loop reshaping.
+
+## 2026-06-20 11:28 KST - Native Optimization Experiments
+
+- Git status:
+  - baseline commit `3516dcd` (`Limit native helper linkage`) on `main`;
+  - dirty files after the experiment series:
+    `src/iso18571/engine.cpp`, `src/iso18571/fft.cpp`,
+    `src/iso18571/fft.h`, and `src/iso18571/fft_dispatch.cpp`.
+- Hypothesis:
+  - evaluate independent source-level optimizations one by one against the
+    current commit before keeping only changes with measurable impact.
+- Files changed:
+  - `src/iso18571/engine.cpp`;
+  - `src/iso18571/fft.cpp`;
+  - `src/iso18571/fft.h`;
+  - `src/iso18571/fft_dispatch.cpp`;
+  - this experiment log;
+  - ignored benchmark JSON under `.benchmarks/optimization-*`.
+- Commands:
+  - baseline:
+    `mkdir -p .benchmarks/optimization-baseline`;
+  - baseline:
+    `uv run --extra test python -m pytest -q -m benchmark -k native
+    tests/test_iso18571_benchmarks.py --benchmark-json
+    .benchmarks/optimization-baseline/benchmarks.json`;
+  - after each experiment:
+    `uv pip install -e .`;
+  - after each experiment:
+    `uv run --extra test python -m pytest -q`;
+  - after each experiment:
+    `uv run --extra test python -m pytest -q -m benchmark -k native
+    tests/test_iso18571_benchmarks.py --benchmark-json
+    .benchmarks/optimization-expN-*/benchmarks.json`;
+  - sanity timing:
+    `uv run python` in-process loop over native mixed-signal scores for
+    lengths `512`, `2048`, `8192`, and `32768`;
+  - constraint scan:
+    `rg -n "auto\b|class\b" src/iso18571/engine.cpp src/iso18571/fft.cpp`.
+- Validation result:
+  - full pytest passed after every experiment: `19 passed, 32 deselected`;
+  - native-only benchmark passed after every experiment:
+    `8 passed, 24 deselected`;
+  - no `auto` or `class` tokens were found in `engine.cpp` or `fft.cpp`.
+- Benchmark baseline, runtime median ms:
+  - `512=0.307781`;
+  - `2048=1.512248`;
+  - `8192=21.250825`;
+  - `32768=309.417700`.
+- Experiment 1, integer-exponent fast paths:
+  - changed corridor, phase, and magnitude score exponentiation to direct
+    multiplication for exponents `1`, `2`, and `3`;
+  - runtime median ms:
+    `512=0.200539`, `2048=1.479294`, `8192=21.381187`,
+    `32768=309.451415`;
+  - incremental median impact:
+    `512=-34.84%`, `2048=-2.18%`, `8192=+0.61%`,
+    `32768=+0.01%`;
+  - conclusion:
+    useful for small noisy rows, essentially neutral for large DTW-dominated
+    rows.
+- Experiment 2, FFT plan/workspace reuse:
+  - added `c2c_convolve_power_of_two` so the phase product path builds one FFT
+    plan and one scratch buffer for the two forward transforms, multiply, and
+    inverse transform;
+  - runtime median ms:
+    `512=0.190146`, `2048=1.638858`, `8192=23.721414`,
+    `32768=296.086888`;
+  - incremental median impact:
+    `512=-5.18%`, `2048=+10.79%`, `8192=+10.95%`,
+    `32768=-4.32%`;
+  - conclusion:
+    the large row improves clearly; the smaller rows are noisy and can regress
+    in the official three-round benchmark.
+- Experiment 3, DTW interior loop restructuring:
+  - split each band row into edge cells with predecessor availability checks
+    and interior cells with direct predecessor loads; also precomputed
+    `abs(y[j])`;
+  - runtime median ms:
+    `512=0.480536`, `2048=1.665196`, `8192=19.161019`,
+    `32768=252.300043`;
+  - incremental median impact:
+    `512=+152.72%`, `2048=+1.61%`, `8192=-19.22%`,
+    `32768=-14.79%`;
+  - conclusion:
+    this is the strongest optimization for realistic large inputs; the 512 row
+    was an outlier in this run.
+- Experiment 4, slope smoothing reuse:
+  - computed both smoothed slope arrays once with a rolling 9-point sum instead
+    of calling the smoothing helper twice per sample;
+  - runtime median ms:
+    `512=0.189554`, `2048=1.671310`, `8192=18.430593`,
+    `32768=252.890978`;
+  - incremental median impact:
+    `512=-60.55%`, `2048=+0.37%`, `8192=-3.81%`,
+    `32768=+0.23%`;
+  - conclusion:
+    modest benefit around 8192 samples, but it does not materially change the
+    largest DTW-dominated row.
+- Experiment 5, phase correlation cache reuse:
+  - stored FFT-derived shift correlations from the first phase pass and reused
+    them in the exact-refinement filter instead of recomputing cached product
+    correlations;
+  - runtime median ms:
+    `512=0.182722`, `2048=1.636772`, `8192=19.055148`,
+    `32768=252.864390`;
+  - incremental median impact:
+    `512=-3.60%`, `2048=-2.07%`, `8192=+3.39%`,
+    `32768=-0.01%`;
+  - conclusion:
+    neutral overall; it removes redundant work but the work is too small
+    relative to DTW at large sizes.
+- Overall conclusion:
+  - cumulative median impact versus baseline:
+    `512=-40.63%`, `2048=+8.23%`, `8192=-10.33%`,
+    `32768=-18.28%`;
+  - the reliable improvements are FFT plan/workspace reuse and the DTW
+    interior loop restructuring;
+  - integer power, slope smoothing, and phase-cache reuse are either small or
+    dominated by benchmark noise at these input sizes.
+- Next hypothesis:
+  - if more speed is needed, focus on DTW memory traffic and branch structure;
+    the remaining non-DTW scalar helpers are no longer the limiting factor.
+
+## 2026-06-20 11:42 KST - Isolated Native Optimization Experiments
+
+- Git status:
+  - baseline commit `3516dcd` (`Limit native helper linkage`) on `main`;
+  - active checkout was already dirty from the cumulative optimization
+    experiments and this log;
+  - isolated work was done in detached temporary worktrees under
+    `/tmp/iso18571-isolated-20260620113305/`.
+- Hypothesis:
+  - remeasure each proposed optimization as `baseline + only this change`, so
+    the impact answers whether that individual patch is worthwhile by itself.
+- Files changed:
+  - temporary worktree `exp1`: `src/iso18571/engine.cpp`;
+  - temporary worktree `exp2`: `src/iso18571/engine.cpp`,
+    `src/iso18571/fft.cpp`, `src/iso18571/fft.h`,
+    `src/iso18571/fft_dispatch.cpp`;
+  - temporary worktree `exp3`: `src/iso18571/engine.cpp`;
+  - temporary worktree `exp4`: `src/iso18571/engine.cpp`;
+  - temporary worktree `exp5`: `src/iso18571/engine.cpp`;
+  - this experiment log in the active checkout.
+- Commands:
+  - created detached worktrees for `baseline`, `exp1`, `exp2`, `exp3`,
+    `exp4`, and `exp5` from `3516dcd`;
+  - applied one optimization patch per experiment worktree;
+  - in each worktree:
+    `uv venv`;
+  - in each worktree:
+    `uv pip install -e .`;
+  - in each worktree:
+    `uv run --extra test python -m pytest -q`;
+  - in each worktree:
+    `uv run --extra test python -m pytest -q -m benchmark -k native
+    tests/test_iso18571_benchmarks.py --benchmark-json
+    .benchmarks/isolated-*/benchmarks.json`;
+  - direct sanity timing in each worktree with the local `.venv/bin/python`
+    over mixed-signal lengths `512`, `2048`, `8192`, and `32768`;
+  - repeated direct sanity timing for `32768` only.
+- Validation result:
+  - each worktree used CPython `3.14.3`;
+  - full pytest passed in all six worktrees:
+    `19 passed, 32 deselected`;
+  - native-only benchmark passed in all six worktrees:
+    `8 passed, 24 deselected`;
+  - no `auto` or `class` tokens were found in the isolated
+    `engine.cpp`/`fft.cpp` experiment files.
+- Official isolated benchmark, runtime median ms:
+  - baseline:
+    `512=0.176851`, `2048=1.552129`, `8192=21.549345`,
+    `32768=318.155707`;
+  - exp1 integer-exponent fast paths:
+    `512=0.155134`, `2048=1.938472`, `8192=21.219900`,
+    `32768=309.159212`;
+  - exp2 FFT plan/workspace reuse:
+    `512=0.170452`, `2048=1.558234`, `8192=21.543900`,
+    `32768=316.281204`;
+  - exp3 DTW interior loop restructuring:
+    `512=0.194462`, `2048=1.309054`, `8192=19.225856`,
+    `32768=253.846967`;
+  - exp4 slope smoothing reuse:
+    `512=0.172121`, `2048=1.959844`, `8192=21.232762`,
+    `32768=317.280215`;
+  - exp5 phase correlation cache reuse:
+    `512=0.260268`, `2048=1.488178`, `8192=21.016597`,
+    `32768=304.127984`.
+- Official isolated median impact versus baseline:
+  - exp1:
+    `512=-12.28%`, `2048=+24.89%`, `8192=-1.53%`,
+    `32768=-2.83%`;
+  - exp2:
+    `512=-3.62%`, `2048=+0.39%`, `8192=-0.03%`,
+    `32768=-0.59%`;
+  - exp3:
+    `512=+9.96%`, `2048=-15.66%`, `8192=-10.78%`,
+    `32768=-20.21%`;
+  - exp4:
+    `512=-2.67%`, `2048=+26.27%`, `8192=-1.47%`,
+    `32768=-0.28%`;
+  - exp5:
+    `512=+47.17%`, `2048=-4.12%`, `8192=-2.47%`,
+    `32768=-4.41%`.
+- Direct sanity timing, ms:
+  - baseline:
+    `512=0.177`, `2048=1.487`, `8192=20.952`,
+    `32768=309.465`;
+  - exp1:
+    `512=0.171`, `2048=1.451`, `8192=20.794`,
+    `32768=308.511`;
+  - exp2:
+    `512=0.180`, `2048=1.461`, `8192=20.596`,
+    `32768=305.373`;
+  - exp3:
+    `512=0.160`, `2048=1.321`, `8192=18.036`,
+    `32768=258.350`;
+  - exp4:
+    `512=0.180`, `2048=1.484`, `8192=20.835`,
+    `32768=307.212`;
+  - exp5:
+    `512=0.171`, `2048=1.455`, `8192=20.729`,
+    `32768=296.213`.
+- Direct sanity impact versus baseline:
+  - exp1:
+    `512=-3.39%`, `2048=-2.42%`, `8192=-0.75%`,
+    `32768=-0.31%`;
+  - exp2:
+    `512=+1.69%`, `2048=-1.75%`, `8192=-1.70%`,
+    `32768=-1.32%`;
+  - exp3:
+    `512=-9.60%`, `2048=-11.16%`, `8192=-13.92%`,
+    `32768=-16.52%`;
+  - exp4:
+    `512=+1.69%`, `2048=-0.20%`, `8192=-0.56%`,
+    `32768=-0.73%`;
+  - exp5:
+    `512=-3.39%`, `2048=-2.15%`, `8192=-1.06%`,
+    `32768=-4.28%`.
+- Repeated direct `32768` timing:
+  - baseline: `309.142 ms`;
+  - exp1: `307.461 ms` (`-0.54%`);
+  - exp2: `305.739 ms` (`-1.10%`);
+  - exp3: `262.651 ms` (`-15.04%`);
+  - exp4: `307.466 ms` (`-0.54%`);
+  - exp5: `297.385 ms` (`-3.80%`).
+- Conclusion:
+  - isolated DTW interior loop restructuring is the only large standalone win;
+  - isolated phase-cache reuse is a smaller standalone win on the large row;
+  - isolated FFT reuse is small and close to benchmark noise on this run;
+  - isolated integer-power and slope-smoothing changes are effectively
+    near-neutral for large inputs despite noisy small-row benchmark movements.
+- Next hypothesis:
+  - keep DTW restructuring as the primary optimization candidate; consider
+    phase-cache reuse as a low-risk secondary change, but do not justify the
+    remaining helpers on standalone performance alone.
+
+## 2026-06-20 11:48 KST - Native Optimization Combination Experiments
+
+- Git status:
+  - baseline commit `3516dcd` (`Limit native helper linkage`) on `main`;
+  - active checkout was already dirty from cumulative optimization experiments
+    and experiment logs;
+  - combination work was done in detached temporary worktrees under
+    `/tmp/iso18571-combo-20260620114501/`.
+- Hypothesis:
+  - measure likely kept combinations directly against baseline:
+    exp3+exp5, exp1+exp3+exp5, and exp1+exp2+exp3+exp4+exp5.
+- Files changed:
+  - temporary worktree `combo35`: `src/iso18571/engine.cpp`;
+  - temporary worktree `combo135`: `src/iso18571/engine.cpp`;
+  - temporary worktree `combo12345`: `src/iso18571/engine.cpp`,
+    `src/iso18571/fft.cpp`, `src/iso18571/fft.h`,
+    `src/iso18571/fft_dispatch.cpp`;
+  - this experiment log in the active checkout.
+- Commands:
+  - created detached worktrees `combo35`, `combo135`, and `combo12345` from
+    `3516dcd`;
+  - applied previously isolated patch diffs for `combo35` and `combo135`;
+  - applied the active all-five source diff for `combo12345`;
+  - in each combination worktree:
+    `uv venv`;
+  - in each combination worktree:
+    `uv pip install -e .`;
+  - in each combination worktree:
+    `uv run --extra test python -m pytest -q`;
+  - in each combination worktree:
+    `uv run --extra test python -m pytest -q -m benchmark -k native
+    tests/test_iso18571_benchmarks.py --benchmark-json
+    .benchmarks/combo*/benchmarks.json`;
+  - direct sanity timing in each worktree with local `.venv/bin/python` over
+    mixed-signal lengths `512`, `2048`, `8192`, and `32768`;
+  - repeated direct sanity timing for `32768` only.
+- Validation result:
+  - each combination worktree used CPython `3.14.3`;
+  - full pytest passed in all three combination worktrees:
+    `19 passed, 32 deselected`;
+  - native-only benchmark passed in all three combination worktrees:
+    `8 passed, 24 deselected`;
+  - no `auto` or `class` tokens were found in the combination
+    `engine.cpp`/`fft.cpp` files.
+- Official benchmark baseline from the isolated run, runtime median ms:
+  - `512=0.176851`;
+  - `2048=1.552129`;
+  - `8192=21.549345`;
+  - `32768=318.155707`.
+- Official combination benchmark, runtime median ms:
+  - exp3+exp5:
+    `512=0.251301`, `2048=1.743048`, `8192=19.263797`,
+    `32768=253.945835`;
+  - exp1+exp3+exp5:
+    `512=0.202755`, `2048=1.366699`, `8192=19.093037`,
+    `32768=252.894008`;
+  - exp1+exp2+exp3+exp4+exp5:
+    `512=0.221907`, `2048=1.662912`, `8192=18.767241`,
+    `32768=252.272808`.
+- Official combination impact versus baseline:
+  - exp3+exp5:
+    `512=+42.10%`, `2048=+12.30%`, `8192=-10.61%`,
+    `32768=-20.18%`;
+  - exp1+exp3+exp5:
+    `512=+14.65%`, `2048=-11.95%`, `8192=-11.40%`,
+    `32768=-20.51%`;
+  - exp1+exp2+exp3+exp4+exp5:
+    `512=+25.48%`, `2048=+7.14%`, `8192=-12.91%`,
+    `32768=-20.71%`.
+- Direct sanity timing, ms:
+  - baseline:
+    `512=0.177`, `2048=1.486`, `8192=20.949`,
+    `32768=309.648`;
+  - exp3+exp5:
+    `512=0.148`, `2048=1.273`, `8192=17.936`,
+    `32768=252.510`;
+  - exp1+exp3+exp5:
+    `512=0.151`, `2048=1.268`, `8192=17.871`,
+    `32768=252.029`;
+  - exp1+exp2+exp3+exp4+exp5:
+    `512=0.162`, `2048=1.255`, `8192=17.687`,
+    `32768=250.749`.
+- Direct sanity impact versus baseline:
+  - exp3+exp5:
+    `512=-16.38%`, `2048=-14.33%`, `8192=-14.38%`,
+    `32768=-18.45%`;
+  - exp1+exp3+exp5:
+    `512=-14.69%`, `2048=-14.67%`, `8192=-14.69%`,
+    `32768=-18.61%`;
+  - exp1+exp2+exp3+exp4+exp5:
+    `512=-8.47%`, `2048=-15.55%`, `8192=-15.57%`,
+    `32768=-19.02%`.
+- Repeated direct `32768` timing:
+  - baseline: `323.152 ms`;
+  - exp3+exp5: `252.765 ms` (`-21.78%`);
+  - exp1+exp3+exp5: `251.907 ms` (`-22.05%`);
+  - exp1+exp2+exp3+exp4+exp5: `250.827 ms` (`-22.38%`).
+- Conclusion:
+  - exp3+exp5 captures nearly all of the meaningful large-row improvement;
+  - adding exp1 to exp3+exp5 is effectively neutral to very slightly faster in
+    direct timings;
+  - all five experiments together are only marginally faster than exp1+exp3+exp5
+    on large rows, and the official small-row medians remain too noisy to use as
+    a deciding factor.
+- Next hypothesis:
+  - prefer the narrower exp3+exp5 or exp1+exp3+exp5 patch unless the small extra
+    large-row gain from all five justifies the broader FFT/slope changes.
+
+## 2026-06-20 11:54 KST - README Native Benchmark Refresh
+
+- Git status:
+  - dirty on `main` at baseline commit `3516dcd`;
+  - active source contains the selected exp3+exp5 native optimization.
+- Hypothesis:
+  - the README benchmark snapshot should show native rows from the selected
+    optimized implementation.
+- Files changed:
+  - `README.md`;
+  - this experiment log.
+- Commands:
+  - `mkdir -p .benchmarks/iso18571-readme-native-3plus5`;
+  - `uv run --extra test python -m pytest -q
+    tests/test_iso18571_benchmarks.py -m benchmark -k native
+    --benchmark-json
+    .benchmarks/iso18571-readme-native-3plus5/benchmarks.json`;
+  - direct sanity timing with `uv run python` over mixed-signal lengths `512`,
+    `2048`, `8192`, and `32768`;
+  - `mkdir -p .benchmarks/iso18571-readme-native-3plus5-rerun`;
+  - `uv run --extra test python -m pytest -q
+    tests/test_iso18571_benchmarks.py -m benchmark -k native
+    --benchmark-json
+    .benchmarks/iso18571-readme-native-3plus5-rerun/benchmarks.json`.
+- Validation result:
+  - both native-only benchmark runs passed:
+    `8 passed, 24 deselected`;
+  - the first benchmark run had a noisy `32768` runtime median, so the README
+    uses the stable rerun.
+- Benchmark result used for README native rows:
+  - load time, ms:
+    `512=123.01`, `2048=153.51`, `8192=142.85`,
+    `32768=398.72`;
+  - peak RSS, MiB:
+    `512=45.90`, `2048=46.00`, `8192=46.86`,
+    `32768=52.65`;
+  - runtime median, ms:
+    `512=0.21`, `2048=1.43`, `8192=18.35`,
+    `32768=256.28`;
+  - peak swap was `0.00 MiB` for all native rows.
+- Conclusion:
+  - README native benchmark rows now reflect the selected exp3+exp5 optimized
+    backend;
+  - reference backend rows remain as comparison baselines from the existing full
+    benchmark snapshot.

@@ -226,13 +226,14 @@ sudo swapoff /swap_iso18571_bench.img
 sudo rm /swap_iso18571_bench.img
 ```
 
-Benchmark snapshot from this machine:
+Benchmark snapshot from this machine. Native rows were refreshed with the current optimized native backend; reference rows
+are retained as comparison baselines from the existing full benchmark snapshot.
 
 ### Load Time, ms
 
 | Backend | 512 | 2048 | 8192 | 32768 |
 | --- | ---: | ---: | ---: | ---: |
-| native | 154.71 | 153.82 | 174.05 | 437.30 |
+| native | 123.01 | 153.51 | 142.85 | 398.72 |
 | dtwalign | 3898.99 | 3813.41 | 4897.01 | - |
 | dtw_python | 931.82 | 995.43 | 1803.67 | - |
 | librosa | 1231.87 | 1274.18 | 2253.83 | 17590.40 |
@@ -241,7 +242,7 @@ Benchmark snapshot from this machine:
 
 | Backend | 512 | 2048 | 8192 | 32768 |
 | --- | ---: | ---: | ---: | ---: |
-| native | 46.13 | 46.08 | 46.86 | 52.34 |
+| native | 45.90 | 46.00 | 46.86 | 52.65 |
 | dtwalign | 359.48 | 450.83 | 2105.46 | - |
 | dtw_python | 253.07 | 431.89 | 3278.38 | - |
 | librosa | 312.04 | 385.59 | 1759.17 | 24522.72 |
@@ -250,7 +251,7 @@ Benchmark snapshot from this machine:
 
 | Backend | 512 | 2048 | 8192 | 32768 |
 | --- | ---: | ---: | ---: | ---: |
-| native | 0.26 | 1.51 | 21.43 | 306.95 |
+| native | 0.21 | 1.43 | 18.35 | 256.28 |
 | dtwalign | 6.97 | 87.72 | 1177.31 | - |
 | dtw_python | 7.01 | 62.88 | 936.57 | - |
 | librosa | 7.02 | 77.73 | 1049.70 | 16130.18 |

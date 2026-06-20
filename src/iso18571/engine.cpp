@@ -88,21 +88,39 @@ std::pair<double, double> magnitude_error_from_dtw (DoubleSpan x, DoubleSpan y, 
     std::vector<double> current_numerator(static_cast<std::size_t>(n), 0.0);
     std::vector<double> previous_denominator(static_cast<std::size_t>(n), 0.0);
     std::vector<double> current_denominator(static_cast<std::size_t>(n), 0.0);
+    std::vector<double> abs_y(static_cast<std::size_t>(n), 0.0);
+
+    for (Index idx = 0; idx < n; ++idx) {
+        abs_y[offset(idx)] = std::abs(value_at(y, idx));
+    }
 
     for (Index i = 0; i < n; ++i) {
-        const Index previous_start = i > 0 ? std::max<Index>(0, i - radius) : 0;
-        const Index previous_stop  = i > 0 ? std::min<Index>(n, i + radius - 1) : 0;
-        const Index j_start        = std::max<Index>(0, i - radius + 1);
-        const Index j_stop         = std::min<Index>(n, i + radius);
+        const Index  previous_start = i > 0 ? std::max<Index>(0, i - radius) : 0;
+        const Index  previous_stop  = i > 0 ? std::min<Index>(n, i + radius - 1) : 0;
+        const Index  j_start        = std::max<Index>(0, i - radius + 1);
+        const Index  j_stop         = std::min<Index>(n, i + radius);
+        const double x_i            = value_at(x, i);
+        Index        interior_start = j_stop;
+        Index        interior_stop  = j_stop;
 
-        for (Index j = j_start; j < j_stop; ++j) {
-            const double delta             = value_at(x, i) - value_at(y, j);
-            const double local_cost        = delta * delta;
-            const double local_numerator   = std::abs(delta);
-            const double local_denominator = std::abs(value_at(y, j));
-            double       accumulated       = inf;
-            double       numerator         = 0.0;
-            double       denominator       = 0.0;
+        if (i > 0) {
+            interior_start = std::max<Index>(j_start + 1, previous_start + 1);
+            interior_stop  = std::min<Index>(j_stop, previous_stop);
+            if (interior_start >= interior_stop) {
+                interior_start = j_stop;
+                interior_stop  = j_stop;
+            }
+        }
+
+        for (Index j = j_start; j < interior_start; ++j) {
+            const std::size_t index             = static_cast<std::size_t>(j);
+            const double      delta             = x_i - value_at(y, j);
+            const double      local_cost        = delta * delta;
+            const double      local_numerator   = std::abs(delta);
+            const double      local_denominator = abs_y[index];
+            double            accumulated       = inf;
+            double            numerator         = 0.0;
+            double            denominator       = 0.0;
 
             if (i == 0 && j == 0) {
                 accumulated = local_cost;
@@ -114,24 +132,25 @@ std::pair<double, double> magnitude_error_from_dtw (DoubleSpan x, DoubleSpan y, 
                 double best_denominator = 0.0;
 
                 if (i > 0 && j >= previous_start && j < previous_stop) {
-                    const std::size_t index = static_cast<std::size_t>(j);
                     select_dtw_predecessor(previous_cost[index], previous_numerator[index], previous_denominator[index],
                                            best_previous, best_numerator, best_denominator);
                 }
                 if (j > j_start) {
-                    const std::size_t index     = static_cast<std::size_t>(j - 1);
-                    const double      candidate = current_cost[index];
+                    const std::size_t previous_index = static_cast<std::size_t>(j - 1);
+                    const double      candidate      = current_cost[previous_index];
                     if (candidate < best_previous) {
-                        select_dtw_predecessor(candidate, current_numerator[index], current_denominator[index],
-                                               best_previous, best_numerator, best_denominator);
+                        select_dtw_predecessor(candidate, current_numerator[previous_index],
+                                               current_denominator[previous_index], best_previous, best_numerator,
+                                               best_denominator);
                     }
                 }
                 if (i > 0 && j > 0 && j - 1 >= previous_start && j - 1 < previous_stop) {
-                    const std::size_t index     = static_cast<std::size_t>(j - 1);
-                    const double      candidate = previous_cost[index];
+                    const std::size_t previous_index = static_cast<std::size_t>(j - 1);
+                    const double      candidate      = previous_cost[previous_index];
                     if (candidate < best_previous) {
-                        select_dtw_predecessor(candidate, previous_numerator[index], previous_denominator[index],
-                                               best_previous, best_numerator, best_denominator);
+                        select_dtw_predecessor(candidate, previous_numerator[previous_index],
+                                               previous_denominator[previous_index], best_previous, best_numerator,
+                                               best_denominator);
                     }
                 }
 
@@ -142,7 +161,93 @@ std::pair<double, double> magnitude_error_from_dtw (DoubleSpan x, DoubleSpan y, 
                 }
             }
 
-            const std::size_t index    = static_cast<std::size_t>(j);
+            current_cost[index]        = accumulated;
+            current_numerator[index]   = numerator;
+            current_denominator[index] = denominator;
+        }
+
+        for (Index j = interior_start; j < interior_stop; ++j) {
+            const std::size_t index             = static_cast<std::size_t>(j);
+            const std::size_t previous_index    = static_cast<std::size_t>(j - 1);
+            const double      delta             = x_i - value_at(y, j);
+            const double      local_cost        = delta * delta;
+            const double      local_numerator   = std::abs(delta);
+            const double      local_denominator = abs_y[index];
+            double            best_previous     = previous_cost[index];
+            double            best_numerator    = previous_numerator[index];
+            double            best_denominator  = previous_denominator[index];
+            const double      horizontal        = current_cost[previous_index];
+            if (horizontal < best_previous) {
+                best_previous    = horizontal;
+                best_numerator   = current_numerator[previous_index];
+                best_denominator = current_denominator[previous_index];
+            }
+            const double diagonal = previous_cost[previous_index];
+            if (diagonal < best_previous) {
+                best_previous    = diagonal;
+                best_numerator   = previous_numerator[previous_index];
+                best_denominator = previous_denominator[previous_index];
+            }
+            if (std::isfinite(best_previous)) {
+                current_cost[index]        = local_cost + best_previous;
+                current_numerator[index]   = local_numerator + best_numerator;
+                current_denominator[index] = local_denominator + best_denominator;
+            } else {
+                current_cost[index]        = inf;
+                current_numerator[index]   = 0.0;
+                current_denominator[index] = 0.0;
+            }
+        }
+
+        for (Index j = interior_stop; j < j_stop; ++j) {
+            const std::size_t index             = static_cast<std::size_t>(j);
+            const double      delta             = x_i - value_at(y, j);
+            const double      local_cost        = delta * delta;
+            const double      local_numerator   = std::abs(delta);
+            const double      local_denominator = abs_y[index];
+            double            accumulated       = inf;
+            double            numerator         = 0.0;
+            double            denominator       = 0.0;
+
+            if (i == 0 && j == 0) {
+                accumulated = local_cost;
+                numerator   = local_numerator;
+                denominator = local_denominator;
+            } else {
+                double best_previous    = inf;
+                double best_numerator   = 0.0;
+                double best_denominator = 0.0;
+
+                if (i > 0 && j >= previous_start && j < previous_stop) {
+                    select_dtw_predecessor(previous_cost[index], previous_numerator[index], previous_denominator[index],
+                                           best_previous, best_numerator, best_denominator);
+                }
+                if (j > j_start) {
+                    const std::size_t previous_index = static_cast<std::size_t>(j - 1);
+                    const double      candidate      = current_cost[previous_index];
+                    if (candidate < best_previous) {
+                        select_dtw_predecessor(candidate, current_numerator[previous_index],
+                                               current_denominator[previous_index], best_previous, best_numerator,
+                                               best_denominator);
+                    }
+                }
+                if (i > 0 && j > 0 && j - 1 >= previous_start && j - 1 < previous_stop) {
+                    const std::size_t previous_index = static_cast<std::size_t>(j - 1);
+                    const double      candidate      = previous_cost[previous_index];
+                    if (candidate < best_previous) {
+                        select_dtw_predecessor(candidate, previous_numerator[previous_index],
+                                               previous_denominator[previous_index], best_previous, best_numerator,
+                                               best_denominator);
+                    }
+                }
+
+                if (std::isfinite(best_previous)) {
+                    accumulated = local_cost + best_previous;
+                    numerator   = local_numerator + best_numerator;
+                    denominator = local_denominator + best_denominator;
+                }
+            }
+
             current_cost[index]        = accumulated;
             current_numerator[index]   = numerator;
             current_denominator[index] = denominator;
@@ -339,13 +444,16 @@ PhaseResult phase_candidate_from_correlation (Index reference_start, Index compa
 
 PhaseResult phase_candidate_from_fft_product (DoubleSpan reference, DoubleSpan comparison, const PhaseCache& cache,
                                               const PhaseProductSums& sums, Index n, Index reference_start,
-                                              Index comparison_start, Index length, Index n_eps, double max_shift) {
+                                              Index comparison_start, Index length, Index n_eps, double max_shift,
+                                              double& cached_rho) {
+    cached_rho = std::numeric_limits<double>::quiet_NaN();
     if (length < 32) {
         return phase_candidate_for_shift(reference, comparison, reference_start, comparison_start, length, n_eps,
                                          max_shift);
     }
     const double product_sum = product_sum_from_fft(sums, n, reference_start, comparison_start);
     const double rho_e = correlation_from_cached_product(cache, reference_start, comparison_start, length, product_sum);
+    cached_rho         = rho_e;
     if (std::isnan(rho_e)) {
         return phase_candidate_for_shift(reference, comparison, reference_start, comparison_start, length, n_eps,
                                          max_shift);
@@ -360,9 +468,9 @@ void select_phase_candidate (PhaseResult& result, double& ccr_max, const PhaseRe
     }
 }
 
-PhaseResult refine_fft_phase_result (DoubleSpan reference, DoubleSpan comparison, const PhaseCache& cache,
-                                     const PhaseProductSums& sums, Index bounded_window_size, double max_shift,
-                                     double fft_ccr_max) {
+PhaseResult refine_fft_phase_result (DoubleSpan reference, DoubleSpan comparison, Index bounded_window_size,
+                                     double max_shift, double fft_ccr_max, const std::vector<double>& left_cached_rho,
+                                     const std::vector<double>& right_cached_rho) {
     PhaseResult refined = phase_candidate_for_shift(reference, comparison, 0, 0, span_size(reference), 0, max_shift);
     double      refined_ccr = refined.correlation.rho_e;
 
@@ -376,15 +484,13 @@ PhaseResult refine_fft_phase_result (DoubleSpan reference, DoubleSpan comparison
             continue;
         }
 
-        const double left_product_sum = product_sum_from_fft(sums, span_size(reference), 0, idx);
-        const double left             = correlation_from_cached_product(cache, 0, idx, length, left_product_sum);
+        const double left = left_cached_rho[offset(idx)];
         if (left >= fft_ccr_max - CORRELATION_REFINE_MARGIN) {
             select_phase_candidate(refined, refined_ccr,
                                    phase_candidate_for_shift(reference, comparison, 0, idx, length, idx, max_shift));
         }
 
-        const double right_product_sum = product_sum_from_fft(sums, span_size(reference), idx, 0);
-        const double right             = correlation_from_cached_product(cache, idx, 0, length, right_product_sum);
+        const double right = right_cached_rho[offset(idx)];
         if (right >= fft_ccr_max - CORRELATION_REFINE_MARGIN) {
             select_phase_candidate(refined, refined_ccr,
                                    phase_candidate_for_shift(reference, comparison, idx, 0, length, idx, max_shift));
@@ -409,18 +515,25 @@ PhaseResult compute_phase_alignment (DoubleSpan reference, DoubleSpan comparison
     double           ccr_max             = result.correlation.rho_e;
 
     const PhaseProductSums sums = fft_product_sums(reference, comparison);
+    std::vector<double>    left_cached_rho(static_cast<std::size_t>(bounded_window_size),
+                                           std::numeric_limits<double>::quiet_NaN());
+    std::vector<double>    right_cached_rho(static_cast<std::size_t>(bounded_window_size),
+                                            std::numeric_limits<double>::quiet_NaN());
     for (Index idx = 1; idx < bounded_window_size; ++idx) {
-        const Index       length         = reference_n - idx;
-        const PhaseResult left_candidate = phase_candidate_from_fft_product(
-            reference, comparison, cache, sums, reference_n, 0, idx, length, idx, max_shift);
+        const Index       length = reference_n - idx;
+        const PhaseResult left_candidate =
+            phase_candidate_from_fft_product(reference, comparison, cache, sums, reference_n, 0, idx, length, idx,
+                                             max_shift, left_cached_rho[offset(idx)]);
         select_phase_candidate(result, ccr_max, left_candidate);
 
-        const PhaseResult right_candidate = phase_candidate_from_fft_product(
-            reference, comparison, cache, sums, reference_n, idx, 0, length, idx, max_shift);
+        const PhaseResult right_candidate =
+            phase_candidate_from_fft_product(reference, comparison, cache, sums, reference_n, idx, 0, length, idx,
+                                             max_shift, right_cached_rho[offset(idx)]);
         select_phase_candidate(result, ccr_max, right_candidate);
     }
 
-    result = refine_fft_phase_result(reference, comparison, cache, sums, bounded_window_size, max_shift, ccr_max);
+    result = refine_fft_phase_result(reference, comparison, bounded_window_size, max_shift, ccr_max, left_cached_rho,
+                                     right_cached_rho);
 
     if (result.alignment.length < 9) {
         result = phase_candidate_for_shift(reference, comparison, 0, 0, reference_n, 0, max_shift);
