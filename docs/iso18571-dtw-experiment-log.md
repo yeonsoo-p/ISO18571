@@ -4860,3 +4860,125 @@
   - the combination improves length `32768` runtime by `4.9%`, slightly better
     than either isolated change, but the effect is not additive;
   - small and medium runtime rows do not improve in this benchmark run.
+
+## 2026-06-20 13:08 KST - Native Benchmark After Phase Product Vector Cleanup
+
+- Git status:
+  - dirty with the local `src/iso18571/engine.cpp` cleanup that removes the
+    `PhaseProductSums` wrapper and uses `std::vector<double>` directly.
+- Hypothesis:
+  - removing the trivial phase-product wrapper should preserve native scorer
+    behavior and keep benchmark results in the current optimized range.
+- Files changed:
+  - `src/iso18571/engine.cpp`;
+  - this experiment log.
+- Commands:
+  - `uv pip install -e .`;
+  - `uv run --extra test python -m pytest -q`;
+  - `mkdir -p .benchmarks/iso18571-native`;
+  - `uv run --extra test python -m pytest -q
+    tests/test_iso18571_benchmarks.py -m benchmark -k native
+    --benchmark-json .benchmarks/iso18571-native/benchmarks.json`.
+- Validation result:
+  - editable native rebuild passed and installed `iso18571==1.0.10`;
+  - default tests passed: `19 passed, 32 deselected`;
+  - native-only benchmark passed: `8 passed, 24 deselected`.
+- Native benchmark result:
+  - load-time median, ms:
+    `512=123.87`, `2048=143.44`, `8192=175.44`,
+    `32768=437.85`;
+  - peak RSS, MiB:
+    `512=45.84`, `2048=46.01`, `8192=46.67`, `32768=52.14`;
+  - runtime median, ms:
+    `512=0.12`, `2048=1.13`, `8192=16.41`, `32768=310.03`;
+  - peak swap was `0.00 MiB` for all native rows.
+- Conclusion:
+  - build, tests, and native benchmark collection completed successfully;
+  - the vector cleanup remains behavior-preserving under the default test suite.
+
+## 2026-06-20 13:09 KST - Native Benchmark Immediate Rerun
+
+- Git status:
+  - dirty only with `docs/iso18571-dtw-experiment-log.md` from benchmark
+    documentation.
+- Hypothesis:
+  - rerunning the current optimized native checkout should show normal
+    benchmark variance and keep all native rows valid with no swap use.
+- Files changed:
+  - this experiment log.
+- Commands:
+  - `uv pip install -e .`;
+  - `uv run --extra test python -m pytest -q`;
+  - `mkdir -p .benchmarks/iso18571-native-rerun-20260620130928`;
+  - `uv run --extra test python -m pytest -q
+    tests/test_iso18571_benchmarks.py -m benchmark -k native
+    --benchmark-json
+    .benchmarks/iso18571-native-rerun-20260620130928/benchmarks.json`.
+- Validation result:
+  - editable native rebuild passed and installed `iso18571==1.0.10`;
+  - default tests passed: `19 passed, 32 deselected`;
+  - native-only benchmark passed: `8 passed, 24 deselected`.
+- Native benchmark result:
+  - load-time median, ms:
+    `512=138.82`, `2048=112.55`, `8192=155.80`,
+    `32768=377.58`;
+  - peak RSS, MiB:
+    `512=45.84`, `2048=45.96`, `8192=46.73`, `32768=52.06`;
+  - runtime median, ms:
+    `512=0.16`, `2048=1.11`, `8192=15.51`, `32768=224.97`;
+  - peak swap was `0.00 MiB` for all native rows.
+- Conclusion:
+  - build, tests, and native-only benchmark passed again;
+  - the length `32768` runtime median recovered to the same range as the
+    accepted combined optimization snapshot, indicating the previous slower
+    `32768` row was benchmark variance rather than a persistent regression.
+
+## 2026-06-20 13:11 KST - Remove Explicit Inline Keywords
+
+- Git status:
+  - dirty with benchmark-log updates before the experiment;
+  - experiment modifies `src/iso18571/engine.cpp` and `src/iso18571/engine.h`.
+- Hypothesis:
+  - removing explicit `inline` keywords from the remaining native helpers may
+    let the compiler make its own inlining decision and avoid manual code-size
+    pressure.
+- Files changed:
+  - `src/iso18571/engine.cpp`;
+  - `src/iso18571/engine.h`;
+  - this experiment log.
+- Commands:
+  - `rg -n "\\binline\\b" src/iso18571`;
+  - `uv pip install -e .`;
+  - `uv run --extra test python -m pytest -q`;
+  - `mkdir -p .benchmarks/iso18571-no-inline-20260620131147`;
+  - `uv run --extra test python -m pytest -q
+    tests/test_iso18571_benchmarks.py -m benchmark -k native
+    --benchmark-json
+    .benchmarks/iso18571-no-inline-20260620131147/benchmarks.json`;
+  - `rg -n "\\binline\\b" src/iso18571 || true`.
+- Validation result:
+  - editable native rebuild passed and installed `iso18571==1.0.10`;
+  - default tests passed: `19 passed, 32 deselected`;
+  - native-only benchmark passed: `8 passed, 24 deselected`;
+  - final inline scan found no explicit `inline` keywords under `src/iso18571`.
+- Native benchmark result:
+  - load-time median, ms:
+    `512=123.61`, `2048=122.81`, `8192=134.51`,
+    `32768=346.54`;
+  - peak RSS, MiB:
+    `512=45.79`, `2048=46.04`, `8192=46.77`, `32768=53.06`;
+  - runtime median, ms:
+    `512=0.24`, `2048=1.48`, `8192=15.87`, `32768=225.16`;
+  - peak swap was `0.00 MiB` for all native rows.
+- Delta versus the immediate prior rerun:
+  - runtime median:
+    `512=+51.4%`, `2048=+33.5%`, `8192=+2.3%`,
+    `32768=+0.1%`;
+  - load-time median:
+    `512=-11.0%`, `2048=+9.1%`, `8192=-13.7%`,
+    `32768=-8.2%`.
+- Conclusion:
+  - removing the last explicit inline keywords does not improve the hot runtime
+    benchmark;
+  - the small rows regress materially, while the large row is effectively tied
+    with the previous optimized run.
