@@ -680,7 +680,7 @@ from __future__ import annotations
 import dtw
 import numpy as np
 
-from iso18571_reference._common import (
+from reference._common import (
     BaseISO18571,
     FloatArray,
     dtw_window_radius,

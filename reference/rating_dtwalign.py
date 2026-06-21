@@ -6,7 +6,7 @@ from dtwalign.step_pattern import UserStepPattern
 from dtwalign.window import SakoechibaWindow
 from scipy.spatial.distance import cdist
 
-from iso18571_reference._common import BaseISO18571, FloatArray, dtw_window_radius
+from reference._common import BaseISO18571, FloatArray, dtw_window_radius
 
 
 class ISO18571(BaseISO18571):

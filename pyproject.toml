@@ -4,7 +4,7 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "iso18571"
-version = "1.0.11"
+version = "1.0.12"
 description = "ISO/TS 18571 validation tooling"
 readme = "README.md"
 license = { text = "MIT" }
@@ -30,7 +30,7 @@ test = [
 [tool.scikit-build]
 build-dir = "build/{wheel_tag}"
 cmake.version = ">=3.21"
-sdist.exclude = ["iso18571_reference", "iso18571_reference/**", "tests", "tests/**", "ref", "ref/**"]
+sdist.exclude = ["reference", "reference/**", "tests", "tests/**", "ref", "ref/**"]
 wheel.packages = []
 wheel.license-files = ["LICENSE"]
 
@@ -60,6 +60,7 @@ archs = ["AMD64"]
 python_version = "3.12"
 strict = true
 warn_unused_configs = true
+mypy_path = ["python"]
 
 [[tool.mypy.overrides]]
 module = [

@@ -45,7 +45,7 @@ The package also exposes a native diagnostic helper:
 from iso18571 import backend_info
 
 print(backend_info())
-# {'name': 'iso18571', 'implementation': 'C++20', 'version': '1.0.11', 'optimization': 'x86-64-v3'}
+# {'name': 'iso18571', 'implementation': 'C++20', 'version': '1.0.12', 'optimization': 'x86-64-v3'}
 ```
 
 ## Prerequisites
@@ -158,7 +158,7 @@ The same Linux-wheel command is supported from Windows when Docker Desktop is ru
 
 ## Testing
 
-Production scoring is native-only. Python reference scorers live in `iso18571_reference` for parity tests and research; they are not installed in production wheels.
+Production scoring is native-only. Python reference scorers live in `reference` for parity tests and research; they are not installed in production wheels.
 
 The official ISO/TS 18571 Annex CSV data is downloaded into the pytest cache on first test run. Generated fixed-signal and phase-shift Annex cases are also written into the pytest cache so a fresh clone can run the same parity suite.
 
@@ -170,7 +170,7 @@ uv run --extra test ruff check --fix .
 uv run --extra test ruff format .
 uv run --extra test ruff check .
 uv run --extra test ruff format --check .
-uv run --extra test mypy iso18571 iso18571_reference tests
+uv run --extra test mypy python/iso18571 reference tests
 uv run --extra test python -m pytest -q
 ```
 
@@ -187,7 +187,7 @@ The hook runs the Ruff fix/format/check sequence, Mypy, `clang-format` for nativ
 This project implements
 [ISO/TS 18571:2024](https://www.iso.org/standard/85791.html), "Road vehicles - Objective rating metric for non-ambiguous signals". It includes a clean-room native scorer and parity tests informed by public ISO/TS 18571 validation work, including the TU Graz/OpenVT [Objective Rating Metric ISO18571](https://openvt.eu/validation-metrics/ISO18571) project.
 
-The production `iso18571` package is MIT-licensed under `LICENSE`. All source files remain MIT-licensed unless marked otherwise. The source-only `iso18571_reference/rating_dtw_python.py` test/research wrapper is `GPL-3.0-or-later` because it uses the GPL-licensed `dtw-python` backend. The reference modules are not installed in production wheels.
+The production `iso18571` package is MIT-licensed under `LICENSE`. All source files remain MIT-licensed unless marked otherwise. The source-only `reference/rating_dtw_python.py` test/research wrapper is `GPL-3.0-or-later` because it uses the GPL-licensed `dtw-python` backend. The reference modules are not installed in production wheels.
 
 ## Benchmarks
 

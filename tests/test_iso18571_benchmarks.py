@@ -111,9 +111,9 @@ class SetupProbe:
 
 SCORER_IMPORTS = {
     "native": ("iso18571", "ISO18571"),
-    "dtwalign": ("iso18571_reference.rating_dtwalign", "ISO18571"),
-    "dtw_python": ("iso18571_reference.rating_dtw_python", "ISO18571"),
-    "librosa": ("iso18571_reference.rating_librosa", "ISO18571"),
+    "dtwalign": ("reference.rating_dtwalign", "ISO18571"),
+    "dtw_python": ("reference.rating_dtw_python", "ISO18571"),
+    "librosa": ("reference.rating_librosa", "ISO18571"),
 }
 
 

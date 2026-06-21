@@ -8,7 +8,7 @@ from typing import Protocol, TypeVar
 import numpy as np
 
 import iso18571
-from iso18571_reference import rating_dtwalign, rating_dtw_python, rating_librosa
+from reference import rating_dtwalign, rating_dtw_python, rating_librosa
 from tests.iso18571_annex import SCORE_NAMES, AnnexCase
 
 PHASE_UNDEFINED_WARNING = (

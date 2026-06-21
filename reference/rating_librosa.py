@@ -3,7 +3,7 @@ from __future__ import annotations
 import librosa
 import numpy as np
 
-from iso18571_reference._common import BaseISO18571, FloatArray, local_cost_matrix
+from reference._common import BaseISO18571, FloatArray, local_cost_matrix
 
 
 class ISO18571(BaseISO18571):

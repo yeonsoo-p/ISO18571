@@ -20,7 +20,7 @@ from typing import Sequence, TypedDict
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_PYTHONS = ("3.12", "3.13", "3.14")
 WINDOWS_ARCH = "win_amd64"
-FORBIDDEN_ARCHIVE_PREFIXES = ("iso18571_reference", "tests", "ref")
+FORBIDDEN_ARCHIVE_PREFIXES = ("reference", "tests", "ref")
 PRODUCTION_PACKAGE_FILES = frozenset(
     {
         "iso18571/__init__.py",
@@ -29,12 +29,20 @@ PRODUCTION_PACKAGE_FILES = frozenset(
         "iso18571/py.typed",
     }
 )
-SDIST_REQUIRED_FILES = PRODUCTION_PACKAGE_FILES | frozenset(
+SDIST_REQUIRED_FILES = frozenset(
     {
         "CMakeLists.txt",
         "LICENSE",
         "pyproject.toml",
-        "src/iso18571/_core.cpp",
+        "cmake/ISO18571CompilerOptions.cmake",
+        "cmake/ISO18571Dispatch.cmake",
+        "cmake/ISO18571Python.cmake",
+        "python/iso18571/__init__.py",
+        "python/iso18571/rating.py",
+        "python/iso18571/_core.cpp",
+        "python/iso18571/_core.pyi",
+        "python/iso18571/py.typed",
+        "src/engine.cpp",
     }
 )
 NATIVE_EXTENSION_SUFFIXES = (".so", ".pyd")

@@ -10,12 +10,12 @@
 - The public production scorer is `iso18571.ISO18571`.
 - The native extension module is `iso18571._core`; public package exports are
   `ISO18571`, `backend_info`, and `ScoreComponents`.
-- Reference scorers live in source-only `iso18571_reference` and are used for
+- Reference scorers live in source-only `reference` and are used for
   tests/research only:
   - `rating_dtwalign.ISO18571`;
   - `rating_dtw_python.ISO18571`;
   - `rating_librosa.ISO18571`.
-- Do not install `iso18571_reference` into production wheels.
+- Do not install `reference` into production wheels.
 
 ## Correctness
 
@@ -39,7 +39,7 @@
 
 - The native extension is built with CMake through scikit-build-core. Do not
   reintroduce `setup.py`.
-- Implementation source belongs under `src/iso18571/`.
+- Implementation source belongs under `src/`.
 - Keep GCC/Clang `-O3`, MSVC `/O2 /fp:precise`, and no fast-math or native-CPU
   flags.
 - C++ should build with warning flags enabled. Suppress warnings only narrowly
@@ -72,7 +72,7 @@
   - `uv run --extra test ruff format .`
   - `uv run --extra test ruff check .`
   - `uv run --extra test ruff format --check .`
-  - `uv run --extra test mypy iso18571 iso18571_reference tests`
+  - `uv run --extra test mypy python/iso18571 reference tests`
   - `git diff --check --cached`
 - Benchmarks live in `tests/test_iso18571_benchmarks.py` and are deselected by
   default through the `benchmark` marker. They use pytest-benchmark plus spawned
