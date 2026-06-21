@@ -23,6 +23,5 @@ struct CompiledX86_64Levels {
 
 const char*          level_name (X86_64Level level);
 X86_64Level          best_x86_64_level (CompiledX86_64Levels compiled);
-std::string          compiled_x86_64_levels (CompiledX86_64Levels compiled);
 CompiledX86_64Levels compiled_levels (void);
 } // namespace dispatch

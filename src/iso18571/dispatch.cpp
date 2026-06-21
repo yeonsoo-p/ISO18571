@@ -235,21 +235,4 @@ X86_64Level best_x86_64_level (CompiledX86_64Levels compiled) {
     return X86_64Level::V1;
 }
 
-std::string compiled_x86_64_levels (CompiledX86_64Levels compiled) {
-    std::string out = level_name(X86_64Level::V1);
-    if (compiled.v2) {
-        out += ",";
-        out += level_name(X86_64Level::V2);
-    }
-    if (compiled.v3) {
-        out += ",";
-        out += level_name(X86_64Level::V3);
-    }
-    if (compiled.v4) {
-        out += ",";
-        out += level_name(X86_64Level::V4);
-    }
-    return out;
-}
-
 } // namespace dispatch

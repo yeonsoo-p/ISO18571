@@ -456,12 +456,6 @@ void fft_plan_exec (const FftPlan& plan, Complex* data, double fct) {
     }
 }
 
-template<bool fwd>
-void c2c_power_of_two (Complex* data, std::size_t length, double fct) {
-    const FftPlan plan = fft_plan_init(length);
-    fft_plan_exec<fwd>(plan, data, fct);
-}
-
 constexpr double CORRELATION_TIE_TOLERANCE = 1.0e-12;
 constexpr double CORRELATION_REFINE_MARGIN = 1.0e-9;
 
