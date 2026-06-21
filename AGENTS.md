@@ -91,9 +91,5 @@
 
 ## Experiment Tracking
 
-- Append every meaningful experiment to
-  `docs/iso18571-dtw-experiment-log.md`.
 - Include timestamp, git status summary, hypothesis, files changed, commands,
   validation result, conclusion, and next hypothesis.
-- Keep root tidy:
-  - durable notes belong under `docs/`.

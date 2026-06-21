@@ -116,9 +116,9 @@ class BaseISO18571:
         window_size = int(
             np.floor(len(self.comparison_curve[:, 1]) * self._max_shift) + 1
         )
-        ccr_max = np.corrcoef(self.reference_curve[:, 1], self.comparison_curve[:, 1])[
-            0
-        ][-1]
+        ccr_max = self._phase_correlation(
+            self.reference_curve[:, 1], self.comparison_curve[:, 1]
+        )
         idx_ccr_max = 0
         t_ts = self.reference_curve
         cae_ts = self.comparison_curve
@@ -126,9 +126,9 @@ class BaseISO18571:
         comparison_start = 0
         shift_length = self.reference_curve.shape[0]
         for idx in range(1, window_size):
-            ccr_left = np.corrcoef(
+            ccr_left = self._phase_correlation(
                 self.reference_curve[:-idx, 1], self.comparison_curve[idx:, 1]
-            )[0][-1]
+            )
             if ccr_left > ccr_max:
                 ccr_max = ccr_left
                 idx_ccr_max = idx
@@ -138,9 +138,9 @@ class BaseISO18571:
                 comparison_start = idx
                 shift_length = self.reference_curve.shape[0] - idx
 
-            ccr_right = np.corrcoef(
+            ccr_right = self._phase_correlation(
                 self.reference_curve[idx:, 1], self.comparison_curve[:-idx, 1]
-            )[0][-1]
+            )
             if ccr_right > ccr_max:
                 ccr_max = ccr_right
                 idx_ccr_max = idx
@@ -165,6 +165,19 @@ class BaseISO18571:
         x: FloatArray, y: FloatArray, window_size: float
     ) -> tuple[FloatArray, FloatArray]:
         raise NotImplementedError
+
+    @staticmethod
+    def _phase_correlation(
+        reference_values: FloatArray, comparison_values: FloatArray
+    ) -> float:
+        if reference_values.shape[0] < 2:
+            return 1.0 if np.array_equal(reference_values, comparison_values) else 0.0
+
+        with np.errstate(invalid="ignore", divide="ignore"):
+            correlation = float(np.corrcoef(reference_values, comparison_values)[0][-1])
+        if math.isnan(correlation):
+            return 1.0 if np.array_equal(reference_values, comparison_values) else 0.0
+        return correlation
 
     @staticmethod
     def _rating_value(value: float | int, ndigits: int) -> float:
@@ -214,9 +227,13 @@ class BaseISO18571:
         cae_ts_w, t_ts_w = self._compute_magnitude(
             self._cae_ts[:, 1], self._t_ts[:, 1], window_size=0.1
         )
-        e_mag = float(
-            np.linalg.norm(cae_ts_w - t_ts_w, ord=1) / np.linalg.norm(t_ts_w, ord=1)
-        )
+        numerator = float(np.linalg.norm(cae_ts_w - t_ts_w, ord=1))
+        denominator = float(np.linalg.norm(t_ts_w, ord=1))
+        if denominator == 0.0:
+            score_mag = 1.0 if numerator == 0.0 else 0.0
+            return self._rating_value(score_mag, ndigits)
+
+        e_mag = numerator / denominator
 
         if e_mag == 0:
             score_mag = 1.0
@@ -245,9 +262,13 @@ class BaseISO18571:
         cae_ts_d[4:-4] = np.convolve(cae_ts_0_d, np.ones(nr) / nr, mode="valid")
         t_ts_d[4:-4] = np.convolve(t_ts_0_d, np.ones(nr) / nr, mode="valid")
 
-        e_slope = float(
-            np.linalg.norm(cae_ts_d - t_ts_d, ord=1) / np.linalg.norm(t_ts_d, ord=1)
-        )
+        numerator = float(np.linalg.norm(cae_ts_d - t_ts_d, ord=1))
+        denominator = float(np.linalg.norm(t_ts_d, ord=1))
+        if denominator == 0.0:
+            slope_score = 1.0 if numerator == 0.0 else 0.0
+            return self._rating_value(slope_score, ndigits)
+
+        e_slope = numerator / denominator
 
         if e_slope <= 0:
             slope_score = 1.0

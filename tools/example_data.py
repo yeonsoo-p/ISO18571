@@ -27,7 +27,7 @@ ANNEX_ZIP_URL = (
 ANNEX_ZIP_NAME = "ISO_TS_18571_ed2_Annex_data_csv_files.zip"
 ANNEX_ZIP_SHA256 = "cbc8c5a1ea5677ece8aa097387f9d9d2e6fe7a2a5bb2ce5d17ecf84fe52271d7"
 OFFICIAL_CACHE_VERSION = "official-v2"
-GENERATED_CACHE_VERSION = "generated-v2"
+GENERATED_CACHE_VERSION = "generated-v3"
 ANNEX_FILE_RE = re.compile(r"annex_c_(\d+_\d+)__.*__cae(\d+)\.csv")
 GENERATED_FILE_RE = re.compile(r"generated__(.+)__n(\d+)\.csv")
 
@@ -44,6 +44,8 @@ OFFICIAL_UNIT_FIELDS = {
 }
 
 SIGNAL_FAMILIES = (
+    "zero",
+    "constant",
     "ramp",
     "piecewise_ramp",
     "impulse",

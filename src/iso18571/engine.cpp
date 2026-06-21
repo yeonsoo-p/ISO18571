@@ -904,8 +904,10 @@ PhaseResult phase_candidate_from_fft_product (DoubleSpan reference, DoubleSpan c
     const double rho_e = correlation_from_cached_product(cache, reference_start, comparison_start, length, product_sum);
     cached_rho         = rho_e;
     if (std::isnan(rho_e)) {
-        return phase_candidate_for_shift(reference, comparison, reference_start, comparison_start, length, n_eps,
-                                         max_shift);
+        PhaseResult direct = phase_candidate_for_shift(reference, comparison, reference_start, comparison_start, length,
+                                                       n_eps, max_shift);
+        cached_rho         = direct.correlation.rho_e;
+        return direct;
     }
     return phase_candidate_from_correlation(reference_start, comparison_start, length, n_eps, max_shift, rho_e);
 }

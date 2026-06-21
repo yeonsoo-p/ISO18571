@@ -99,6 +99,19 @@ def sparse_spikes_pair(n: int) -> tuple[NDArray[np.float64], NDArray[np.float64]
     return curve_from_values(reference_values), curve_from_values(comparison_values)
 
 
+def large_offset_shifted_pair() -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+    n = 512
+    shift = 5
+    rng = np.random.default_rng(18571)
+    base = np.sin(np.linspace(0.0, 8.0 * np.pi, n, endpoint=False))
+    base = base + 0.17 * rng.normal(size=n)
+    reference_values = 1.0e9 + base
+    comparison_values = np.empty_like(reference_values)
+    comparison_values[:shift] = 1.0e9 + rng.normal(size=shift)
+    comparison_values[shift:] = 1.0e9 + base[:-shift]
+    return curve_from_values(reference_values), curve_from_values(comparison_values)
+
+
 def score_with_warnings(
     reference_curve: ArrayLike,
     comparison_curve: ArrayLike,
@@ -307,6 +320,29 @@ def test_periodic_identical_sine_prefers_unshifted_native_alignment() -> None:
     assert iso.reference_start == 0
     assert iso.comparison_start == 0
     assert iso.shift_length == 65
+
+
+def test_large_offset_phase_fallback_candidate_survives_fft_refinement() -> None:
+    reference, comparison = large_offset_shifted_pair()
+    iso, messages = score_with_warnings(reference, comparison)
+
+    assert messages == []
+    assert_scores_close(
+        iso,
+        {
+            "Z": 1.0,
+            "EP": 0.951171875,
+            "EM": 1.0,
+            "ES": 1.0,
+            "R": 0.990234375,
+        },
+        "large offset shifted phase fallback",
+    )
+    assert iso.n_eps == 5
+    assert iso.rho_e > 0.999999999
+    assert iso.reference_start == 0
+    assert iso.comparison_start == 5
+    assert iso.shift_length == 507
 
 
 def test_float32_uniform_time_grid_is_accepted_by_native_validation() -> None:
