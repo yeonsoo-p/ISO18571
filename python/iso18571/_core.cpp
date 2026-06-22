@@ -7,7 +7,6 @@
 #include <algorithm>
 #include <cmath>
 #include <complex>
-#include <cstdint>
 #include <limits>
 #include <stdexcept>
 #include <string>

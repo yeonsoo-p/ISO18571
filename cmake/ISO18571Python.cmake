@@ -14,7 +14,10 @@ function(iso18571_add_python_module)
     endif()
     find_package(pybind11 CONFIG REQUIRED)
 
-    pybind11_add_module(_core MODULE "${CMAKE_CURRENT_SOURCE_DIR}/python/iso18571/_core.cpp")
+    pybind11_add_module(_core MODULE
+        "${CMAKE_CURRENT_SOURCE_DIR}/python/iso18571/_core.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/float16.cpp"
+    )
     target_link_libraries(_core PRIVATE iso18571_engine)
     iso18571_configure_native_target(_core)
 

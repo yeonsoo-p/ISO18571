@@ -26,3 +26,4 @@
 - Document and test short-curve phase behavior where a best shifted alignment is
   clamped back to unshifted if the shifted span would contain fewer than 9
   samples.
+- Align f16 implementation with existing stdfloat
