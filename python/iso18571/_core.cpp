@@ -449,7 +449,7 @@ py::dict score_components (py::array reference_curve, py::array comparison_curve
 
 py::dict backend_info () {
     py::dict info;
-    info["implementation"] = "C++20";
+    info["implementation"] = "C++23";
     info["optimization"]   = engine::dispatch_table().level;
     return info;
 }

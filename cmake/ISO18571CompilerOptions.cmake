@@ -1,7 +1,7 @@
 include_guard(GLOBAL)
 
 function(iso18571_configure_native_target target_name)
-    target_compile_features("${target_name}" PRIVATE cxx_std_20)
+    target_compile_features("${target_name}" PRIVATE cxx_std_23)
     set_target_properties("${target_name}" PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
     if(MSVC)

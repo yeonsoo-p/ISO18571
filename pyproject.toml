@@ -52,6 +52,7 @@ skip = "*-musllinux_*"
 
 [tool.cibuildwheel.linux]
 archs = ["x86_64"]
+manylinux-x86_64-image = "manylinux_2_34"
 
 [tool.cibuildwheel.windows]
 archs = ["AMD64"]

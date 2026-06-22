@@ -20,6 +20,7 @@ from typing import Sequence, TypedDict
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_PYTHONS = ("3.12", "3.13", "3.14")
 WINDOWS_ARCH = "win_amd64"
+LINUX_WHEEL_PLATFORM_TAG = "manylinux_2_34_x86_64"
 FORBIDDEN_ARCHIVE_PREFIXES = ("reference", "tests", "ref")
 PRODUCTION_PACKAGE_FILES = frozenset(
     {
@@ -613,6 +614,20 @@ def validate_wheel_archive(archive: Path, names: set[str]) -> None:
     if len(native_extensions) != 1:
         raise SystemExit(
             f"{archive} must contain exactly one native extension, found {native_extensions}"
+        )
+    validate_wheel_platform_tags(archive)
+
+
+def validate_wheel_platform_tags(archive: Path) -> None:
+    stem_parts = archive.name.removesuffix(".whl").rsplit("-", maxsplit=3)
+    if len(stem_parts) != 4:
+        raise SystemExit(f"{archive} does not have a valid wheel filename.")
+    platform_tags = set(stem_parts[3].split("."))
+    linux_tags = {tag for tag in platform_tags if "linux" in tag}
+    if linux_tags and linux_tags != {LINUX_WHEEL_PLATFORM_TAG}:
+        found = ", ".join(sorted(linux_tags))
+        raise SystemExit(
+            f"{archive} must use {LINUX_WHEEL_PLATFORM_TAG}; found Linux tag(s): {found}"
         )
 
 
