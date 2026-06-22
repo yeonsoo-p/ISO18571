@@ -44,7 +44,6 @@ SDIST_REQUIRED_FILES = frozenset(
         "python/iso18571/_core.pyi",
         "python/iso18571/py.typed",
         "src/engine.cpp",
-        "src/float16.cpp",
         "src/float16.h",
     }
 )
