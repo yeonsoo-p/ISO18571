@@ -6,9 +6,12 @@
 
 #include <algorithm>
 #include <cmath>
+#include <complex>
+#include <cstdint>
 #include <limits>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace py = pybind11;
@@ -92,172 +95,285 @@ ScoreParams score_params_from_dict (const py::dict& params) {
     return out;
 }
 
-bool buffer_is_float64 (const py::buffer_info& info) {
-    return info.itemsize == static_cast<py::ssize_t>(sizeof(double)) &&
-           info.format == py::format_descriptor<double>::format();
+double time_tolerance_for_dtype (const py::dtype& dtype) {
+    switch (dtype.kind()) {
+    case 'i':
+        if (dtype.equal(py::dtype::of<std::int8_t>()) || dtype.equal(py::dtype::of<std::int16_t>()) ||
+            dtype.equal(py::dtype::of<std::int32_t>()) || dtype.equal(py::dtype::of<std::int64_t>())) {
+            return 1.0e-12;
+        }
+        return 1.0e-12;
+    case 'u':
+        if (dtype.equal(py::dtype::of<std::uint8_t>()) || dtype.equal(py::dtype::of<std::uint16_t>()) ||
+            dtype.equal(py::dtype::of<std::uint32_t>()) || dtype.equal(py::dtype::of<std::uint64_t>())) {
+            return 1.0e-12;
+        }
+        return 1.0e-12;
+    case 'f':
+        if (dtype.equal(py::dtype::of<float>())) {
+            return 1.0e-7;
+        }
+        if (dtype.equal(py::dtype::of<double>()) || dtype.equal(py::dtype::of<long double>())) {
+            return 1.0e-12;
+        }
+        return 1.0e-12;
+    case 'c':
+        if (dtype.equal(py::dtype::of<std::complex<float>>())) {
+            return 1.0e-7;
+        }
+        if (dtype.equal(py::dtype::of<std::complex<double>>()) ||
+            dtype.equal(py::dtype::of<std::complex<long double>>())) {
+            return 1.0e-12;
+        }
+        return 1.0e-12;
+    default:
+        return 1.0e-12;
+    }
 }
 
-bool buffer_is_float32 (const py::buffer_info& info) {
-    return info.itemsize == static_cast<py::ssize_t>(sizeof(float)) &&
-           info.format == py::format_descriptor<float>::format();
-}
+ValidatedCurves validate_curves (py::array reference_curve, py::array comparison_curve) {
+    py::array reference  = reference_curve;
+    py::array comparison = comparison_curve;
 
-py::array cast_array_to_float64 (const py::array& array, const char* name) {
-    py::array_t<double, py::array::forcecast> casted = py::array_t<double, py::array::forcecast>::ensure(array);
-    if (!casted) {
-        throw std::invalid_argument(std::string(name) + " must be convertible to float64");
+    const py::buffer_info initial_reference_info = reference.request();
+    if (initial_reference_info.ndim != 2) {
+        throw std::invalid_argument("reference_curve must be a 2D array");
     }
-    return py::array(casted);
-}
-
-bool buffer_is_native_float (const py::buffer_info& info) { return buffer_is_float64(info) || buffer_is_float32(info); }
-
-void validate_curve_shape (const py::buffer_info& info, const char* name) {
-    if (info.ndim != 2) {
-        throw std::invalid_argument(std::string(name) + " must be a 2D array");
+    if (initial_reference_info.shape[0] <= 0) {
+        throw std::invalid_argument("reference_curve must not be empty");
     }
-    if (info.shape[0] <= 0) {
-        throw std::invalid_argument(std::string(name) + " must not be empty");
-    }
-    if (info.shape[1] != 2) {
-        throw std::invalid_argument(std::string(name) + " must have shape (n, 2)");
-    }
-}
-
-py::array native_curve_array (py::array array, const char* name, bool& use_float32_time_tolerance) {
-    py::buffer_info info = array.request();
-    if (!buffer_is_native_float(info)) {
-        array = cast_array_to_float64(array, name);
-    }
-    info                       = array.request();
-    use_float32_time_tolerance = buffer_is_float32(info);
-    if (!use_float32_time_tolerance && !buffer_is_float64(info)) {
-        throw std::runtime_error(std::string(name) + " did not cast to a supported native dtype");
+    if (initial_reference_info.shape[1] != 2) {
+        throw std::invalid_argument("reference_curve must have shape (n, 2)");
     }
 
-    validate_curve_shape(info, name);
-    return array;
-}
-
-template<typename T>
-double scalar_at (const py::buffer_info& info, Index row, Index column) {
-    const char* ptr = static_cast<const char*>(info.ptr) + row * static_cast<Index>(info.strides[0]) +
-                      column * static_cast<Index>(info.strides[1]);
-    return static_cast<double>(*reinterpret_cast<const T*>(ptr));
-}
-
-double curve_scalar_at (const py::buffer_info& info, bool is_float32, Index row, Index column) {
-    if (is_float32) {
-        return scalar_at<float>(info, row, column);
+    const py::buffer_info initial_comparison_info = comparison.request();
+    if (initial_comparison_info.ndim != 2) {
+        throw std::invalid_argument("comparison_curve must be a 2D array");
     }
-    return scalar_at<double>(info, row, column);
-}
+    if (initial_comparison_info.shape[0] <= 0) {
+        throw std::invalid_argument("comparison_curve must not be empty");
+    }
+    if (initial_comparison_info.shape[1] != 2) {
+        throw std::invalid_argument("comparison_curve must have shape (n, 2)");
+    }
 
-Index curve_length (const py::buffer_info& info) { return static_cast<Index>(info.shape[0]); }
-
-double time_grid_tolerance (bool is_float32) { return is_float32 ? 1.0e-7 : 1.0e-12; }
-
-double derive_uniform_dt (const py::buffer_info& info, bool is_float32, const char* name) {
-    const Index n = curve_length(info);
+    const Index n = static_cast<Index>(initial_reference_info.shape[0]);
+    if (n != static_cast<Index>(initial_comparison_info.shape[0])) {
+        throw std::invalid_argument("Curves are not equal in size/dimension");
+    }
     if (n < 2) {
-        throw std::invalid_argument(std::string(name) + " must have at least 2 samples");
+        throw std::invalid_argument("reference_curve must have at least 2 samples");
     }
 
-    double previous_time = curve_scalar_at(info, is_float32, 0, 0);
-    if (!std::isfinite(previous_time)) {
-        throw std::invalid_argument(std::string(name) + " time values must be finite");
+    const py::dtype initial_reference_dtype = reference.dtype();
+    const char      initial_reference_kind  = initial_reference_dtype.kind();
+    if (initial_reference_kind != 'i' && initial_reference_kind != 'u' && initial_reference_kind != 'f' &&
+        initial_reference_kind != 'c') {
+        throw std::invalid_argument("reference_curve must be numeric");
     }
 
-    const double second_time = curve_scalar_at(info, is_float32, 1, 0);
-    if (!std::isfinite(second_time)) {
-        throw std::invalid_argument(std::string(name) + " time values must be finite");
+    const py::dtype initial_comparison_dtype = comparison.dtype();
+    const char      initial_comparison_kind  = initial_comparison_dtype.kind();
+    if (initial_comparison_kind != 'i' && initial_comparison_kind != 'u' && initial_comparison_kind != 'f' &&
+        initial_comparison_kind != 'c') {
+        throw std::invalid_argument("comparison_curve must be numeric");
     }
 
-    const double dt = second_time - previous_time;
-    if (!std::isfinite(dt) || dt <= 0.0) {
-        throw std::invalid_argument(std::string(name) + " time values must be strictly increasing");
+    bool            reference_is_float32  = false;
+    py::buffer_info reference_native_info = reference.request();
+    if (!((reference_native_info.itemsize == static_cast<py::ssize_t>(sizeof(double)) &&
+           reference_native_info.format == py::format_descriptor<double>::format()) ||
+          (reference_native_info.itemsize == static_cast<py::ssize_t>(sizeof(float)) &&
+           reference_native_info.format == py::format_descriptor<float>::format()))) {
+        py::array_t<double, py::array::forcecast> casted = py::array_t<double, py::array::forcecast>::ensure(reference);
+        if (!casted) {
+            throw std::invalid_argument("reference_curve must be convertible to float64");
+        }
+        reference = py::array(casted);
+    }
+    reference_native_info = reference.request();
+    reference_is_float32  = reference_native_info.itemsize == static_cast<py::ssize_t>(sizeof(float)) &&
+                            reference_native_info.format == py::format_descriptor<float>::format();
+    if (!reference_is_float32 && !(reference_native_info.itemsize == static_cast<py::ssize_t>(sizeof(double)) &&
+                                   reference_native_info.format == py::format_descriptor<double>::format())) {
+        throw std::runtime_error("reference_curve did not cast to a supported native dtype");
     }
 
-    const double tolerance = time_grid_tolerance(is_float32);
-    previous_time          = second_time;
+    bool            comparison_is_float32  = false;
+    py::buffer_info comparison_native_info = comparison.request();
+    if (!((comparison_native_info.itemsize == static_cast<py::ssize_t>(sizeof(double)) &&
+           comparison_native_info.format == py::format_descriptor<double>::format()) ||
+          (comparison_native_info.itemsize == static_cast<py::ssize_t>(sizeof(float)) &&
+           comparison_native_info.format == py::format_descriptor<float>::format()))) {
+        py::array_t<double, py::array::forcecast> casted =
+            py::array_t<double, py::array::forcecast>::ensure(comparison);
+        if (!casted) {
+            throw std::invalid_argument("comparison_curve must be convertible to float64");
+        }
+        comparison = py::array(casted);
+    }
+    comparison_native_info = comparison.request();
+    comparison_is_float32  = comparison_native_info.itemsize == static_cast<py::ssize_t>(sizeof(float)) &&
+                             comparison_native_info.format == py::format_descriptor<float>::format();
+    if (!comparison_is_float32 && !(comparison_native_info.itemsize == static_cast<py::ssize_t>(sizeof(double)) &&
+                                    comparison_native_info.format == py::format_descriptor<double>::format())) {
+        throw std::runtime_error("comparison_curve did not cast to a supported native dtype");
+    }
+
+    const py::buffer_info reference_info  = reference.request();
+    const py::buffer_info comparison_info = comparison.request();
+
+    const char* reference_data          = static_cast<const char*>(reference_info.ptr);
+    const Index reference_row_stride    = static_cast<Index>(reference_info.strides[0]);
+    const Index reference_column_stride = static_cast<Index>(reference_info.strides[1]);
+
+    const char* comparison_data          = static_cast<const char*>(comparison_info.ptr);
+    const Index comparison_row_stride    = static_cast<Index>(comparison_info.strides[0]);
+    const Index comparison_column_stride = static_cast<Index>(comparison_info.strides[1]);
+
+    const char* reference_first_time_ptr = reference_data;
+    double      reference_previous_time =
+        reference_is_float32 ? static_cast<double>(*reinterpret_cast<const float*>(reference_first_time_ptr))
+                             : static_cast<double>(*reinterpret_cast<const double*>(reference_first_time_ptr));
+    if (!std::isfinite(reference_previous_time)) {
+        throw std::invalid_argument("reference_curve time values must be finite");
+    }
+
+    const char*  reference_second_time_ptr = reference_data + reference_row_stride;
+    const double reference_second_time =
+        reference_is_float32 ? static_cast<double>(*reinterpret_cast<const float*>(reference_second_time_ptr))
+                             : static_cast<double>(*reinterpret_cast<const double*>(reference_second_time_ptr));
+    if (!std::isfinite(reference_second_time)) {
+        throw std::invalid_argument("reference_curve time values must be finite");
+    }
+
+    const double reference_dt = reference_second_time - reference_previous_time;
+    if (!std::isfinite(reference_dt) || reference_dt <= 0.0) {
+        throw std::invalid_argument("reference_curve time values must be strictly increasing");
+    }
+
+    const double reference_time_tolerance = time_tolerance_for_dtype(initial_reference_dtype);
+    reference_previous_time               = reference_second_time;
     for (Index idx = 2; idx < n; ++idx) {
-        const double current_time = curve_scalar_at(info, is_float32, idx, 0);
+        const char*  reference_time_ptr = reference_data + idx * reference_row_stride;
+        const double current_time       = reference_is_float32
+                                            ? static_cast<double>(*reinterpret_cast<const float*>(reference_time_ptr))
+                                            : static_cast<double>(*reinterpret_cast<const double*>(reference_time_ptr));
         if (!std::isfinite(current_time)) {
-            throw std::invalid_argument(std::string(name) + " time values must be finite");
+            throw std::invalid_argument("reference_curve time values must be finite");
         }
-        const double step = current_time - previous_time;
+        const double step = current_time - reference_previous_time;
         if (step <= 0.0) {
-            throw std::invalid_argument(std::string(name) + " time values must be strictly increasing");
+            throw std::invalid_argument("reference_curve time values must be strictly increasing");
         }
-        if (std::abs(step - dt) > tolerance) {
-            throw std::invalid_argument(std::string(name) + " time values must have a constant interval");
+        if (std::abs(step - reference_dt) > reference_time_tolerance) {
+            throw std::invalid_argument("reference_curve time values must have a constant interval");
         }
-        previous_time = current_time;
+        reference_previous_time = current_time;
     }
 
-    return dt;
-}
+    const char* comparison_first_time_ptr = comparison_data;
+    double      comparison_previous_time =
+        comparison_is_float32 ? static_cast<double>(*reinterpret_cast<const float*>(comparison_first_time_ptr))
+                              : static_cast<double>(*reinterpret_cast<const double*>(comparison_first_time_ptr));
+    if (!std::isfinite(comparison_previous_time)) {
+        throw std::invalid_argument("comparison_curve time values must be finite");
+    }
 
-double validate_time_grids (const py::buffer_info& reference, bool reference_is_float32,
-                            const py::buffer_info& comparison, bool comparison_is_float32) {
-    const double reference_dt  = derive_uniform_dt(reference, reference_is_float32, "reference_curve");
-    const double comparison_dt = derive_uniform_dt(comparison, comparison_is_float32, "comparison_curve");
-    const double tolerance =
-        std::max(time_grid_tolerance(reference_is_float32), time_grid_tolerance(comparison_is_float32));
-    if (std::abs(comparison_dt - reference_dt) > tolerance) {
+    const char*  comparison_second_time_ptr = comparison_data + comparison_row_stride;
+    const double comparison_second_time =
+        comparison_is_float32 ? static_cast<double>(*reinterpret_cast<const float*>(comparison_second_time_ptr))
+                              : static_cast<double>(*reinterpret_cast<const double*>(comparison_second_time_ptr));
+    if (!std::isfinite(comparison_second_time)) {
+        throw std::invalid_argument("comparison_curve time values must be finite");
+    }
+
+    const double comparison_dt = comparison_second_time - comparison_previous_time;
+    if (!std::isfinite(comparison_dt) || comparison_dt <= 0.0) {
+        throw std::invalid_argument("comparison_curve time values must be strictly increasing");
+    }
+
+    const double comparison_time_tolerance = time_tolerance_for_dtype(initial_comparison_dtype);
+    comparison_previous_time               = comparison_second_time;
+    for (Index idx = 2; idx < n; ++idx) {
+        const char*  comparison_time_ptr = comparison_data + idx * comparison_row_stride;
+        const double current_time = comparison_is_float32
+                                      ? static_cast<double>(*reinterpret_cast<const float*>(comparison_time_ptr))
+                                      : static_cast<double>(*reinterpret_cast<const double*>(comparison_time_ptr));
+        if (!std::isfinite(current_time)) {
+            throw std::invalid_argument("comparison_curve time values must be finite");
+        }
+        const double step = current_time - comparison_previous_time;
+        if (step <= 0.0) {
+            throw std::invalid_argument("comparison_curve time values must be strictly increasing");
+        }
+        if (std::abs(step - comparison_dt) > comparison_time_tolerance) {
+            throw std::invalid_argument("comparison_curve time values must have a constant interval");
+        }
+        comparison_previous_time = current_time;
+    }
+
+    const double time_tolerance = std::max(reference_time_tolerance, comparison_time_tolerance);
+    if (std::abs(comparison_dt - reference_dt) > time_tolerance) {
         throw std::invalid_argument("Curve time intervals are not equal");
     }
 
-    const Index n = curve_length(reference);
     for (Index idx = 0; idx < n; ++idx) {
-        const double reference_time  = curve_scalar_at(reference, reference_is_float32, idx, 0);
-        const double comparison_time = curve_scalar_at(comparison, comparison_is_float32, idx, 0);
-        if (std::abs(reference_time - comparison_time) > tolerance) {
+        const char*  reference_time_ptr  = reference_data + idx * reference_row_stride;
+        const char*  comparison_time_ptr = comparison_data + idx * comparison_row_stride;
+        const double reference_time  = reference_is_float32
+                                         ? static_cast<double>(*reinterpret_cast<const float*>(reference_time_ptr))
+                                         : static_cast<double>(*reinterpret_cast<const double*>(reference_time_ptr));
+        const double comparison_time = comparison_is_float32
+                                         ? static_cast<double>(*reinterpret_cast<const float*>(comparison_time_ptr))
+                                         : static_cast<double>(*reinterpret_cast<const double*>(comparison_time_ptr));
+        if (std::abs(reference_time - comparison_time) > time_tolerance) {
             throw std::invalid_argument("Curve time values are not equal");
         }
     }
 
-    return reference_dt;
-}
-
-void validate_signal_values (const py::buffer_info& info, bool is_float32, const char* name) {
-    const Index n = curve_length(info);
     for (Index idx = 0; idx < n; ++idx) {
-        if (!std::isfinite(curve_scalar_at(info, is_float32, idx, 1))) {
-            throw std::invalid_argument(std::string(name) + " signal values must be finite");
+        const char*  reference_value_ptr = reference_data + idx * reference_row_stride + reference_column_stride;
+        const double reference_value = reference_is_float32
+                                         ? static_cast<double>(*reinterpret_cast<const float*>(reference_value_ptr))
+                                         : static_cast<double>(*reinterpret_cast<const double*>(reference_value_ptr));
+        if (!std::isfinite(reference_value)) {
+            throw std::invalid_argument("reference_curve signal values must be finite");
         }
     }
-}
 
-std::vector<double> copy_signal_values (const py::buffer_info& info, bool is_float32) {
-    const Index         n = curve_length(info);
-    std::vector<double> out(static_cast<std::size_t>(n));
     for (Index idx = 0; idx < n; ++idx) {
-        const std::size_t offset = static_cast<std::size_t>(idx);
-        out[offset]              = curve_scalar_at(info, is_float32, idx, 1);
-    }
-    return out;
-}
-
-ValidatedCurves validate_curves (py::array reference_curve, py::array comparison_curve) {
-    bool      reference_is_float32  = false;
-    bool      comparison_is_float32 = false;
-    py::array reference             = native_curve_array(reference_curve, "reference_curve", reference_is_float32);
-    py::array comparison            = native_curve_array(comparison_curve, "comparison_curve", comparison_is_float32);
-
-    const py::buffer_info reference_info  = reference.request();
-    const py::buffer_info comparison_info = comparison.request();
-    if (curve_length(reference_info) != curve_length(comparison_info)) {
-        throw std::invalid_argument("Curves are not equal in size/dimension");
+        const char*  comparison_value_ptr = comparison_data + idx * comparison_row_stride + comparison_column_stride;
+        const double comparison_value = comparison_is_float32
+                                          ? static_cast<double>(*reinterpret_cast<const float*>(comparison_value_ptr))
+                                          : static_cast<double>(*reinterpret_cast<const double*>(comparison_value_ptr));
+        if (!std::isfinite(comparison_value)) {
+            throw std::invalid_argument("comparison_curve signal values must be finite");
+        }
     }
 
-    const double dt = validate_time_grids(reference_info, reference_is_float32, comparison_info, comparison_is_float32);
-    validate_signal_values(reference_info, reference_is_float32, "reference_curve");
-    validate_signal_values(comparison_info, comparison_is_float32, "comparison_curve");
+    std::vector<double> reference_values(static_cast<std::size_t>(n));
+    for (Index idx = 0; idx < n; ++idx) {
+        const std::size_t offset              = static_cast<std::size_t>(idx);
+        const char*       reference_value_ptr = reference_data + idx * reference_row_stride + reference_column_stride;
+        reference_values[offset] = reference_is_float32
+                                     ? static_cast<double>(*reinterpret_cast<const float*>(reference_value_ptr))
+                                     : static_cast<double>(*reinterpret_cast<const double*>(reference_value_ptr));
+    }
+
+    std::vector<double> comparison_values(static_cast<std::size_t>(n));
+    for (Index idx = 0; idx < n; ++idx) {
+        const std::size_t offset         = static_cast<std::size_t>(idx);
+        const char* comparison_value_ptr = comparison_data + idx * comparison_row_stride + comparison_column_stride;
+        comparison_values[offset] = comparison_is_float32
+                                      ? static_cast<double>(*reinterpret_cast<const float*>(comparison_value_ptr))
+                                      : static_cast<double>(*reinterpret_cast<const double*>(comparison_value_ptr));
+    }
+
     return {
-        copy_signal_values(reference_info, reference_is_float32),
-        copy_signal_values(comparison_info, comparison_is_float32),
-        dt,
+        std::move(reference_values),
+        std::move(comparison_values),
+        reference_dt,
     };
 }
 

@@ -30,6 +30,9 @@ from tests.iso18571_benchmark_data import (
     make_mixed_signal,
 )
 
+LOAD_BENCHMARK_ROUNDS_ENV = "ISO18571_BENCHMARK_LOAD_ROUNDS"
+RUNTIME_BENCHMARK_ROUNDS_ENV = "ISO18571_BENCHMARK_RUNTIME_ROUNDS"
+
 
 class BenchmarkScorer(Protocol):
     def overall_rating(self, ndigits: int = 3) -> float: ...
@@ -123,6 +126,19 @@ def max_optional(left: float | None, right: float | None) -> float | None:
     if right is None:
         return left
     return max(left, right)
+
+
+def positive_env_int(name: str, default: int) -> int:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise AssertionError(f"{name} must be a positive integer") from exc
+    if value <= 0:
+        raise AssertionError(f"{name} must be a positive integer")
+    return value
 
 
 def scorer_class(backend: str) -> ScorerClass:
@@ -444,11 +460,13 @@ def test_mixed_signal_load_memory_benchmark(
     benchmark: Any, backend: str, length: int
 ) -> None:
     probe = SetupProbe(backend, length)
-    result = benchmark.pedantic(probe, rounds=1, iterations=1)
+    rounds = positive_env_int(LOAD_BENCHMARK_ROUNDS_ENV, 1)
+    result = benchmark.pedantic(probe, rounds=rounds, iterations=1)
     benchmark.extra_info["metric"] = "load_memory"
     benchmark.extra_info["backend"] = backend
     benchmark.extra_info["length"] = length
     benchmark.extra_info["platform"] = platform.platform()
+    benchmark.extra_info["rounds"] = rounds
     benchmark.extra_info["peak_rss_mib"] = probe.peak_rss_mib
     benchmark.extra_info["peak_swap_mib"] = probe.peak_swap_mib
     benchmark.extra_info["swap_invalidated"] = (probe.peak_swap_mib or 0.0) > 0.0
@@ -472,9 +490,10 @@ def test_mixed_signal_runtime_benchmark(
         assert isinstance(score, float)
         return score
 
+    rounds = positive_env_int(RUNTIME_BENCHMARK_ROUNDS_ENV, 3)
     try:
         monitor.start()
-        result = benchmark.pedantic(score_in_worker, rounds=3, iterations=1)
+        result = benchmark.pedantic(score_in_worker, rounds=rounds, iterations=1)
         connection.send("memory")
         worker_memory = connection.recv()
     finally:
@@ -488,6 +507,7 @@ def test_mixed_signal_runtime_benchmark(
     benchmark.extra_info["backend"] = backend
     benchmark.extra_info["length"] = length
     benchmark.extra_info["platform"] = platform.platform()
+    benchmark.extra_info["rounds"] = rounds
     benchmark.extra_info["initial_peak_rss_mib"] = ready.peak_rss_mib
     benchmark.extra_info["peak_rss_mib"] = max_optional(
         ready.peak_rss_mib, monitor_snapshot.peak_rss_mib

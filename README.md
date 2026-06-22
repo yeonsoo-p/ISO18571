@@ -204,6 +204,14 @@ mkdir -p .benchmarks/iso18571-native
 uv run --extra test python -m pytest -q tests/test_iso18571_benchmarks.py -m benchmark -k native --benchmark-json .benchmarks/iso18571-native/benchmarks.json
 ```
 
+To collect more warmed runtime samples, set `ISO18571_BENCHMARK_RUNTIME_ROUNDS`.
+The default is `3`.
+
+```bash
+ISO18571_BENCHMARK_RUNTIME_ROUNDS=10 \
+uv run --extra test python -m pytest -q tests/test_iso18571_benchmarks.py -m benchmark -k "native and runtime" --benchmark-json .benchmarks/iso18571-native/runtime-10.json
+```
+
 The benchmark report separates setup/load behavior from dynamic calculation behavior:
 
 - `load_memory` rows measure a fresh spawned Python process importing the backend, generating data, scoring once, and reporting peak process memory and peak swap/pagefile usage.

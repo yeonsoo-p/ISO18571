@@ -88,8 +88,3 @@
 - Wheel: `uv build --wheel`
 - Benchmarks:
   `uv run --extra test python -m pytest -q -m benchmark --benchmark-json .benchmarks/iso18571-readme/benchmarks.json`
-
-## Experiment Tracking
-
-- Include timestamp, git status summary, hypothesis, files changed, commands,
-  validation result, conclusion, and next hypothesis.
