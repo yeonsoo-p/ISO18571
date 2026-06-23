@@ -7,10 +7,11 @@
 
 namespace validation {
 
-int  score_exponent_from_double (double value, std::string_view name);
-int  positive_integer_from_double (double value, std::string_view name);
-void validate_score_params (const engine::ScoreParams& params);
-void append_warning (std::vector<engine::Diagnostic>& diagnostics, engine::DiagnosticComponent component,
-                     engine::DiagnosticCode code);
+int         score_exponent_from_double (double value, std::string_view name);
+int         positive_integer_from_double (double value, std::string_view name);
+void        validate_score_params (engine::ScoreParams& params);
+void        append_warning (std::vector<engine::Diagnostic>& diagnostics, engine::DiagnosticComponent component,
+                            engine::DiagnosticCode code);
+const char* warning_message_for_code (engine::DiagnosticCode code);
 
 } // namespace validation

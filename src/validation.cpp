@@ -1,6 +1,7 @@
 #include "validation.h"
 
 #include <cmath>
+#include <cstdint>
 #include <limits>
 #include <stdexcept>
 #include <string>
@@ -22,9 +23,9 @@ constexpr double kA0Maximum = 1.0;
 constexpr double kB0Minimum = 0.0;
 constexpr double kB0Maximum = 1.0;
 
-constexpr double kWeightMinimum              = 0.0;
-constexpr double kExpectedWeightSum          = 1.0;
-constexpr double kWeightSumAbsoluteTolerance = 1.0e-12;
+constexpr double       kWeightMinimum        = 0.0;
+constexpr double       kWeightMicroUnitScale = 1.0e6;
+constexpr std::int64_t kExpectedWeightUnits  = 1'000'000;
 
 [[noreturn]] void throw_score_exponent_error (std::string_view name) {
     throw std::invalid_argument(std::string(name) + " has to be 1, 2, or 3");
@@ -34,9 +35,8 @@ constexpr double kWeightSumAbsoluteTolerance = 1.0e-12;
     throw std::invalid_argument(std::string(name) + " must be a positive integer");
 }
 
-void append_warning (std::vector<engine::Diagnostic>& diagnostics, engine::DiagnosticComponent component,
-                     engine::DiagnosticCode code) {
-    diagnostics.push_back({engine::DiagnosticSeverity::Warning, component, code});
+[[noreturn]] void throw_weight_sum_error () {
+    throw std::invalid_argument("Sum of weighting factors (w_z, w_m, w_p, w_s) must be within tolerance of 1");
 }
 
 void require_finite (double value, std::string_view name) {
@@ -78,7 +78,39 @@ void require_closed_interval (double value, std::string_view name, double minimu
     }
 }
 
+std::int64_t snapped_weight_units (double value) {
+    const double units = std::round(value * kWeightMicroUnitScale);
+    if (!std::isfinite(units) || units < 0.0 || units > static_cast<double>(kExpectedWeightUnits)) {
+        throw_weight_sum_error();
+    }
+    return static_cast<std::int64_t>(units);
+}
+
+double weight_from_units (std::int64_t units) { return static_cast<double>(units) / kWeightMicroUnitScale; }
+
 } // namespace
+
+void append_warning (std::vector<engine::Diagnostic>& diagnostics, engine::DiagnosticComponent component,
+                     engine::DiagnosticCode code) {
+    diagnostics.push_back({engine::DiagnosticSeverity::Warning, component, code});
+}
+
+const char* warning_message_for_code (engine::DiagnosticCode code) {
+    switch (code) {
+    case engine::DiagnosticCode::ReferenceCurveLayoutCopied:
+        return "ISO18571 copied reference_curve to a C-contiguous aligned array because its memory layout is unsafe";
+    case engine::DiagnosticCode::ComparisonCurveLayoutCopied:
+        return "ISO18571 copied comparison_curve to a C-contiguous aligned array because its memory layout is unsafe";
+    case engine::DiagnosticCode::PhaseUndefinedCorrelation:
+        return "ISO18571 phase correlation is undefined; using finite fallback rho_e";
+    case engine::DiagnosticCode::PhaseShiftClampedToUnshifted:
+        return "ISO18571 phase alignment left fewer than 9 samples; using unshifted alignment";
+    case engine::DiagnosticCode::MagnitudeZeroReferenceDenominator:
+        return "ISO18571 magnitude reference denominator is zero; using fallback magnitude score";
+    case engine::DiagnosticCode::SlopeZeroReferenceDenominator:
+        return "ISO18571 slope reference denominator is zero; using fallback slope score";
+    }
+}
 
 int score_exponent_from_double (double value, std::string_view name) {
     if (!std::isfinite(value)) {
@@ -104,7 +136,7 @@ int positive_integer_from_double (double value, std::string_view name) {
     return static_cast<int>(value);
 }
 
-void validate_score_params (const engine::ScoreParams& params) {
+void validate_score_params (engine::ScoreParams& params) {
     require_positive_integer(params.k_z, "k_z");
     require_score_exponent(params.k_p, "k_p");
     require_score_exponent(params.k_m, "k_m");
@@ -127,10 +159,18 @@ void validate_score_params (const engine::ScoreParams& params) {
     require_non_negative(params.w_m, "w_m");
     require_non_negative(params.w_s, "w_s");
 
-    const double weights_sum = params.w_z + params.w_m + params.w_p + params.w_s;
-    if (std::fabs(weights_sum - kExpectedWeightSum) > kWeightSumAbsoluteTolerance) {
-        throw std::invalid_argument("Sum of weighting factors (w_z, w_m, w_p, w_s) must be within tolerance of 1");
+    const std::int64_t w_z_units = snapped_weight_units(params.w_z);
+    const std::int64_t w_p_units = snapped_weight_units(params.w_p);
+    const std::int64_t w_m_units = snapped_weight_units(params.w_m);
+    const std::int64_t w_s_units = snapped_weight_units(params.w_s);
+    if (w_z_units + w_p_units + w_m_units + w_s_units != kExpectedWeightUnits) {
+        throw_weight_sum_error();
     }
+
+    params.w_z = weight_from_units(w_z_units);
+    params.w_p = weight_from_units(w_p_units);
+    params.w_m = weight_from_units(w_m_units);
+    params.w_s = weight_from_units(w_s_units);
 }
 
 } // namespace validation

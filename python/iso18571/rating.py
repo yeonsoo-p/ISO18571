@@ -38,10 +38,13 @@ class ISO18571:
         w_m: float = 0.2,
         w_s: float = 0.2,
     ) -> None:
+        if np.ma.isMaskedArray(reference_curve):
+            raise ValueError("reference_curve must not be a masked array")
+        if np.ma.isMaskedArray(comparison_curve):
+            raise ValueError("comparison_curve must not be a masked array")
+
         reference_array = np.asarray(reference_curve)
         comparison_array = np.asarray(comparison_curve)
-        if reference_array.shape != comparison_array.shape:
-            raise ValueError("Curves are not equal in size/dimension")
 
         self._scores: ScoreComponents
         self._scores = _score_components(

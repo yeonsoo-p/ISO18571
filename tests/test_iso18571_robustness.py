@@ -42,6 +42,16 @@ def float32_curve_from_values(
     return curve
 
 
+def float16_curve_from_values(
+    values: NDArray[np.float64], dt: float = 1.0
+) -> NDArray[np.float16]:
+    time = np.arange(values.shape[0], dtype=np.float16) * np.float16(dt)
+    curve = np.column_stack((time, values.astype(np.float16))).astype(
+        np.float16, copy=False
+    )
+    return curve
+
+
 def strided_curve_from_values(
     values: NDArray[np.float64], dt: float = 0.0001
 ) -> NDArray[np.float64]:
@@ -59,6 +69,16 @@ def strided_float32_curve_from_values(
     curve = storage[::2, ::2]
     curve[:, 0] = np.arange(values.shape[0], dtype=np.float32) * np.float32(dt)
     curve[:, 1] = values.astype(np.float32)
+    return curve
+
+
+def strided_float16_curve_from_values(
+    values: NDArray[np.float64], dt: float = 1.0
+) -> NDArray[np.float16]:
+    storage = np.empty((values.shape[0] * 2, 4), dtype=np.float16)
+    curve = storage[::2, ::2]
+    curve[:, 0] = np.arange(values.shape[0], dtype=np.float16) * np.float16(dt)
+    curve[:, 1] = values.astype(np.float16)
     return curve
 
 
@@ -299,7 +319,7 @@ def test_nonfinite_signal_values_fail_clearly_before_dtw() -> None:
         try:
             ISO18571(reference, comparison)
         except ValueError as exc:
-            assert "reference_curve signal values must be finite" in str(exc)
+            assert "reference_curve must be finite" in str(exc)
             assert records == []
             return
     raise AssertionError("nonfinite signal values were accepted")
@@ -360,6 +380,21 @@ def test_float32_uniform_time_grid_is_accepted_by_native_validation() -> None:
     assert iso.shift_length == 32
 
 
+def test_float16_uniform_time_grid_is_accepted_by_native_validation() -> None:
+    curve = float16_curve_from_values(np.linspace(-1.0, 1.0, 32, dtype=np.float64))
+    iso, messages = score_with_warnings(curve, curve.copy())
+
+    assert messages == []
+    assert_scores_close(
+        iso,
+        {"Z": 1.0, "EP": 1.0, "EM": 1.0, "ES": 1.0, "R": 1.0},
+        "float16 uniform grid",
+    )
+    assert iso.reference_start == 0
+    assert iso.comparison_start == 0
+    assert iso.shift_length == 32
+
+
 def test_mixed_float32_float64_time_grids_are_accepted() -> None:
     values = np.linspace(-1.0, 1.0, 32, dtype=np.float64)
     curve32 = float32_curve_from_values(values)
@@ -395,6 +430,11 @@ def test_strided_float_curve_inputs_are_accepted_by_native_validation() -> None:
             strided_float32_curve_from_values(values),
             strided_float32_curve_from_values(values),
         ),
+        (
+            "strided float16",
+            strided_float16_curve_from_values(values),
+            strided_float16_curve_from_values(values),
+        ),
     )
 
     for context, reference, comparison in cases:
@@ -411,6 +451,52 @@ def test_strided_float_curve_inputs_are_accepted_by_native_validation() -> None:
         assert iso.reference_start == 0
         assert iso.comparison_start == 0
         assert iso.shift_length == 32
+
+
+def test_nonfinite_float16_curve_values_fail_clearly_before_conversion() -> None:
+    base = float16_curve_from_values(sine_values(32))
+    cases = (
+        (
+            "reference time",
+            (4, 0),
+            np.float16(np.inf),
+            "reference_curve must be finite",
+        ),
+        (
+            "reference signal",
+            (4, 1),
+            np.float16(np.nan),
+            "reference_curve must be finite",
+        ),
+        (
+            "comparison time",
+            (4, 0),
+            np.float16(np.inf),
+            "comparison_curve must be finite",
+        ),
+        (
+            "comparison signal",
+            (4, 1),
+            np.float16(np.nan),
+            "comparison_curve must be finite",
+        ),
+    )
+
+    for context, index, value, expected_message in cases:
+        reference = base.copy()
+        comparison = base.copy()
+        target = comparison if context.startswith("comparison") else reference
+        target[index] = value
+
+        with warnings.catch_warnings(record=True) as records:
+            warnings.simplefilter("always", RuntimeWarning)
+            try:
+                ISO18571(reference, comparison)
+            except ValueError as exc:
+                assert expected_message in str(exc)
+                assert records == []
+                continue
+        raise AssertionError(f"{context} nonfinite float16 value was accepted")
 
 
 def test_numeric_non_float_curve_inputs_are_force_cast_to_float64() -> None:

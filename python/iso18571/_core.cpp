@@ -41,7 +41,11 @@ py::handle require_param (const py::dict& params, const char* name) {
     if (!params.contains(key)) {
         throw std::invalid_argument(std::string("Missing required score parameter: ") + name);
     }
-    return params[key];
+    py::handle value = params[key];
+    if (PyBool_Check(value.ptr()) != 0) {
+        throw std::invalid_argument(std::string(name) + " must not be boolean");
+    }
+    return value;
 }
 
 double get_required_double_param (const py::dict& params, const char* name) {
@@ -537,30 +541,13 @@ void emit_runtime_warning (const char* message) {
     }
 }
 
-const char* warning_message_for_code (DiagnosticCode code) {
-    switch (code) {
-    case DiagnosticCode::ReferenceCurveLayoutCopied:
-        return "ISO18571 copied reference_curve to a C-contiguous aligned array because its memory layout is unsafe";
-    case DiagnosticCode::ComparisonCurveLayoutCopied:
-        return "ISO18571 copied comparison_curve to a C-contiguous aligned array because its memory layout is unsafe";
-    case DiagnosticCode::PhaseUndefinedCorrelation:
-        return "ISO18571 phase correlation is undefined; using finite fallback rho_e";
-    case DiagnosticCode::PhaseShiftClampedToUnshifted:
-        return "ISO18571 phase alignment left fewer than 9 samples; using unshifted alignment";
-    case DiagnosticCode::MagnitudeZeroReferenceDenominator:
-        return "ISO18571 magnitude reference denominator is zero; using fallback magnitude score";
-    case DiagnosticCode::SlopeZeroReferenceDenominator:
-        return "ISO18571 slope reference denominator is zero; using fallback slope score";
-    }
-    throw std::runtime_error("Unknown ISO18571 native diagnostic code");
-}
-
 void emit_component_warnings (const std::vector<Diagnostic>& diagnostics) {
     for (const Diagnostic& diagnostic : diagnostics) {
         if (diagnostic.severity != DiagnosticSeverity::Warning) {
             throw std::runtime_error("Unsupported ISO18571 native diagnostic severity");
         }
-        emit_runtime_warning(warning_message_for_code(diagnostic.code));
+        const char* message = validation::warning_message_for_code(diagnostic.code);
+        emit_runtime_warning(message);
     }
 }
 
