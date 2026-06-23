@@ -22,6 +22,7 @@ namespace {
 
 using engine::Diagnostic;
 using engine::DiagnosticCode;
+using engine::DiagnosticComponent;
 using engine::DiagnosticSeverity;
 using engine::DoubleSpan;
 using engine::Index;
@@ -29,9 +30,10 @@ using engine::ScoreParams;
 using engine::ScoreResult;
 
 struct ValidatedCurves {
-    std::vector<double> reference_values;
-    std::vector<double> comparison_values;
-    double              dt = 0.0;
+    std::vector<double>     reference_values;
+    std::vector<double>     comparison_values;
+    double                  dt = 0.0;
+    std::vector<Diagnostic> diagnostics;
 };
 
 py::handle require_param (const py::dict& params, const char* name) {
@@ -475,6 +477,19 @@ CurveInputDtype require_curve_dtype (const py::array& curve, const py::buffer_in
     return input_dtype;
 }
 
+void apply_curve_layout_fallback (CurveInputDtype dtype, const py::array& source_curve, py::array& effective_curve,
+                                  py::buffer_info& info, DiagnosticCode copied_code,
+                                  std::vector<Diagnostic>& diagnostics) {
+    if (require_curve_layout(dtype, info)) {
+        return;
+    }
+
+    const py::object numpy = py::module_::import("numpy");
+    effective_curve = numpy.attr("require")(source_curve, py::none(), py::make_tuple("C", "A")).cast<py::array>();
+    info            = effective_curve.request();
+    validation::append_warning(diagnostics, DiagnosticComponent::Validation, copied_code);
+}
+
 ValidatedCurves validate_curves (py::array reference_curve, py::array comparison_curve) {
     py::buffer_info reference_info  = require_curve_shape(reference_curve, "reference_curve");
     py::buffer_info comparison_info = require_curve_shape(comparison_curve, "comparison_curve");
@@ -490,21 +505,14 @@ ValidatedCurves validate_curves (py::array reference_curve, py::array comparison
     CurveInputDtype reference_dtype  = require_curve_dtype(reference_curve, reference_info, "reference_curve");
     CurveInputDtype comparison_dtype = require_curve_dtype(comparison_curve, comparison_info, "comparison_curve");
 
-    py::array reference_effective  = reference_curve;
-    py::array comparison_effective = comparison_curve;
+    py::array               reference_effective  = reference_curve;
+    py::array               comparison_effective = comparison_curve;
+    std::vector<Diagnostic> diagnostics;
 
-    if (!require_curve_layout(reference_dtype, reference_info)) {
-        const py::object numpy = py::module_::import("numpy");
-        reference_effective =
-            numpy.attr("require")(reference_curve, py::none(), py::make_tuple("C", "A")).cast<py::array>();
-        reference_info = reference_effective.request();
-    }
-    if (!require_curve_layout(comparison_dtype, comparison_info)) {
-        const py::object numpy = py::module_::import("numpy");
-        comparison_effective =
-            numpy.attr("require")(comparison_curve, py::none(), py::make_tuple("C", "A")).cast<py::array>();
-        comparison_info = comparison_effective.request();
-    }
+    apply_curve_layout_fallback(reference_dtype, reference_curve, reference_effective, reference_info,
+                                DiagnosticCode::ReferenceCurveLayoutCopied, diagnostics);
+    apply_curve_layout_fallback(comparison_dtype, comparison_curve, comparison_effective, comparison_info,
+                                DiagnosticCode::ComparisonCurveLayoutCopied, diagnostics);
 
     require_curve_input(reference_dtype, reference_info, "reference_curve", n);
     require_curve_input(comparison_dtype, comparison_info, "comparison_curve", n);
@@ -519,6 +527,7 @@ ValidatedCurves validate_curves (py::array reference_curve, py::array comparison
         std::move(reference_values),
         std::move(comparison_values),
         reference_dt,
+        std::move(diagnostics),
     };
 }
 
@@ -530,6 +539,10 @@ void emit_runtime_warning (const char* message) {
 
 const char* warning_message_for_code (DiagnosticCode code) {
     switch (code) {
+    case DiagnosticCode::ReferenceCurveLayoutCopied:
+        return "ISO18571 copied reference_curve to a C-contiguous aligned array because its memory layout is unsafe";
+    case DiagnosticCode::ComparisonCurveLayoutCopied:
+        return "ISO18571 copied comparison_curve to a C-contiguous aligned array because its memory layout is unsafe";
     case DiagnosticCode::PhaseUndefinedCorrelation:
         return "ISO18571 phase correlation is undefined; using finite fallback rho_e";
     case DiagnosticCode::PhaseShiftClampedToUnshifted:
@@ -585,6 +598,7 @@ py::dict score_components (py::array reference_curve, py::array comparison_curve
             engine::dispatch_table().score_components(reference_values, comparison_values, score_params, curves.dt);
     }
 
+    emit_component_warnings(curves.diagnostics);
     emit_score_warnings(result);
 
     py::dict out;

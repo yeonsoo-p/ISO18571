@@ -34,6 +34,11 @@ constexpr double kWeightSumAbsoluteTolerance = 1.0e-12;
     throw std::invalid_argument(std::string(name) + " must be a positive integer");
 }
 
+void append_warning (std::vector<engine::Diagnostic>& diagnostics, engine::DiagnosticComponent component,
+                     engine::DiagnosticCode code) {
+    diagnostics.push_back({engine::DiagnosticSeverity::Warning, component, code});
+}
+
 void require_finite (double value, std::string_view name) {
     if (!std::isfinite(value)) {
         throw std::invalid_argument(std::string(name) + " must be finite");

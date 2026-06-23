@@ -1,5 +1,6 @@
 #include "engine.h"
 #include "dispatch.h"
+#include "validation.h"
 
 #include <algorithm>
 #include <cmath>
@@ -73,6 +74,7 @@ using engine::ScoreResult;
 using engine::SlopeResult;
 using fft::Complex;
 using std::size_t;
+using validation::append_warning;
 
 inline void sum_difference (Complex& a, Complex& b, Complex c, Complex d) {
     a = c + d;
@@ -499,10 +501,6 @@ struct PhaseCache {
 struct PhaseProductSums {
     std::vector<double> products;
 };
-
-void append_warning (std::vector<Diagnostic>& diagnostics, DiagnosticComponent component, DiagnosticCode code) {
-    diagnostics.push_back({DiagnosticSeverity::Warning, component, code});
-}
 
 void select_dtw_predecessor (double cost, double candidate_numerator, double candidate_denominator,
                              double& best_previous, double& best_numerator, double& best_denominator) {

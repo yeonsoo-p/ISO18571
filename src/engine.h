@@ -41,6 +41,7 @@ enum class DiagnosticSeverity {
 };
 
 enum class DiagnosticComponent {
+    Validation,
     Corridor,
     Phase,
     Magnitude,
@@ -48,6 +49,8 @@ enum class DiagnosticComponent {
 };
 
 enum class DiagnosticCode {
+    ReferenceCurveLayoutCopied,
+    ComparisonCurveLayoutCopied,
     PhaseUndefinedCorrelation,
     PhaseShiftClampedToUnshifted,
     MagnitudeZeroReferenceDenominator,
