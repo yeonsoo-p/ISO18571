@@ -2,6 +2,8 @@
 
 #include <cstdint>
 
+#include "types.h"
+
 #if defined(__GNUC__) && (defined(__x86_64__) || defined(__i386__))
 #include <cpuid.h>
 #endif
@@ -42,20 +44,20 @@ unsigned int max_basic_leaf () { return __get_cpuid_max(0U, nullptr); }
 
 unsigned int max_extended_leaf () { return __get_cpuid_max(0x80000000U, nullptr); }
 
-std::uint64_t xgetbv (unsigned int index) {
+u64 xgetbv (unsigned int index) {
     unsigned int eax = 0;
     unsigned int edx = 0;
     __asm__ volatile("xgetbv" : "=a"(eax), "=d"(edx) : "c"(index));
-    return (static_cast<std::uint64_t>(edx) << 32U) | eax;
+    return (static_cast<u64>(edx) << 32U) | eax;
 }
 
 bool os_supports_avx () {
-    const std::uint64_t mask = xgetbv(0);
+    const u64 mask = xgetbv(0);
     return (mask & 0x6U) == 0x6U;
 }
 
 bool os_supports_avx512 () {
-    const std::uint64_t mask = xgetbv(0);
+    const u64 mask = xgetbv(0);
     return (mask & 0xE6U) == 0xE6U;
 }
 #endif

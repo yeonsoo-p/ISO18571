@@ -95,7 +95,7 @@ void special_mul (const Complex& v1, const Complex& v2, Complex& res) {
 
 template<bool fwd>
 void rotate_x90 (Complex& a) {
-    const double tmp_ = fwd ? -a.real() : a.real();
+    const f64 tmp_ = fwd ? -a.real() : a.real();
     a.real(fwd ? a.imag() : -a.imag());
     a.imag(tmp_);
 }
@@ -107,33 +107,33 @@ struct Sincos2PiByN {
     std::vector<Complex> v1, v2;
 };
 
-Complex sincos_2pi_by_n_calc (size_t x, size_t n, double ang) {
+Complex sincos_2pi_by_n_calc (size_t x, size_t n, f64 ang) {
     x <<= 3;
     if (x < 4 * n) {
         if (x < 2 * n) {
             if (x < n) {
-                return {std::cos(static_cast<double>(x) * ang), std::sin(static_cast<double>(x) * ang)};
+                return {std::cos(static_cast<f64>(x) * ang), std::sin(static_cast<f64>(x) * ang)};
             }
-            return {std::sin(static_cast<double>(2 * n - x) * ang), std::cos(static_cast<double>(2 * n - x) * ang)};
+            return {std::sin(static_cast<f64>(2 * n - x) * ang), std::cos(static_cast<f64>(2 * n - x) * ang)};
         }
         x -= 2 * n;
         if (x < n) {
-            return {-std::sin(static_cast<double>(x) * ang), std::cos(static_cast<double>(x) * ang)};
+            return {-std::sin(static_cast<f64>(x) * ang), std::cos(static_cast<f64>(x) * ang)};
         }
-        return {-std::cos(static_cast<double>(2 * n - x) * ang), std::sin(static_cast<double>(2 * n - x) * ang)};
+        return {-std::cos(static_cast<f64>(2 * n - x) * ang), std::sin(static_cast<f64>(2 * n - x) * ang)};
     }
     x = 8 * n - x;
     if (x < 2 * n) {
         if (x < n) {
-            return {std::cos(static_cast<double>(x) * ang), -std::sin(static_cast<double>(x) * ang)};
+            return {std::cos(static_cast<f64>(x) * ang), -std::sin(static_cast<f64>(x) * ang)};
         }
-        return {std::sin(static_cast<double>(2 * n - x) * ang), -std::cos(static_cast<double>(2 * n - x) * ang)};
+        return {std::sin(static_cast<f64>(2 * n - x) * ang), -std::cos(static_cast<f64>(2 * n - x) * ang)};
     }
     x -= 2 * n;
     if (x < n) {
-        return {-std::sin(static_cast<double>(x) * ang), -std::cos(static_cast<double>(x) * ang)};
+        return {-std::sin(static_cast<f64>(x) * ang), -std::cos(static_cast<f64>(x) * ang)};
     }
-    return {-std::cos(static_cast<double>(2 * n - x) * ang), -std::sin(static_cast<double>(2 * n - x) * ang)};
+    return {-std::cos(static_cast<f64>(2 * n - x) * ang), -std::sin(static_cast<f64>(2 * n - x) * ang)};
 }
 
 Complex sincos_2pi_by_n_lookup (const Sincos2PiByN& table, size_t idx) {
@@ -232,13 +232,13 @@ void pass4 (size_t ido, size_t l1, const Complex* cc, Complex* ch, const Complex
 
 template<bool fwd>
 void rotate_x45 (Complex& a) {
-    constexpr double hsqt2 = 0.707106781186547524400844362104849;
+    constexpr f64 hsqt2 = 0.707106781186547524400844362104849;
     if (fwd) {
-        const double tmp_ = a.real();
+        const f64 tmp_ = a.real();
         a.real(hsqt2 * (a.real() + a.imag()));
         a.imag(hsqt2 * (a.imag() - tmp_));
     } else {
-        const double tmp_ = a.real();
+        const f64 tmp_ = a.real();
         a.real(hsqt2 * (a.real() - a.imag()));
         a.imag(hsqt2 * (a.imag() + tmp_));
     }
@@ -246,13 +246,13 @@ void rotate_x45 (Complex& a) {
 
 template<bool fwd>
 void rotate_x135 (Complex& a) {
-    constexpr double hsqt2 = 0.707106781186547524400844362104849;
+    constexpr f64 hsqt2 = 0.707106781186547524400844362104849;
     if (fwd) {
-        const double tmp_ = a.real();
+        const f64 tmp_ = a.real();
         a.real(hsqt2 * (a.imag() - a.real()));
         a.imag(hsqt2 * (-tmp_ - a.imag()));
     } else {
-        const double tmp_ = a.real();
+        const f64 tmp_ = a.real();
         a.real(hsqt2 * (-a.real() - a.imag()));
         a.imag(hsqt2 * (tmp_ - a.imag()));
     }
@@ -373,12 +373,12 @@ FftPlan fft_plan_init (std::size_t length) {
     }
     plan.mem.reserve(twiddle_size);
 
-    Sincos2PiByN          twiddle = {};
-    constexpr long double pi      = 3.141592653589793238462643383279502884197L;
-    const double          ang     = static_cast<double>(0.25L * pi / static_cast<long double>(plan.length));
-    const size_t          nval    = (plan.length + 2) / 2;
-    twiddle.length                = plan.length;
-    twiddle.shift                 = 1;
+    Sincos2PiByN   twiddle = {};
+    constexpr f128 pi      = 3.141592653589793238462643383279502884197L;
+    const f64      ang     = static_cast<f64>(0.25L * pi / static_cast<f128>(plan.length));
+    const size_t   nval    = (plan.length + 2) / 2;
+    twiddle.length         = plan.length;
+    twiddle.shift          = 1;
     while ((size_t(1) << twiddle.shift) * (size_t(1) << twiddle.shift) < nval) {
         ++twiddle.shift;
     }
@@ -412,7 +412,7 @@ FftPlan fft_plan_init (std::size_t length) {
 }
 
 template<bool fwd>
-void fft_plan_exec (const FftPlan& plan, Complex* data, double fct) {
+void fft_plan_exec (const FftPlan& plan, Complex* data, f64 fct) {
     if (plan.length == 0) {
         return;
     }
@@ -458,16 +458,16 @@ void fft_plan_exec (const FftPlan& plan, Complex* data, double fct) {
     }
 }
 
-constexpr double CORRELATION_TIE_TOLERANCE = 1.0e-12;
-constexpr double CORRELATION_REFINE_MARGIN = 1.0e-9;
+constexpr f64 CORRELATION_TIE_TOLERANCE = 1.0e-12;
+constexpr f64 CORRELATION_REFINE_MARGIN = 1.0e-9;
 
 std::size_t offset (Index index) { return static_cast<std::size_t>(index); }
 
 Index span_size (DoubleSpan values) { return static_cast<Index>(values.size()); }
 
-double value_at (DoubleSpan values, Index index) { return values[offset(index)]; }
+f64 value_at (DoubleSpan values, Index index) { return values[offset(index)]; }
 
-double integer_power (double value, int exponent) {
+f64 integer_power (f64 value, int exponent) {
     if (exponent == 1) {
         return value;
     }
@@ -478,9 +478,9 @@ double integer_power (double value, int exponent) {
         return value * value * value;
     }
 
-    double result = 1.0;
-    double base   = value;
-    int    power  = exponent;
+    f64 result = 1.0;
+    f64 base   = value;
+    int power  = exponent;
     while (power > 0) {
         if ((power & 1) != 0) {
             result *= base;
@@ -492,24 +492,24 @@ double integer_power (double value, int exponent) {
 }
 
 struct PhaseCache {
-    std::vector<double> reference_sum;
-    std::vector<double> comparison_sum;
-    std::vector<double> reference_square_sum;
-    std::vector<double> comparison_square_sum;
+    std::vector<f64> reference_sum;
+    std::vector<f64> comparison_sum;
+    std::vector<f64> reference_square_sum;
+    std::vector<f64> comparison_square_sum;
 };
 
 struct PhaseProductSums {
-    std::vector<double> products;
+    std::vector<f64> products;
 };
 
-void select_dtw_predecessor (double cost, double candidate_numerator, double candidate_denominator,
-                             double& best_previous, double& best_numerator, double& best_denominator) {
+void select_dtw_predecessor (f64 cost, f64 candidate_numerator, f64 candidate_denominator, f64& best_previous,
+                             f64& best_numerator, f64& best_denominator) {
     best_previous    = cost;
     best_numerator   = candidate_numerator;
     best_denominator = candidate_denominator;
 }
 
-Index window_radius (Index n, double window_size) {
+Index window_radius (Index n, f64 window_size) {
     if (n <= 0) {
         throw std::invalid_argument("DTW input arrays must not be empty");
     }
@@ -519,35 +519,35 @@ Index window_radius (Index n, double window_size) {
     if (window_size >= 1.0) {
         return n;
     }
-    const Index raw = static_cast<Index>(std::ceil(window_size * static_cast<double>(n)));
+    const Index raw = static_cast<Index>(std::ceil(window_size * static_cast<f64>(n)));
     return std::min<Index>(n, std::max<Index>(1, raw));
 }
 
-std::pair<double, double> magnitude_error_from_dtw (DoubleSpan x, DoubleSpan y, double window_size) {
-    const Index  n      = span_size(x);
-    const Index  radius = window_radius(n, window_size);
-    const double inf    = std::numeric_limits<double>::infinity();
+std::pair<f64, f64> magnitude_error_from_dtw (DoubleSpan x, DoubleSpan y, f64 window_size) {
+    const Index n      = span_size(x);
+    const Index radius = window_radius(n, window_size);
+    const f64   inf    = std::numeric_limits<f64>::infinity();
 
-    std::vector<double> previous_cost(static_cast<std::size_t>(n), inf);
-    std::vector<double> current_cost(static_cast<std::size_t>(n), inf);
-    std::vector<double> previous_numerator(static_cast<std::size_t>(n), 0.0);
-    std::vector<double> current_numerator(static_cast<std::size_t>(n), 0.0);
-    std::vector<double> previous_denominator(static_cast<std::size_t>(n), 0.0);
-    std::vector<double> current_denominator(static_cast<std::size_t>(n), 0.0);
-    std::vector<double> abs_y(static_cast<std::size_t>(n), 0.0);
+    std::vector<f64> previous_cost(static_cast<std::size_t>(n), inf);
+    std::vector<f64> current_cost(static_cast<std::size_t>(n), inf);
+    std::vector<f64> previous_numerator(static_cast<std::size_t>(n), 0.0);
+    std::vector<f64> current_numerator(static_cast<std::size_t>(n), 0.0);
+    std::vector<f64> previous_denominator(static_cast<std::size_t>(n), 0.0);
+    std::vector<f64> current_denominator(static_cast<std::size_t>(n), 0.0);
+    std::vector<f64> abs_y(static_cast<std::size_t>(n), 0.0);
 
     for (Index idx = 0; idx < n; ++idx) {
         abs_y[offset(idx)] = std::abs(value_at(y, idx));
     }
 
     for (Index i = 0; i < n; ++i) {
-        const Index  previous_start = i > 0 ? std::max<Index>(0, i - radius) : 0;
-        const Index  previous_stop  = i > 0 ? std::min<Index>(n, i + radius - 1) : 0;
-        const Index  j_start        = std::max<Index>(0, i - radius + 1);
-        const Index  j_stop         = std::min<Index>(n, i + radius);
-        const double x_i            = value_at(x, i);
-        Index        interior_start = j_stop;
-        Index        interior_stop  = j_stop;
+        const Index previous_start = i > 0 ? std::max<Index>(0, i - radius) : 0;
+        const Index previous_stop  = i > 0 ? std::min<Index>(n, i + radius - 1) : 0;
+        const Index j_start        = std::max<Index>(0, i - radius + 1);
+        const Index j_stop         = std::min<Index>(n, i + radius);
+        const f64   x_i            = value_at(x, i);
+        Index       interior_start = j_stop;
+        Index       interior_stop  = j_stop;
 
         if (i > 0) {
             interior_start = std::max<Index>(j_start + 1, previous_start + 1);
@@ -560,22 +560,22 @@ std::pair<double, double> magnitude_error_from_dtw (DoubleSpan x, DoubleSpan y, 
 
         for (Index j = j_start; j < interior_start; ++j) {
             const std::size_t index             = static_cast<std::size_t>(j);
-            const double      delta             = x_i - value_at(y, j);
-            const double      local_cost        = delta * delta;
-            const double      local_numerator   = std::abs(delta);
-            const double      local_denominator = abs_y[index];
-            double            accumulated       = inf;
-            double            numerator         = 0.0;
-            double            denominator       = 0.0;
+            const f64         delta             = x_i - value_at(y, j);
+            const f64         local_cost        = delta * delta;
+            const f64         local_numerator   = std::abs(delta);
+            const f64         local_denominator = abs_y[index];
+            f64               accumulated       = inf;
+            f64               numerator         = 0.0;
+            f64               denominator       = 0.0;
 
             if (i == 0 && j == 0) {
                 accumulated = local_cost;
                 numerator   = local_numerator;
                 denominator = local_denominator;
             } else {
-                double best_previous    = inf;
-                double best_numerator   = 0.0;
-                double best_denominator = 0.0;
+                f64 best_previous    = inf;
+                f64 best_numerator   = 0.0;
+                f64 best_denominator = 0.0;
 
                 if (i > 0 && j >= previous_start && j < previous_stop) {
                     select_dtw_predecessor(previous_cost[index], previous_numerator[index], previous_denominator[index],
@@ -583,7 +583,7 @@ std::pair<double, double> magnitude_error_from_dtw (DoubleSpan x, DoubleSpan y, 
                 }
                 if (j > j_start) {
                     const std::size_t previous_index = static_cast<std::size_t>(j - 1);
-                    const double      candidate      = current_cost[previous_index];
+                    const f64         candidate      = current_cost[previous_index];
                     if (candidate < best_previous) {
                         select_dtw_predecessor(candidate, current_numerator[previous_index],
                                                current_denominator[previous_index], best_previous, best_numerator,
@@ -592,7 +592,7 @@ std::pair<double, double> magnitude_error_from_dtw (DoubleSpan x, DoubleSpan y, 
                 }
                 if (i > 0 && j > 0 && j - 1 >= previous_start && j - 1 < previous_stop) {
                     const std::size_t previous_index = static_cast<std::size_t>(j - 1);
-                    const double      candidate      = previous_cost[previous_index];
+                    const f64         candidate      = previous_cost[previous_index];
                     if (candidate < best_previous) {
                         select_dtw_predecessor(candidate, previous_numerator[previous_index],
                                                previous_denominator[previous_index], best_previous, best_numerator,
@@ -615,20 +615,20 @@ std::pair<double, double> magnitude_error_from_dtw (DoubleSpan x, DoubleSpan y, 
         for (Index j = interior_start; j < interior_stop; ++j) {
             const std::size_t index             = static_cast<std::size_t>(j);
             const std::size_t previous_index    = static_cast<std::size_t>(j - 1);
-            const double      delta             = x_i - value_at(y, j);
-            const double      local_cost        = delta * delta;
-            const double      local_numerator   = std::abs(delta);
-            const double      local_denominator = abs_y[index];
-            double            best_previous     = previous_cost[index];
-            double            best_numerator    = previous_numerator[index];
-            double            best_denominator  = previous_denominator[index];
-            const double      horizontal        = current_cost[previous_index];
+            const f64         delta             = x_i - value_at(y, j);
+            const f64         local_cost        = delta * delta;
+            const f64         local_numerator   = std::abs(delta);
+            const f64         local_denominator = abs_y[index];
+            f64               best_previous     = previous_cost[index];
+            f64               best_numerator    = previous_numerator[index];
+            f64               best_denominator  = previous_denominator[index];
+            const f64         horizontal        = current_cost[previous_index];
             if (horizontal < best_previous) {
                 best_previous    = horizontal;
                 best_numerator   = current_numerator[previous_index];
                 best_denominator = current_denominator[previous_index];
             }
-            const double diagonal = previous_cost[previous_index];
+            const f64 diagonal = previous_cost[previous_index];
             if (diagonal < best_previous) {
                 best_previous    = diagonal;
                 best_numerator   = previous_numerator[previous_index];
@@ -647,22 +647,22 @@ std::pair<double, double> magnitude_error_from_dtw (DoubleSpan x, DoubleSpan y, 
 
         for (Index j = interior_stop; j < j_stop; ++j) {
             const std::size_t index             = static_cast<std::size_t>(j);
-            const double      delta             = x_i - value_at(y, j);
-            const double      local_cost        = delta * delta;
-            const double      local_numerator   = std::abs(delta);
-            const double      local_denominator = abs_y[index];
-            double            accumulated       = inf;
-            double            numerator         = 0.0;
-            double            denominator       = 0.0;
+            const f64         delta             = x_i - value_at(y, j);
+            const f64         local_cost        = delta * delta;
+            const f64         local_numerator   = std::abs(delta);
+            const f64         local_denominator = abs_y[index];
+            f64               accumulated       = inf;
+            f64               numerator         = 0.0;
+            f64               denominator       = 0.0;
 
             if (i == 0 && j == 0) {
                 accumulated = local_cost;
                 numerator   = local_numerator;
                 denominator = local_denominator;
             } else {
-                double best_previous    = inf;
-                double best_numerator   = 0.0;
-                double best_denominator = 0.0;
+                f64 best_previous    = inf;
+                f64 best_numerator   = 0.0;
+                f64 best_denominator = 0.0;
 
                 if (i > 0 && j >= previous_start && j < previous_stop) {
                     select_dtw_predecessor(previous_cost[index], previous_numerator[index], previous_denominator[index],
@@ -670,7 +670,7 @@ std::pair<double, double> magnitude_error_from_dtw (DoubleSpan x, DoubleSpan y, 
                 }
                 if (j > j_start) {
                     const std::size_t previous_index = static_cast<std::size_t>(j - 1);
-                    const double      candidate      = current_cost[previous_index];
+                    const f64         candidate      = current_cost[previous_index];
                     if (candidate < best_previous) {
                         select_dtw_predecessor(candidate, current_numerator[previous_index],
                                                current_denominator[previous_index], best_previous, best_numerator,
@@ -679,7 +679,7 @@ std::pair<double, double> magnitude_error_from_dtw (DoubleSpan x, DoubleSpan y, 
                 }
                 if (i > 0 && j > 0 && j - 1 >= previous_start && j - 1 < previous_stop) {
                     const std::size_t previous_index = static_cast<std::size_t>(j - 1);
-                    const double      candidate      = previous_cost[previous_index];
+                    const f64         candidate      = previous_cost[previous_index];
                     if (candidate < best_previous) {
                         select_dtw_predecessor(candidate, previous_numerator[previous_index],
                                                previous_denominator[previous_index], best_previous, best_numerator,
@@ -723,8 +723,8 @@ PhaseCache build_phase_cache (DoubleSpan reference, DoubleSpan comparison) {
     for (Index idx = 0; idx < n; ++idx) {
         const std::size_t current            = static_cast<std::size_t>(idx + 1);
         const std::size_t previous           = static_cast<std::size_t>(idx);
-        const double      x                  = value_at(reference, idx);
-        const double      y                  = value_at(comparison, idx);
+        const f64         x                  = value_at(reference, idx);
+        const f64         y                  = value_at(comparison, idx);
         cache.reference_sum[current]         = cache.reference_sum[previous] + x;
         cache.comparison_sum[current]        = cache.comparison_sum[previous] + y;
         cache.reference_square_sum[current]  = cache.reference_square_sum[previous] + x * x;
@@ -733,7 +733,7 @@ PhaseCache build_phase_cache (DoubleSpan reference, DoubleSpan comparison) {
     return cache;
 }
 
-double prefix_range (const std::vector<double>& values, Index start, Index length) {
+f64 prefix_range (const std::vector<f64>& values, Index start, Index length) {
     return values[static_cast<std::size_t>(start + length)] - values[static_cast<std::size_t>(start)];
 }
 
@@ -747,10 +747,10 @@ bool values_equal_for_shift (DoubleSpan reference, DoubleSpan comparison, Index 
     return true;
 }
 
-double correlation_for_shift (DoubleSpan reference, DoubleSpan comparison, Index reference_start,
-                              Index comparison_start, Index length, std::vector<Diagnostic>& diagnostics) {
-    double reference_sum  = 0.0;
-    double comparison_sum = 0.0;
+f64 correlation_for_shift (DoubleSpan reference, DoubleSpan comparison, Index reference_start, Index comparison_start,
+                           Index length, std::vector<Diagnostic>& diagnostics) {
+    f64 reference_sum  = 0.0;
+    f64 comparison_sum = 0.0;
     for (Index idx = 0; idx < length; ++idx) {
         reference_sum += value_at(reference, reference_start + idx);
         comparison_sum += value_at(comparison, comparison_start + idx);
@@ -761,21 +761,21 @@ double correlation_for_shift (DoubleSpan reference, DoubleSpan comparison, Index
         return values_equal_for_shift(reference, comparison, reference_start, comparison_start, length) ? 1.0 : 0.0;
     }
 
-    const double n               = static_cast<double>(length);
-    const double reference_mean  = reference_sum / n;
-    const double comparison_mean = comparison_sum / n;
-    double       reference_cov   = 0.0;
-    double       comparison_cov  = 0.0;
-    double       cross_cov       = 0.0;
+    const f64 n               = static_cast<f64>(length);
+    const f64 reference_mean  = reference_sum / n;
+    const f64 comparison_mean = comparison_sum / n;
+    f64       reference_cov   = 0.0;
+    f64       comparison_cov  = 0.0;
+    f64       cross_cov       = 0.0;
     for (Index idx = 0; idx < length; ++idx) {
-        const double x = value_at(reference, reference_start + idx) - reference_mean;
-        const double y = value_at(comparison, comparison_start + idx) - comparison_mean;
+        const f64 x = value_at(reference, reference_start + idx) - reference_mean;
+        const f64 y = value_at(comparison, comparison_start + idx) - comparison_mean;
         reference_cov += x * x;
         comparison_cov += y * y;
         cross_cov += x * y;
     }
 
-    const double fact = n - 1.0;
+    const f64 fact = n - 1.0;
     reference_cov /= fact;
     comparison_cov /= fact;
     cross_cov /= fact;
@@ -785,7 +785,7 @@ double correlation_for_shift (DoubleSpan reference, DoubleSpan comparison, Index
         return values_equal_for_shift(reference, comparison, reference_start, comparison_start, length) ? 1.0 : 0.0;
     }
 
-    double correlation = cross_cov / std::sqrt(reference_cov);
+    f64 correlation = cross_cov / std::sqrt(reference_cov);
     correlation /= std::sqrt(comparison_cov);
     if (correlation > 1.0) {
         correlation = 1.0;
@@ -821,7 +821,7 @@ PhaseProductSums fft_product_sums (DoubleSpan reference, DoubleSpan comparison) 
     for (std::size_t idx = 0; idx < fft_size; ++idx) {
         reference_fft[idx] *= comparison_fft[idx];
     }
-    fft_plan_exec<fft::kBackward>(fft_plan, reference_fft.data(), 1.0 / static_cast<double>(fft_size));
+    fft_plan_exec<fft::kBackward>(fft_plan, reference_fft.data(), 1.0 / static_cast<f64>(fft_size));
 
     PhaseProductSums sums;
     sums.products.assign(conv_size, 0.0);
@@ -831,31 +831,31 @@ PhaseProductSums fft_product_sums (DoubleSpan reference, DoubleSpan comparison) 
     return sums;
 }
 
-double product_sum_from_fft (const PhaseProductSums& sums, Index n, Index reference_start, Index comparison_start) {
+f64 product_sum_from_fft (const PhaseProductSums& sums, Index n, Index reference_start, Index comparison_start) {
     const Index lag = reference_start - comparison_start;
     return sums.products[static_cast<std::size_t>(n - 1 + lag)];
 }
 
-double correlation_from_cached_product (const PhaseCache& cache, Index reference_start, Index comparison_start,
-                                        Index length, double product_sum) {
-    const double n                     = static_cast<double>(length);
-    const double reference_sum         = prefix_range(cache.reference_sum, reference_start, length);
-    const double comparison_sum        = prefix_range(cache.comparison_sum, comparison_start, length);
-    const double reference_square_sum  = prefix_range(cache.reference_square_sum, reference_start, length);
-    const double comparison_square_sum = prefix_range(cache.comparison_square_sum, comparison_start, length);
+f64 correlation_from_cached_product (const PhaseCache& cache, Index reference_start, Index comparison_start,
+                                     Index length, f64 product_sum) {
+    const f64 n                     = static_cast<f64>(length);
+    const f64 reference_sum         = prefix_range(cache.reference_sum, reference_start, length);
+    const f64 comparison_sum        = prefix_range(cache.comparison_sum, comparison_start, length);
+    const f64 reference_square_sum  = prefix_range(cache.reference_square_sum, reference_start, length);
+    const f64 comparison_square_sum = prefix_range(cache.comparison_square_sum, comparison_start, length);
 
-    const double numerator        = product_sum - (reference_sum * comparison_sum / n);
-    const double reference_var    = reference_square_sum - (reference_sum * reference_sum / n);
-    const double comparison_var   = comparison_square_sum - (comparison_sum * comparison_sum / n);
-    const double reference_scale  = std::max(reference_square_sum, std::abs(reference_sum * reference_sum / n));
-    const double comparison_scale = std::max(comparison_square_sum, std::abs(comparison_sum * comparison_sum / n));
-    const double reference_tol    = std::numeric_limits<double>::epsilon() * std::max(1.0, reference_scale) * 64.0;
-    const double comparison_tol   = std::numeric_limits<double>::epsilon() * std::max(1.0, comparison_scale) * 64.0;
+    const f64 numerator        = product_sum - (reference_sum * comparison_sum / n);
+    const f64 reference_var    = reference_square_sum - (reference_sum * reference_sum / n);
+    const f64 comparison_var   = comparison_square_sum - (comparison_sum * comparison_sum / n);
+    const f64 reference_scale  = std::max(reference_square_sum, std::abs(reference_sum * reference_sum / n));
+    const f64 comparison_scale = std::max(comparison_square_sum, std::abs(comparison_sum * comparison_sum / n));
+    const f64 reference_tol    = std::numeric_limits<f64>::epsilon() * std::max(1.0, reference_scale) * 64.0;
+    const f64 comparison_tol   = std::numeric_limits<f64>::epsilon() * std::max(1.0, comparison_scale) * 64.0;
     if (reference_var <= reference_tol || comparison_var <= comparison_tol) {
-        return std::numeric_limits<double>::quiet_NaN();
+        return std::numeric_limits<f64>::quiet_NaN();
     }
 
-    double correlation = numerator / std::sqrt(reference_var * comparison_var);
+    f64 correlation = numerator / std::sqrt(reference_var * comparison_var);
     if (correlation > 1.0) {
         correlation = 1.0;
     } else if (correlation < -1.0) {
@@ -865,7 +865,7 @@ double correlation_from_cached_product (const PhaseCache& cache, Index reference
 }
 
 PhaseResult phase_candidate_for_shift (DoubleSpan reference, DoubleSpan comparison, Index reference_start,
-                                       Index comparison_start, Index length, Index n_eps, double max_shift) {
+                                       Index comparison_start, Index length, Index n_eps, f64 max_shift) {
     PhaseResult result;
     result.alignment.reference_start  = reference_start;
     result.alignment.comparison_start = comparison_start;
@@ -878,7 +878,7 @@ PhaseResult phase_candidate_for_shift (DoubleSpan reference, DoubleSpan comparis
 }
 
 PhaseResult phase_candidate_from_correlation (Index reference_start, Index comparison_start, Index length, Index n_eps,
-                                              double max_shift, double rho_e) {
+                                              f64 max_shift, f64 rho_e) {
     PhaseResult result;
     result.alignment.reference_start  = reference_start;
     result.alignment.comparison_start = comparison_start;
@@ -891,16 +891,16 @@ PhaseResult phase_candidate_from_correlation (Index reference_start, Index compa
 
 PhaseResult phase_candidate_from_fft_product (DoubleSpan reference, DoubleSpan comparison, const PhaseCache& cache,
                                               const PhaseProductSums& sums, Index n, Index reference_start,
-                                              Index comparison_start, Index length, Index n_eps, double max_shift,
-                                              double& cached_rho) {
-    cached_rho = std::numeric_limits<double>::quiet_NaN();
+                                              Index comparison_start, Index length, Index n_eps, f64 max_shift,
+                                              f64& cached_rho) {
+    cached_rho = std::numeric_limits<f64>::quiet_NaN();
     if (length < 32) {
         return phase_candidate_for_shift(reference, comparison, reference_start, comparison_start, length, n_eps,
                                          max_shift);
     }
-    const double product_sum = product_sum_from_fft(sums, n, reference_start, comparison_start);
-    const double rho_e = correlation_from_cached_product(cache, reference_start, comparison_start, length, product_sum);
-    cached_rho         = rho_e;
+    const f64 product_sum = product_sum_from_fft(sums, n, reference_start, comparison_start);
+    const f64 rho_e = correlation_from_cached_product(cache, reference_start, comparison_start, length, product_sum);
+    cached_rho      = rho_e;
     if (std::isnan(rho_e)) {
         PhaseResult direct = phase_candidate_for_shift(reference, comparison, reference_start, comparison_start, length,
                                                        n_eps, max_shift);
@@ -910,7 +910,7 @@ PhaseResult phase_candidate_from_fft_product (DoubleSpan reference, DoubleSpan c
     return phase_candidate_from_correlation(reference_start, comparison_start, length, n_eps, max_shift, rho_e);
 }
 
-void select_phase_candidate (PhaseResult& result, double& ccr_max, const PhaseResult& candidate) {
+void select_phase_candidate (PhaseResult& result, f64& ccr_max, const PhaseResult& candidate) {
     if (candidate.correlation.rho_e > ccr_max + CORRELATION_TIE_TOLERANCE) {
         ccr_max = candidate.correlation.rho_e;
         result  = candidate;
@@ -918,10 +918,10 @@ void select_phase_candidate (PhaseResult& result, double& ccr_max, const PhaseRe
 }
 
 PhaseResult refine_fft_phase_result (DoubleSpan reference, DoubleSpan comparison, Index bounded_window_size,
-                                     double max_shift, double fft_ccr_max, const std::vector<double>& left_cached_rho,
-                                     const std::vector<double>& right_cached_rho) {
+                                     f64 max_shift, f64 fft_ccr_max, const std::vector<f64>& left_cached_rho,
+                                     const std::vector<f64>& right_cached_rho) {
     PhaseResult refined = phase_candidate_for_shift(reference, comparison, 0, 0, span_size(reference), 0, max_shift);
-    double      refined_ccr = refined.correlation.rho_e;
+    f64         refined_ccr = refined.correlation.rho_e;
 
     for (Index idx = 1; idx < bounded_window_size; ++idx) {
         const Index length = span_size(reference) - idx;
@@ -933,13 +933,13 @@ PhaseResult refine_fft_phase_result (DoubleSpan reference, DoubleSpan comparison
             continue;
         }
 
-        const double left = left_cached_rho[offset(idx)];
+        const f64 left = left_cached_rho[offset(idx)];
         if (left >= fft_ccr_max - CORRELATION_REFINE_MARGIN) {
             select_phase_candidate(refined, refined_ccr,
                                    phase_candidate_for_shift(reference, comparison, 0, idx, length, idx, max_shift));
         }
 
-        const double right = right_cached_rho[offset(idx)];
+        const f64 right = right_cached_rho[offset(idx)];
         if (right >= fft_ccr_max - CORRELATION_REFINE_MARGIN) {
             select_phase_candidate(refined, refined_ccr,
                                    phase_candidate_for_shift(reference, comparison, idx, 0, length, idx, max_shift));
@@ -950,24 +950,24 @@ PhaseResult refine_fft_phase_result (DoubleSpan reference, DoubleSpan comparison
 }
 
 PhaseResult compute_phase_alignment (DoubleSpan reference, DoubleSpan comparison, const ScoreParams& params) {
-    const Index  reference_n  = span_size(reference);
-    const Index  comparison_n = span_size(comparison);
-    const double max_shift    = std::round((1.0 - params.init_min) * 100.0) / 100.0;
-    PhaseResult  result       = phase_candidate_for_shift(reference, comparison, 0, 0, reference_n, 0, max_shift);
+    const Index reference_n  = span_size(reference);
+    const Index comparison_n = span_size(comparison);
+    const f64   max_shift    = std::round((1.0 - params.init_min) * 100.0) / 100.0;
+    PhaseResult result       = phase_candidate_for_shift(reference, comparison, 0, 0, reference_n, 0, max_shift);
     if (result.correlation.rho_e == 1.0) {
         return result;
     }
 
-    const Index      window_size = static_cast<Index>(std::floor(static_cast<double>(comparison_n) * max_shift) + 1.0);
+    const Index      window_size = static_cast<Index>(std::floor(static_cast<f64>(comparison_n) * max_shift) + 1.0);
     const Index      bounded_window_size = std::min(window_size, reference_n);
     const PhaseCache cache               = build_phase_cache(reference, comparison);
-    double           ccr_max             = result.correlation.rho_e;
+    f64              ccr_max             = result.correlation.rho_e;
 
     const PhaseProductSums sums = fft_product_sums(reference, comparison);
-    std::vector<double>    left_cached_rho(static_cast<std::size_t>(bounded_window_size),
-                                           std::numeric_limits<double>::quiet_NaN());
-    std::vector<double>    right_cached_rho(static_cast<std::size_t>(bounded_window_size),
-                                            std::numeric_limits<double>::quiet_NaN());
+    std::vector<f64>       left_cached_rho(static_cast<std::size_t>(bounded_window_size),
+                                           std::numeric_limits<f64>::quiet_NaN());
+    std::vector<f64>       right_cached_rho(static_cast<std::size_t>(bounded_window_size),
+                                            std::numeric_limits<f64>::quiet_NaN());
     for (Index idx = 1; idx < bounded_window_size; ++idx) {
         const Index       length = reference_n - idx;
         const PhaseResult left_candidate =
@@ -992,29 +992,29 @@ PhaseResult compute_phase_alignment (DoubleSpan reference, DoubleSpan comparison
     return result;
 }
 
-double corridor_score (DoubleSpan reference, DoubleSpan comparison, const ScoreParams& params) {
+f64 corridor_score (DoubleSpan reference, DoubleSpan comparison, const ScoreParams& params) {
     const Index n      = span_size(reference);
-    double      t_norm = 0.0;
+    f64         t_norm = 0.0;
     for (Index idx = 0; idx < n; ++idx) {
         t_norm = std::max(t_norm, std::abs(value_at(reference, idx)));
     }
 
     if (t_norm == 0.0) {
-        double sum = 0.0;
+        f64 sum = 0.0;
         for (Index idx = 0; idx < n; ++idx) {
             if (value_at(reference, idx) == value_at(comparison, idx)) {
                 sum += 1.0;
             }
         }
-        return sum / static_cast<double>(n);
+        return sum / static_cast<f64>(n);
     }
 
-    const double inner_corridor = params.a_0 * t_norm;
-    const double outer_corridor = params.b_0 * t_norm;
-    double       sum            = 0.0;
+    const f64 inner_corridor = params.a_0 * t_norm;
+    const f64 outer_corridor = params.b_0 * t_norm;
+    f64       sum            = 0.0;
     for (Index idx = 0; idx < n; ++idx) {
-        const double diff = std::abs(value_at(reference, idx) - value_at(comparison, idx));
-        double       c_i  = integer_power((outer_corridor - diff) / (outer_corridor - inner_corridor), params.k_z);
+        const f64 diff = std::abs(value_at(reference, idx) - value_at(comparison, idx));
+        f64       c_i  = integer_power((outer_corridor - diff) / (outer_corridor - inner_corridor), params.k_z);
         if (diff < inner_corridor) {
             c_i = 1.0;
         }
@@ -1023,28 +1023,27 @@ double corridor_score (DoubleSpan reference, DoubleSpan comparison, const ScoreP
         }
         sum += c_i;
     }
-    return sum / static_cast<double>(n);
+    return sum / static_cast<f64>(n);
 }
 
-double phase_score (DoubleSpan reference, const ScoreParams& params, const PhaseAlignment& alignment) {
-    const double max_allowable_time_shift_threshold = static_cast<double>(span_size(reference)) * alignment.max_shift;
+f64 phase_score (DoubleSpan reference, const ScoreParams& params, const PhaseAlignment& alignment) {
+    const f64 max_allowable_time_shift_threshold = static_cast<f64>(span_size(reference)) * alignment.max_shift;
     if (alignment.n_eps == 0) {
         return 1.0;
     }
-    if (std::abs(static_cast<double>(alignment.n_eps)) >= max_allowable_time_shift_threshold) {
+    if (std::abs(static_cast<f64>(alignment.n_eps)) >= max_allowable_time_shift_threshold) {
         return 0.0;
     }
-    return integer_power((max_allowable_time_shift_threshold - std::abs(static_cast<double>(alignment.n_eps))) /
+    return integer_power((max_allowable_time_shift_threshold - std::abs(static_cast<f64>(alignment.n_eps))) /
                              max_allowable_time_shift_threshold,
                          params.k_p);
 }
 
 MagnitudeResult magnitude_score_from_values (DoubleSpan reference_values, DoubleSpan comparison_values,
                                              const ScoreParams& params) {
-    const std::pair<double, double> magnitude_error =
-        magnitude_error_from_dtw(comparison_values, reference_values, 0.1);
-    const double numerator   = magnitude_error.first;
-    const double denominator = magnitude_error.second;
+    const std::pair<f64, f64> magnitude_error = magnitude_error_from_dtw(comparison_values, reference_values, 0.1);
+    const f64                 numerator       = magnitude_error.first;
+    const f64                 denominator     = magnitude_error.second;
     if (denominator == 0.0) {
         MagnitudeResult result;
         result.score = numerator == 0.0 ? 1.0 : 0.0;
@@ -1053,7 +1052,7 @@ MagnitudeResult magnitude_score_from_values (DoubleSpan reference_values, Double
         return result;
     }
 
-    const double e_mag = numerator / denominator;
+    const f64 e_mag = numerator / denominator;
     if (e_mag == 0.0) {
         return {1.0, {}};
     }
@@ -1066,7 +1065,7 @@ MagnitudeResult magnitude_score_from_values (DoubleSpan reference_values, Double
     };
 }
 
-void gradient_values (DoubleSpan values, double dt, std::vector<double>& gradient) {
+void gradient_values (DoubleSpan values, f64 dt, std::vector<f64>& gradient) {
     const Index n = span_size(values);
     gradient.assign(static_cast<std::size_t>(n), 0.0);
     gradient[0] = (value_at(values, 1) - value_at(values, 0)) / dt;
@@ -1076,29 +1075,29 @@ void gradient_values (DoubleSpan values, double dt, std::vector<double>& gradien
     gradient[static_cast<std::size_t>(n - 1)] = (value_at(values, n - 1) - value_at(values, n - 2)) / dt;
 }
 
-double smoothed_slope_at (const std::vector<double>& gradient, Index idx) {
+f64 smoothed_slope_at (const std::vector<f64>& gradient, Index idx) {
     const Index n = static_cast<Index>(gradient.size());
     if (idx < 4) {
         const Index windows[4] = {1, 3, 5, 7};
         const Index nr         = windows[idx];
-        double      sum        = 0.0;
+        f64         sum        = 0.0;
         for (Index j = 0; j < nr; ++j) {
             sum += gradient[static_cast<std::size_t>(j)];
         }
-        return sum / static_cast<double>(nr);
+        return sum / static_cast<f64>(nr);
     }
     if (idx >= n - 4) {
         const Index edge_idx   = n - idx - 1;
         const Index windows[4] = {1, 3, 5, 7};
         const Index nr         = windows[edge_idx];
-        double      sum        = 0.0;
+        f64         sum        = 0.0;
         for (Index j = 0; j < nr; ++j) {
             sum += gradient[static_cast<std::size_t>(n - nr + j)];
         }
-        return sum / static_cast<double>(nr);
+        return sum / static_cast<f64>(nr);
     }
 
-    double sum = 0.0;
+    f64 sum = 0.0;
     for (Index j = idx - 4; j <= idx + 4; ++j) {
         sum += gradient[static_cast<std::size_t>(j)];
     }
@@ -1106,22 +1105,22 @@ double smoothed_slope_at (const std::vector<double>& gradient, Index idx) {
 }
 
 SlopeResult fused_slope_score_from_values (DoubleSpan reference_values, DoubleSpan comparison_values,
-                                           const ScoreParams& params, double dt) {
+                                           const ScoreParams& params, f64 dt) {
     const Index n = span_size(reference_values);
     if (n < 9) {
         throw std::invalid_argument("Shifted curves must have at least 9 samples for slope rating");
     }
 
-    std::vector<double> comparison_gradient;
-    std::vector<double> reference_gradient;
+    std::vector<f64> comparison_gradient;
+    std::vector<f64> reference_gradient;
     gradient_values(comparison_values, dt, comparison_gradient);
     gradient_values(reference_values, dt, reference_gradient);
 
-    double numerator   = 0.0;
-    double denominator = 0.0;
+    f64 numerator   = 0.0;
+    f64 denominator = 0.0;
     for (Index idx = 0; idx < n; ++idx) {
-        const double comparison_smoothed = smoothed_slope_at(comparison_gradient, idx);
-        const double reference_smoothed  = smoothed_slope_at(reference_gradient, idx);
+        const f64 comparison_smoothed = smoothed_slope_at(comparison_gradient, idx);
+        const f64 reference_smoothed  = smoothed_slope_at(reference_gradient, idx);
         numerator += std::abs(comparison_smoothed - reference_smoothed);
         denominator += std::abs(reference_smoothed);
     }
@@ -1133,7 +1132,7 @@ SlopeResult fused_slope_score_from_values (DoubleSpan reference_values, DoubleSp
         return result;
     }
 
-    const double e_slope = numerator / denominator;
+    const f64 e_slope = numerator / denominator;
     if (e_slope <= 0.0) {
         return {1.0, {}};
     }
@@ -1143,7 +1142,7 @@ SlopeResult fused_slope_score_from_values (DoubleSpan reference_values, DoubleSp
     return {(params.e_s - e_slope) / params.e_s, {}};
 }
 
-ScoreResult score_components_impl (DoubleSpan reference, DoubleSpan comparison, const ScoreParams& params, double dt) {
+ScoreResult score_components_impl (DoubleSpan reference, DoubleSpan comparison, const ScoreParams& params, f64 dt) {
     ScoreResult result;
     result.phase          = compute_phase_alignment(reference, comparison, params);
     result.corridor.score = corridor_score(reference, comparison, params);
@@ -1165,8 +1164,7 @@ ScoreResult score_components_impl (DoubleSpan reference, DoubleSpan comparison, 
 
 namespace engine {
 
-ScoreResult VARIANT (score_components)(DoubleSpan reference, DoubleSpan comparison, const ScoreParams& params,
-                                       double dt) {
+ScoreResult VARIANT (score_components)(DoubleSpan reference, DoubleSpan comparison, const ScoreParams& params, f64 dt) {
     return score_components_impl(reference, comparison, params, dt);
 }
 

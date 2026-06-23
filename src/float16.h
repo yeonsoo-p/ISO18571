@@ -8,8 +8,10 @@
 #include <type_traits>
 #include <utility>
 
+#include "types.h"
+
 struct Float16Bits {
-    std::uint16_t value = 0;
+    u16 value = 0;
 };
 
 class Float16 final {
@@ -33,9 +35,9 @@ class Float16 final {
     explicit constexpr Float16 (unsigned long value) noexcept;
     explicit constexpr Float16 (long long value) noexcept;
     explicit constexpr Float16 (unsigned long long value) noexcept;
-    explicit constexpr Float16 (float value) noexcept;
-    explicit constexpr Float16 (double value) noexcept;
-    explicit constexpr Float16 (long double value) noexcept;
+    explicit constexpr Float16 (f32 value) noexcept;
+    explicit constexpr Float16 (f64 value) noexcept;
+    explicit constexpr Float16 (f128 value) noexcept;
 
     explicit constexpr operator bool () const noexcept;
     explicit constexpr operator char () const noexcept;
@@ -53,14 +55,14 @@ class Float16 final {
     explicit constexpr operator unsigned long () const noexcept;
     explicit constexpr operator long long () const noexcept;
     explicit constexpr operator unsigned long long () const noexcept;
-    explicit constexpr operator float () const noexcept;
-    explicit constexpr operator double () const noexcept;
-    explicit constexpr operator long double () const noexcept;
+    explicit constexpr operator f32 () const noexcept;
+    explicit constexpr operator f64 () const noexcept;
+    explicit constexpr operator f128 () const noexcept;
 
-    constexpr std::uint16_t bits () const noexcept { return bits_; }
+    constexpr u16 bits () const noexcept { return bits_; }
 
   private:
-    std::uint16_t bits_ = 0;
+    u16 bits_ = 0;
 };
 
 constexpr Float16 operator +(Float16 value) noexcept;
@@ -150,21 +152,21 @@ constexpr int     fpclassify (Float16 value) noexcept;
 
 namespace float16_detail {
 
-inline constexpr std::uint16_t kSignMask      = 0x8000U;
-inline constexpr std::uint16_t kExponentMask  = 0x7C00U;
-inline constexpr std::uint16_t kFractionMask  = 0x03FFU;
-inline constexpr std::uint16_t kQuietNaN      = 0x7E00U;
-inline constexpr std::uint16_t kPositiveOne   = 0x3C00U;
-inline constexpr int           kExponentBias  = 15;
-inline constexpr int           kFractionBits  = 10;
-inline constexpr int           kMaxExponent   = 15;
-inline constexpr int           kMinNormalExp  = -14;
-inline constexpr int           kDivisionGuard = 42;
+inline constexpr u16 kSignMask      = 0x8000U;
+inline constexpr u16 kExponentMask  = 0x7C00U;
+inline constexpr u16 kFractionMask  = 0x03FFU;
+inline constexpr u16 kQuietNaN      = 0x7E00U;
+inline constexpr u16 kPositiveOne   = 0x3C00U;
+inline constexpr int kExponentBias  = 15;
+inline constexpr int kFractionBits  = 10;
+inline constexpr int kMaxExponent   = 15;
+inline constexpr int kMinNormalExp  = -14;
+inline constexpr int kDivisionGuard = 42;
 
 struct Components {
-    bool          negative    = false;
-    std::uint64_t significand = 0;
-    int           exponent    = 0;
+    bool negative    = false;
+    u64  significand = 0;
+    int  exponent    = 0;
 };
 
 template<typename T>
@@ -180,19 +182,13 @@ inline constexpr bool kNativeIntegral = kNativeArithmetic<T> && std::is_integral
 template<typename T>
 inline constexpr bool kNativeFloating = kNativeArithmetic<T> && std::is_floating_point_v<NativeArithmeticType<T>>;
 
-constexpr inline Float16 from_bits (std::uint16_t bits) noexcept { return Float16(Float16Bits {bits}); }
+constexpr inline Float16 from_bits (u16 bits) noexcept { return Float16(Float16Bits {bits}); }
 
-constexpr inline std::uint16_t sign_bits (Float16 value) noexcept {
-    return static_cast<std::uint16_t>(value.bits() & kSignMask);
-}
+constexpr inline u16 sign_bits (Float16 value) noexcept { return static_cast<u16>(value.bits() & kSignMask); }
 
-constexpr inline std::uint16_t exponent_bits (Float16 value) noexcept {
-    return static_cast<std::uint16_t>(value.bits() & kExponentMask);
-}
+constexpr inline u16 exponent_bits (Float16 value) noexcept { return static_cast<u16>(value.bits() & kExponentMask); }
 
-constexpr inline std::uint16_t fraction_bits (Float16 value) noexcept {
-    return static_cast<std::uint16_t>(value.bits() & kFractionMask);
-}
+constexpr inline u16 fraction_bits (Float16 value) noexcept { return static_cast<u16>(value.bits() & kFractionMask); }
 
 constexpr inline bool sign_bit (Float16 value) noexcept { return sign_bits(value) != 0U; }
 
@@ -205,56 +201,56 @@ constexpr inline bool is_inf_bits (Float16 value) noexcept {
 }
 
 constexpr inline bool is_zero_bits (Float16 value) noexcept {
-    return (value.bits() & static_cast<std::uint16_t>(~kSignMask)) == 0U;
+    return (value.bits() & static_cast<u16>(~kSignMask)) == 0U;
 }
 
-constexpr inline std::uint64_t round_shift_right (std::uint64_t value, long long shift) noexcept {
+constexpr inline u64 round_shift_right (u64 value, long long shift) noexcept {
     if (shift <= 0) {
         const auto left_shift = static_cast<unsigned long long>(-shift);
-        if (left_shift >= std::numeric_limits<std::uint64_t>::digits) {
-            return std::numeric_limits<std::uint64_t>::max();
+        if (left_shift >= std::numeric_limits<u64>::digits) {
+            return std::numeric_limits<u64>::max();
         }
-        if (value > (std::numeric_limits<std::uint64_t>::max() >> left_shift)) {
-            return std::numeric_limits<std::uint64_t>::max();
+        if (value > (std::numeric_limits<u64>::max() >> left_shift)) {
+            return std::numeric_limits<u64>::max();
         }
         return value << left_shift;
     }
-    if (shift > std::numeric_limits<std::uint64_t>::digits) {
+    if (shift > std::numeric_limits<u64>::digits) {
         return 0;
     }
-    if (shift == std::numeric_limits<std::uint64_t>::digits) {
-        constexpr std::uint64_t half = 1ULL << 63U;
+    if (shift == std::numeric_limits<u64>::digits) {
+        constexpr u64 half = 1ULL << 63U;
         return value > half ? 1ULL : 0ULL;
     }
 
-    const auto          right_shift = static_cast<unsigned int>(shift);
-    const std::uint64_t quotient    = value >> right_shift;
-    const std::uint64_t mask        = (1ULL << right_shift) - 1ULL;
-    const std::uint64_t rem         = value & mask;
-    const std::uint64_t half        = 1ULL << (right_shift - 1U);
+    const auto right_shift = static_cast<unsigned int>(shift);
+    const u64  quotient    = value >> right_shift;
+    const u64  mask        = (1ULL << right_shift) - 1ULL;
+    const u64  rem         = value & mask;
+    const u64  half        = 1ULL << (right_shift - 1U);
     if (rem > half || (rem == half && (quotient & 1ULL) != 0ULL)) {
         return quotient + 1ULL;
     }
     return quotient;
 }
 
-constexpr inline std::uint64_t shifted_significand (const Components& components, int common_exponent) noexcept {
+constexpr inline u64 shifted_significand (const Components& components, int common_exponent) noexcept {
     const long long shift = static_cast<long long>(components.exponent) - static_cast<long long>(common_exponent);
     if (shift <= 0) {
         return components.significand;
     }
-    if (shift >= std::numeric_limits<std::uint64_t>::digits) {
-        return std::numeric_limits<std::uint64_t>::max();
+    if (shift >= std::numeric_limits<u64>::digits) {
+        return std::numeric_limits<u64>::max();
     }
     const auto left_shift = static_cast<unsigned int>(shift);
-    if (components.significand > (std::numeric_limits<std::uint64_t>::max() >> left_shift)) {
-        return std::numeric_limits<std::uint64_t>::max();
+    if (components.significand > (std::numeric_limits<u64>::max() >> left_shift)) {
+        return std::numeric_limits<u64>::max();
     }
     return components.significand << left_shift;
 }
 
-constexpr inline Float16 pack_components (bool negative, std::uint64_t significand, int exponent) noexcept {
-    const std::uint16_t sign = negative ? kSignMask : 0U;
+constexpr inline Float16 pack_components (bool negative, u64 significand, int exponent) noexcept {
+    const u16 sign = negative ? kSignMask : 0U;
     if (significand == 0ULL) {
         return from_bits(sign);
     }
@@ -263,39 +259,38 @@ constexpr inline Float16 pack_components (bool negative, std::uint64_t significa
     int       binary_exp  = exponent + highest_bit;
 
     if (binary_exp < kMinNormalExp) {
-        const long long     subnorm_shift = -(static_cast<long long>(exponent) + 24LL);
-        const std::uint64_t rounded       = round_shift_right(significand, subnorm_shift);
+        const long long subnorm_shift = -(static_cast<long long>(exponent) + 24LL);
+        const u64       rounded       = round_shift_right(significand, subnorm_shift);
         if (rounded == 0ULL) {
             return from_bits(sign);
         }
         if (rounded >= 0x0400ULL) {
-            return from_bits(static_cast<std::uint16_t>(sign | 0x0400U));
+            return from_bits(static_cast<u16>(sign | 0x0400U));
         }
-        return from_bits(static_cast<std::uint16_t>(sign | static_cast<std::uint16_t>(rounded)));
+        return from_bits(static_cast<u16>(sign | static_cast<u16>(rounded)));
     }
 
     if (binary_exp > kMaxExponent) {
-        return from_bits(static_cast<std::uint16_t>(sign | kExponentMask));
+        return from_bits(static_cast<u16>(sign | kExponentMask));
     }
 
     const long long shift   = static_cast<long long>(binary_exp) - kFractionBits - exponent;
-    std::uint64_t   rounded = round_shift_right(significand, shift);
+    u64             rounded = round_shift_right(significand, shift);
     if (rounded == 0x0800ULL) {
         rounded = 0x0400ULL;
         ++binary_exp;
     }
     if (binary_exp > kMaxExponent) {
-        return from_bits(static_cast<std::uint16_t>(sign | kExponentMask));
+        return from_bits(static_cast<u16>(sign | kExponentMask));
     }
 
-    const auto encoded_exponent = static_cast<std::uint16_t>(binary_exp + kExponentBias);
-    const auto encoded_fraction = static_cast<std::uint16_t>(rounded - 0x0400ULL);
-    return from_bits(static_cast<std::uint16_t>(sign | static_cast<std::uint16_t>(encoded_exponent << kFractionBits) |
-                                                encoded_fraction));
+    const auto encoded_exponent = static_cast<u16>(binary_exp + kExponentBias);
+    const auto encoded_fraction = static_cast<u16>(rounded - 0x0400ULL);
+    return from_bits(static_cast<u16>(sign | static_cast<u16>(encoded_exponent << kFractionBits) | encoded_fraction));
 }
 
 constexpr inline Float16 pack_unsigned_integer (bool negative, unsigned long long magnitude) noexcept {
-    return pack_components(negative, static_cast<std::uint64_t>(magnitude), 0);
+    return pack_components(negative, static_cast<u64>(magnitude), 0);
 }
 
 template<typename T>
@@ -319,30 +314,28 @@ constexpr inline Float16 pack_integral (T value) noexcept {
     }
 }
 
-constexpr inline Float16 pack_float_bits (std::uint32_t bits) noexcept {
-    const bool          negative = (bits & 0x80000000UL) != 0UL;
-    const std::uint32_t exponent = (bits >> 23U) & 0xFFU;
-    const std::uint32_t fraction = bits & 0x007FFFFFUL;
+constexpr inline Float16 pack_float_bits (u32 bits) noexcept {
+    const bool negative = (bits & 0x80000000UL) != 0UL;
+    const u32  exponent = (bits >> 23U) & 0xFFU;
+    const u32  fraction = bits & 0x007FFFFFUL;
 
     if (exponent == 0xFFU) {
-        return from_bits(
-            static_cast<std::uint16_t>((negative ? kSignMask : 0U) | (fraction == 0U ? kExponentMask : kQuietNaN)));
+        return from_bits(static_cast<u16>((negative ? kSignMask : 0U) | (fraction == 0U ? kExponentMask : kQuietNaN)));
     }
     if (exponent == 0U) {
-        return pack_components(negative, static_cast<std::uint64_t>(fraction), -149);
+        return pack_components(negative, static_cast<u64>(fraction), -149);
     }
-    return pack_components(negative, static_cast<std::uint64_t>((1UL << 23U) | fraction),
-                           static_cast<int>(exponent) - 127 - 23);
+    return pack_components(negative, static_cast<u64>((1UL << 23U) | fraction), static_cast<int>(exponent) - 127 - 23);
 }
 
-constexpr inline Float16 pack_double_bits (std::uint64_t bits) noexcept {
-    const bool          negative = (bits & 0x8000000000000000ULL) != 0ULL;
-    const std::uint64_t exponent = (bits >> 52U) & 0x7FFULL;
-    const std::uint64_t fraction = bits & 0x000FFFFFFFFFFFFFULL;
+constexpr inline Float16 pack_double_bits (u64 bits) noexcept {
+    const bool negative = (bits & 0x8000000000000000ULL) != 0ULL;
+    const u64  exponent = (bits >> 52U) & 0x7FFULL;
+    const u64  fraction = bits & 0x000FFFFFFFFFFFFFULL;
 
     if (exponent == 0x7FFULL) {
         return from_bits(
-            static_cast<std::uint16_t>((negative ? kSignMask : 0U) | (fraction == 0ULL ? kExponentMask : kQuietNaN)));
+            static_cast<u16>((negative ? kSignMask : 0U) | (fraction == 0ULL ? kExponentMask : kQuietNaN)));
     }
     if (exponent == 0ULL) {
         return pack_components(negative, fraction, -1074);
@@ -350,22 +343,22 @@ constexpr inline Float16 pack_double_bits (std::uint64_t bits) noexcept {
     return pack_components(negative, (1ULL << 52U) | fraction, static_cast<int>(exponent) - 1023 - 52);
 }
 
-constexpr inline bool long_double_sign_bit (long double value) noexcept { return std::signbit(value); }
+constexpr inline bool long_double_sign_bit (f128 value) noexcept { return std::signbit(value); }
 
-constexpr inline Float16 pack_long_double (long double value) noexcept {
-    const bool          negative = long_double_sign_bit(value);
-    const std::uint16_t sign     = negative ? kSignMask : 0U;
+constexpr inline Float16 pack_long_double (f128 value) noexcept {
+    const bool negative = long_double_sign_bit(value);
+    const u16  sign     = negative ? kSignMask : 0U;
 
     if (value != value) {
-        return from_bits(static_cast<std::uint16_t>(sign | kQuietNaN));
+        return from_bits(static_cast<u16>(sign | kQuietNaN));
     }
 
-    constexpr long double infinity = std::numeric_limits<long double>::infinity();
+    constexpr f128 infinity = std::numeric_limits<f128>::infinity();
     if (value == infinity || value == -infinity) {
-        return from_bits(static_cast<std::uint16_t>(sign | kExponentMask));
+        return from_bits(static_cast<u16>(sign | kExponentMask));
     }
 
-    long double magnitude = negative ? -value : value;
+    f128 magnitude = negative ? -value : value;
     if (magnitude == 0.0L) {
         return from_bits(sign);
     }
@@ -380,7 +373,7 @@ constexpr inline Float16 pack_long_double (long double value) noexcept {
         --exponent;
     }
 
-    long double scaled_value = magnitude;
+    f128 scaled_value = magnitude;
     for (int idx = 0; idx < 63; ++idx) {
         scaled_value *= 2.0L;
     }
@@ -388,14 +381,14 @@ constexpr inline Float16 pack_long_double (long double value) noexcept {
 }
 
 constexpr inline Components decode_finite (Float16 value) noexcept {
-    const std::uint16_t exponent = static_cast<std::uint16_t>((value.bits() & kExponentMask) >> kFractionBits);
-    const std::uint16_t fraction = fraction_bits(value);
+    const u16 exponent = static_cast<u16>((value.bits() & kExponentMask) >> kFractionBits);
+    const u16 fraction = fraction_bits(value);
     if (exponent == 0U) {
-        return {sign_bit(value), static_cast<std::uint64_t>(fraction), -24};
+        return {sign_bit(value), static_cast<u64>(fraction), -24};
     }
     return {
         sign_bit(value),
-        static_cast<std::uint64_t>(0x0400U | fraction),
+        static_cast<u64>(0x0400U | fraction),
         static_cast<int>(exponent) - kExponentBias - kFractionBits,
     };
 }
@@ -403,7 +396,7 @@ constexpr inline Components decode_finite (Float16 value) noexcept {
 constexpr inline Float16 quiet_nan () noexcept { return from_bits(kQuietNaN); }
 
 constexpr inline Float16 infinity (bool negative) noexcept {
-    return from_bits(static_cast<std::uint16_t>((negative ? kSignMask : 0U) | kExponentMask));
+    return from_bits(static_cast<u16>((negative ? kSignMask : 0U) | kExponentMask));
 }
 
 constexpr inline Float16 zero (bool negative) noexcept { return from_bits(negative ? kSignMask : 0U); }
@@ -418,11 +411,11 @@ constexpr inline Float16 add_finite (Float16 left, Float16 right) noexcept {
         return left;
     }
 
-    const int           common_exponent = std::min(left_components.exponent, right_components.exponent);
-    const std::uint64_t left_magnitude  = shifted_significand(left_components, common_exponent);
-    const std::uint64_t right_magnitude = shifted_significand(right_components, common_exponent);
+    const int common_exponent = std::min(left_components.exponent, right_components.exponent);
+    const u64 left_magnitude  = shifted_significand(left_components, common_exponent);
+    const u64 right_magnitude = shifted_significand(right_components, common_exponent);
     if (left_components.negative == right_components.negative) {
-        if (std::numeric_limits<std::uint64_t>::max() - left_magnitude < right_magnitude) {
+        if (std::numeric_limits<u64>::max() - left_magnitude < right_magnitude) {
             return infinity(left_components.negative);
         }
         return pack_components(left_components.negative, left_magnitude + right_magnitude, common_exponent);
@@ -445,9 +438,9 @@ constexpr inline Float16 multiply_finite (Float16 left, Float16 right) noexcept 
 constexpr inline Float16 divide_finite (Float16 left, Float16 right) noexcept {
     const Components left_components  = decode_finite(left);
     const Components right_components = decode_finite(right);
-    const auto       numerator        = static_cast<std::uint64_t>(left_components.significand << kDivisionGuard);
-    auto             quotient         = static_cast<std::uint64_t>(numerator / right_components.significand);
-    const auto       remainder        = static_cast<std::uint64_t>(numerator % right_components.significand);
+    const auto       numerator        = static_cast<u64>(left_components.significand << kDivisionGuard);
+    auto             quotient         = static_cast<u64>(numerator / right_components.significand);
+    const auto       remainder        = static_cast<u64>(numerator % right_components.significand);
     if (remainder != 0ULL) {
         quotient |= 1ULL;
     }
@@ -455,15 +448,15 @@ constexpr inline Float16 divide_finite (Float16 left, Float16 right) noexcept {
                            left_components.exponent - right_components.exponent - kDivisionGuard);
 }
 
-constexpr inline std::uint64_t integer_magnitude (Float16 value) noexcept {
+constexpr inline u64 integer_magnitude (Float16 value) noexcept {
     if (is_nan_bits(value) || is_inf_bits(value)) {
-        return std::numeric_limits<std::uint64_t>::max();
+        return std::numeric_limits<u64>::max();
     }
 
     const Components components = decode_finite(value);
     if (components.exponent >= 0) {
         if (components.exponent >= 64) {
-            return std::numeric_limits<std::uint64_t>::max();
+            return std::numeric_limits<u64>::max();
         }
         return components.significand << components.exponent;
     }
@@ -478,22 +471,22 @@ constexpr inline T cast_to_unsigned_integer (Float16 value) noexcept {
     if (sign_bit(value)) {
         return 0;
     }
-    const std::uint64_t magnitude = integer_magnitude(value);
-    const auto          maximum   = static_cast<std::uint64_t>(std::numeric_limits<T>::max());
+    const u64  magnitude = integer_magnitude(value);
+    const auto maximum   = static_cast<u64>(std::numeric_limits<T>::max());
     return magnitude > maximum ? std::numeric_limits<T>::max() : static_cast<T>(magnitude);
 }
 
 template<typename T>
 constexpr inline T cast_to_signed_integer (Float16 value) noexcept {
-    const std::uint64_t magnitude = integer_magnitude(value);
+    const u64 magnitude = integer_magnitude(value);
     if (sign_bit(value)) {
-        const auto limit = static_cast<std::uint64_t>(std::numeric_limits<T>::max()) + 1ULL;
+        const auto limit = static_cast<u64>(std::numeric_limits<T>::max()) + 1ULL;
         if (magnitude >= limit) {
             return std::numeric_limits<T>::min();
         }
         return static_cast<T>(-static_cast<long long>(magnitude));
     }
-    const auto maximum = static_cast<std::uint64_t>(std::numeric_limits<T>::max());
+    const auto maximum = static_cast<u64>(std::numeric_limits<T>::max());
     return magnitude > maximum ? std::numeric_limits<T>::max() : static_cast<T>(magnitude);
 }
 
@@ -508,12 +501,12 @@ constexpr inline T cast_to_integral (Float16 value) noexcept {
     }
 }
 
-constexpr inline std::uint32_t float_bits (Float16 value) noexcept {
-    const std::uint32_t sign     = static_cast<std::uint32_t>(sign_bits(value)) << 16U;
-    const std::uint16_t exponent = static_cast<std::uint16_t>((value.bits() & kExponentMask) >> kFractionBits);
-    const std::uint16_t fraction = fraction_bits(value);
+constexpr inline u32 float_bits (Float16 value) noexcept {
+    const u32 sign     = static_cast<u32>(sign_bits(value)) << 16U;
+    const u16 exponent = static_cast<u16>((value.bits() & kExponentMask) >> kFractionBits);
+    const u16 fraction = fraction_bits(value);
     if (exponent == 0x1FU) {
-        return sign | 0x7F800000UL | static_cast<std::uint32_t>(fraction == 0U ? 0UL : 0x00400000UL);
+        return sign | 0x7F800000UL | static_cast<u32>(fraction == 0U ? 0UL : 0x00400000UL);
     }
     if (exponent == 0U) {
         if (fraction == 0U) {
@@ -521,18 +514,18 @@ constexpr inline std::uint32_t float_bits (Float16 value) noexcept {
         }
         const int shift =
             std::countl_zero(static_cast<unsigned int>(fraction)) - (std::numeric_limits<unsigned int>::digits - 10);
-        const auto normalized_fraction = static_cast<std::uint32_t>(fraction << (shift + 1));
-        const auto encoded_exponent    = static_cast<std::uint32_t>(127 - 14 - shift);
+        const auto normalized_fraction = static_cast<u32>(fraction << (shift + 1));
+        const auto encoded_exponent    = static_cast<u32>(127 - 14 - shift);
         return sign | (encoded_exponent << 23U) | ((normalized_fraction & kFractionMask) << 13U);
     }
-    const auto encoded_exponent = static_cast<std::uint32_t>(static_cast<int>(exponent) - kExponentBias + 127);
-    return sign | (encoded_exponent << 23U) | (static_cast<std::uint32_t>(fraction) << 13U);
+    const auto encoded_exponent = static_cast<u32>(static_cast<int>(exponent) - kExponentBias + 127);
+    return sign | (encoded_exponent << 23U) | (static_cast<u32>(fraction) << 13U);
 }
 
-constexpr inline std::uint64_t double_bits (Float16 value) noexcept {
-    const std::uint64_t sign     = static_cast<std::uint64_t>(sign_bits(value)) << 48U;
-    const std::uint16_t exponent = static_cast<std::uint16_t>((value.bits() & kExponentMask) >> kFractionBits);
-    const std::uint16_t fraction = fraction_bits(value);
+constexpr inline u64 double_bits (Float16 value) noexcept {
+    const u64 sign     = static_cast<u64>(sign_bits(value)) << 48U;
+    const u16 exponent = static_cast<u16>((value.bits() & kExponentMask) >> kFractionBits);
+    const u16 fraction = fraction_bits(value);
     if (exponent == 0x1FU) {
         return sign | 0x7FF0000000000000ULL | (fraction == 0U ? 0ULL : 0x0008000000000000ULL);
     }
@@ -542,25 +535,23 @@ constexpr inline std::uint64_t double_bits (Float16 value) noexcept {
         }
         const int shift =
             std::countl_zero(static_cast<unsigned int>(fraction)) - (std::numeric_limits<unsigned int>::digits - 10);
-        const auto normalized_fraction = static_cast<std::uint64_t>(fraction << (shift + 1));
-        const auto encoded_exponent    = static_cast<std::uint64_t>(1023 - 14 - shift);
+        const auto normalized_fraction = static_cast<u64>(fraction << (shift + 1));
+        const auto encoded_exponent    = static_cast<u64>(1023 - 14 - shift);
         return sign | (encoded_exponent << 52U) | ((normalized_fraction & kFractionMask) << 42U);
     }
-    const auto encoded_exponent = static_cast<std::uint64_t>(static_cast<int>(exponent) - kExponentBias + 1023);
-    return sign | (encoded_exponent << 52U) | (static_cast<std::uint64_t>(fraction) << 42U);
+    const auto encoded_exponent = static_cast<u64>(static_cast<int>(exponent) - kExponentBias + 1023);
+    return sign | (encoded_exponent << 52U) | (static_cast<u64>(fraction) << 42U);
 }
 
-constexpr inline long double long_double_value (Float16 value) noexcept {
+constexpr inline f128 long_double_value (Float16 value) noexcept {
     if (is_nan_bits(value)) {
-        return sign_bit(value) ? -std::numeric_limits<long double>::quiet_NaN()
-                               : std::numeric_limits<long double>::quiet_NaN();
+        return sign_bit(value) ? -std::numeric_limits<f128>::quiet_NaN() : std::numeric_limits<f128>::quiet_NaN();
     }
     if (is_inf_bits(value)) {
-        return sign_bit(value) ? -std::numeric_limits<long double>::infinity()
-                               : std::numeric_limits<long double>::infinity();
+        return sign_bit(value) ? -std::numeric_limits<f128>::infinity() : std::numeric_limits<f128>::infinity();
     }
     const Components components = decode_finite(value);
-    long double      magnitude  = static_cast<long double>(components.significand);
+    f128             magnitude  = static_cast<f128>(components.significand);
     if (components.exponent >= 0) {
         for (int idx = 0; idx < components.exponent; ++idx) {
             magnitude *= 2.0L;
@@ -592,11 +583,11 @@ constexpr inline Float16::Float16 (unsigned long value) noexcept: bits_(float16_
 constexpr inline Float16::Float16 (long long value) noexcept: bits_(float16_detail::pack_integral(value).bits()) {}
 constexpr inline Float16::Float16 (unsigned long long value) noexcept
     : bits_(float16_detail::pack_integral(value).bits()) {}
-constexpr inline Float16::Float16 (float value) noexcept
-    : bits_(float16_detail::pack_float_bits(std::bit_cast<std::uint32_t>(value)).bits()) {}
-constexpr inline Float16::Float16 (double value) noexcept
-    : bits_(float16_detail::pack_double_bits(std::bit_cast<std::uint64_t>(value)).bits()) {}
-constexpr inline Float16::Float16 (long double value) noexcept: bits_(float16_detail::pack_long_double(value).bits()) {}
+constexpr inline Float16::Float16 (f32 value) noexcept
+    : bits_(float16_detail::pack_float_bits(std::bit_cast<u32>(value)).bits()) {}
+constexpr inline Float16::Float16 (f64 value) noexcept
+    : bits_(float16_detail::pack_double_bits(std::bit_cast<u64>(value)).bits()) {}
+constexpr inline Float16::Float16 (f128 value) noexcept: bits_(float16_detail::pack_long_double(value).bits()) {}
 
 constexpr inline Float16::operator bool () const noexcept { return float16_detail::cast_to_integral<bool>(*this); }
 constexpr inline Float16::operator char () const noexcept { return float16_detail::cast_to_integral<char>(*this); }
@@ -636,18 +627,18 @@ constexpr inline Float16::operator long long () const noexcept {
 constexpr inline Float16::operator unsigned long long () const noexcept {
     return float16_detail::cast_to_integral<unsigned long long>(*this);
 }
-constexpr inline Float16::operator float () const noexcept {
-    return std::bit_cast<float>(float16_detail::float_bits(*this));
+constexpr inline Float16::operator f32 () const noexcept {
+    return std::bit_cast<f32>(float16_detail::float_bits(*this));
 }
-constexpr inline Float16::operator double () const noexcept {
-    return std::bit_cast<double>(float16_detail::double_bits(*this));
+constexpr inline Float16::operator f64 () const noexcept {
+    return std::bit_cast<f64>(float16_detail::double_bits(*this));
 }
-constexpr inline Float16::operator long double () const noexcept { return float16_detail::long_double_value(*this); }
+constexpr inline Float16::operator f128 () const noexcept { return float16_detail::long_double_value(*this); }
 
 constexpr inline Float16 operator +(Float16 value) noexcept { return value; }
 
 constexpr inline Float16 operator -(Float16 value) noexcept {
-    return float16_detail::from_bits(static_cast<std::uint16_t>(value.bits() ^ float16_detail::kSignMask));
+    return float16_detail::from_bits(static_cast<u16>(value.bits() ^ float16_detail::kSignMask));
 }
 
 constexpr inline Float16 operator +(Float16 left, Float16 right) noexcept {
@@ -878,10 +869,8 @@ constexpr inline bool operator <(Float16 left, Float16 right) noexcept {
     if (float16_detail::sign_bit(left) != float16_detail::sign_bit(right)) {
         return float16_detail::sign_bit(left);
     }
-    const std::uint16_t left_magnitude =
-        static_cast<std::uint16_t>(left.bits() & static_cast<std::uint16_t>(~float16_detail::kSignMask));
-    const std::uint16_t right_magnitude =
-        static_cast<std::uint16_t>(right.bits() & static_cast<std::uint16_t>(~float16_detail::kSignMask));
+    const u16 left_magnitude  = static_cast<u16>(left.bits() & static_cast<u16>(~float16_detail::kSignMask));
+    const u16 right_magnitude = static_cast<u16>(right.bits() & static_cast<u16>(~float16_detail::kSignMask));
     return float16_detail::sign_bit(left) ? left_magnitude > right_magnitude : left_magnitude < right_magnitude;
 }
 
@@ -905,12 +894,12 @@ constexpr inline bool operator ==(T left, Float16 right) noexcept {
 
 template<typename T, std::enable_if_t<float16_detail::kNativeIntegral<T>, int> = 0>
 constexpr inline bool operator ==(Float16 left, T right) noexcept {
-    return static_cast<long double>(left) == static_cast<long double>(right);
+    return static_cast<f128>(left) == static_cast<f128>(right);
 }
 
 template<typename T, std::enable_if_t<float16_detail::kNativeIntegral<T>, int> = 0>
 constexpr inline bool operator ==(T left, Float16 right) noexcept {
-    return static_cast<long double>(left) == static_cast<long double>(right);
+    return static_cast<f128>(left) == static_cast<f128>(right);
 }
 
 template<typename T, std::enable_if_t<float16_detail::kNativeArithmetic<T>, int> = 0>
@@ -937,12 +926,12 @@ constexpr inline bool operator <(T left, Float16 right) noexcept {
 
 template<typename T, std::enable_if_t<float16_detail::kNativeIntegral<T>, int> = 0>
 constexpr inline bool operator <(Float16 left, T right) noexcept {
-    return static_cast<long double>(left) < static_cast<long double>(right);
+    return static_cast<f128>(left) < static_cast<f128>(right);
 }
 
 template<typename T, std::enable_if_t<float16_detail::kNativeIntegral<T>, int> = 0>
 constexpr inline bool operator <(T left, Float16 right) noexcept {
-    return static_cast<long double>(left) < static_cast<long double>(right);
+    return static_cast<f128>(left) < static_cast<f128>(right);
 }
 
 template<typename T, std::enable_if_t<float16_detail::kNativeArithmetic<T>, int> = 0>
@@ -978,8 +967,7 @@ constexpr inline bool operator >=(T left, Float16 right) noexcept {
 namespace std {
 
 constexpr inline Float16 abs (Float16 value) noexcept {
-    return float16_detail::from_bits(
-        static_cast<std::uint16_t>(value.bits() & static_cast<std::uint16_t>(~float16_detail::kSignMask)));
+    return float16_detail::from_bits(static_cast<u16>(value.bits() & static_cast<u16>(~float16_detail::kSignMask)));
 }
 
 constexpr inline bool isfinite (Float16 value) noexcept {
@@ -1007,8 +995,8 @@ constexpr inline int fpclassify (Float16 value) noexcept {
 
 } // namespace std
 
-static_assert(sizeof(Float16) == sizeof(std::uint16_t));
-static_assert(alignof(Float16) == alignof(std::uint16_t));
+static_assert(sizeof(Float16) == sizeof(u16));
+static_assert(alignof(Float16) == alignof(u16));
 static_assert(std::is_trivially_copyable_v<Float16>);
 static_assert(std::is_standard_layout_v<Float16>);
 static_assert(std::has_unique_object_representations_v<Float16>);
@@ -1044,9 +1032,9 @@ static_assert(!std::is_convertible_v<Float16, long>);
 static_assert(!std::is_convertible_v<Float16, unsigned long>);
 static_assert(!std::is_convertible_v<Float16, long long>);
 static_assert(!std::is_convertible_v<Float16, unsigned long long>);
-static_assert(!std::is_convertible_v<Float16, float>);
-static_assert(!std::is_convertible_v<Float16, double>);
-static_assert(!std::is_convertible_v<Float16, long double>);
+static_assert(!std::is_convertible_v<Float16, f32>);
+static_assert(!std::is_convertible_v<Float16, f64>);
+static_assert(!std::is_convertible_v<Float16, f128>);
 
 static_assert(std::is_same_v<decltype(static_cast<Float16>(std::declval<bool>())), Float16>);
 static_assert(std::is_same_v<decltype(static_cast<Float16>(std::declval<char>())), Float16>);
@@ -1064,9 +1052,9 @@ static_assert(std::is_same_v<decltype(static_cast<Float16>(std::declval<long>())
 static_assert(std::is_same_v<decltype(static_cast<Float16>(std::declval<unsigned long>())), Float16>);
 static_assert(std::is_same_v<decltype(static_cast<Float16>(std::declval<long long>())), Float16>);
 static_assert(std::is_same_v<decltype(static_cast<Float16>(std::declval<unsigned long long>())), Float16>);
-static_assert(std::is_same_v<decltype(static_cast<Float16>(std::declval<float>())), Float16>);
-static_assert(std::is_same_v<decltype(static_cast<Float16>(std::declval<double>())), Float16>);
-static_assert(std::is_same_v<decltype(static_cast<Float16>(std::declval<long double>())), Float16>);
+static_assert(std::is_same_v<decltype(static_cast<Float16>(std::declval<f32>())), Float16>);
+static_assert(std::is_same_v<decltype(static_cast<Float16>(std::declval<f64>())), Float16>);
+static_assert(std::is_same_v<decltype(static_cast<Float16>(std::declval<f128>())), Float16>);
 
 static_assert(std::is_same_v<decltype(static_cast<bool>(std::declval<Float16>())), bool>);
 static_assert(std::is_same_v<decltype(static_cast<char>(std::declval<Float16>())), char>);
@@ -1084,9 +1072,9 @@ static_assert(std::is_same_v<decltype(static_cast<long>(std::declval<Float16>())
 static_assert(std::is_same_v<decltype(static_cast<unsigned long>(std::declval<Float16>())), unsigned long>);
 static_assert(std::is_same_v<decltype(static_cast<long long>(std::declval<Float16>())), long long>);
 static_assert(std::is_same_v<decltype(static_cast<unsigned long long>(std::declval<Float16>())), unsigned long long>);
-static_assert(std::is_same_v<decltype(static_cast<float>(std::declval<Float16>())), float>);
-static_assert(std::is_same_v<decltype(static_cast<double>(std::declval<Float16>())), double>);
-static_assert(std::is_same_v<decltype(static_cast<long double>(std::declval<Float16>())), long double>);
+static_assert(std::is_same_v<decltype(static_cast<f32>(std::declval<Float16>())), f32>);
+static_assert(std::is_same_v<decltype(static_cast<f64>(std::declval<Float16>())), f64>);
+static_assert(std::is_same_v<decltype(static_cast<f128>(std::declval<Float16>())), f128>);
 
 static_assert(std::is_same_v<decltype(+std::declval<Float16>()), Float16>);
 static_assert(std::is_same_v<decltype(-std::declval<Float16>()), Float16>);
@@ -1103,14 +1091,14 @@ static_assert(std::is_same_v<decltype(std::declval<Float16>() * 2U), Float16>);
 static_assert(std::is_same_v<decltype(2U * std::declval<Float16>()), Float16>);
 static_assert(std::is_same_v<decltype(std::declval<Float16>() / 2LL), Float16>);
 static_assert(std::is_same_v<decltype(2LL / std::declval<Float16>()), Float16>);
-static_assert(std::is_same_v<decltype(std::declval<Float16>() + 1.0F), float>);
-static_assert(std::is_same_v<decltype(1.0F + std::declval<Float16>()), float>);
-static_assert(std::is_same_v<decltype(std::declval<Float16>() - 1.0), double>);
-static_assert(std::is_same_v<decltype(1.0 - std::declval<Float16>()), double>);
-static_assert(std::is_same_v<decltype(std::declval<Float16>() * 1.0L), long double>);
-static_assert(std::is_same_v<decltype(1.0L * std::declval<Float16>()), long double>);
-static_assert(std::is_same_v<decltype(std::declval<Float16>() / 1.0), double>);
-static_assert(std::is_same_v<decltype(1.0 / std::declval<Float16>()), double>);
+static_assert(std::is_same_v<decltype(std::declval<Float16>() + 1.0F), f32>);
+static_assert(std::is_same_v<decltype(1.0F + std::declval<Float16>()), f32>);
+static_assert(std::is_same_v<decltype(std::declval<Float16>() - 1.0), f64>);
+static_assert(std::is_same_v<decltype(1.0 - std::declval<Float16>()), f64>);
+static_assert(std::is_same_v<decltype(std::declval<Float16>() * 1.0L), f128>);
+static_assert(std::is_same_v<decltype(1.0L * std::declval<Float16>()), f128>);
+static_assert(std::is_same_v<decltype(std::declval<Float16>() / 1.0), f64>);
+static_assert(std::is_same_v<decltype(1.0 / std::declval<Float16>()), f64>);
 
 static_assert(std::is_same_v<decltype(std::declval<Float16&>() += std::declval<Float16>()), Float16&>);
 static_assert(std::is_same_v<decltype(std::declval<Float16&>() -= std::declval<Float16>()), Float16&>);
@@ -1160,12 +1148,12 @@ static_assert(static_cast<Float16>(1.0e-3L).bits() == 0x1419U);
 static_assert(static_cast<Float16>(0x1.ffcp15).bits() == 0x7BFFU);
 static_assert(static_cast<Float16>(0x1.ffep15).bits() == 0x7C00U);
 static_assert(static_cast<Float16>(-0.0L).bits() == 0x8000U);
-static_assert(static_cast<Float16>(std::numeric_limits<long double>::infinity()).bits() == 0x7C00U);
-static_assert(static_cast<Float16>(-std::numeric_limits<long double>::infinity()).bits() == 0xFC00U);
-static_assert(std::isnan(static_cast<Float16>(std::numeric_limits<long double>::quiet_NaN())));
-static_assert(static_cast<double>(Float16(Float16Bits {0x3C00U})) == 1.0);
-static_assert(static_cast<float>(Float16(Float16Bits {0x4000U})) == 2.0F);
-static_assert(static_cast<long double>(Float16(Float16Bits {0x4200U})) == 3.0L);
+static_assert(static_cast<Float16>(std::numeric_limits<f128>::infinity()).bits() == 0x7C00U);
+static_assert(static_cast<Float16>(-std::numeric_limits<f128>::infinity()).bits() == 0xFC00U);
+static_assert(std::isnan(static_cast<Float16>(std::numeric_limits<f128>::quiet_NaN())));
+static_assert(static_cast<f64>(Float16(Float16Bits {0x3C00U})) == 1.0);
+static_assert(static_cast<f32>(Float16(Float16Bits {0x4000U})) == 2.0F);
+static_assert(static_cast<f128>(Float16(Float16Bits {0x4200U})) == 3.0L);
 static_assert(std::abs(Float16(Float16Bits {0xBC00U})).bits() == 0x3C00U);
 static_assert(std::isfinite(Float16(Float16Bits {0x3C00U})));
 static_assert(std::isinf(Float16(Float16Bits {0x7C00U})));

@@ -14,18 +14,18 @@ namespace {
 constexpr int kScoreExponentMinimum = 1;
 constexpr int kScoreExponentMaximum = 3;
 
-constexpr double kInitMinMinimum          = 0.0;
-constexpr double kInitMinExclusiveMaximum = 1.0;
+constexpr f64 kInitMinMinimum          = 0.0;
+constexpr f64 kInitMinExclusiveMaximum = 1.0;
 
-constexpr double kA0Minimum = 0.0;
-constexpr double kA0Maximum = 1.0;
+constexpr f64 kA0Minimum = 0.0;
+constexpr f64 kA0Maximum = 1.0;
 
-constexpr double kB0Minimum = 0.0;
-constexpr double kB0Maximum = 1.0;
+constexpr f64 kB0Minimum = 0.0;
+constexpr f64 kB0Maximum = 1.0;
 
-constexpr double       kWeightMinimum        = 0.0;
-constexpr double       kWeightMicroUnitScale = 1.0e6;
-constexpr std::int64_t kExpectedWeightUnits  = 1'000'000;
+constexpr f64 kWeightMinimum        = 0.0;
+constexpr f64 kWeightMicroUnitScale = 1.0e6;
+constexpr i64 kExpectedWeightUnits  = 1'000'000;
 
 [[noreturn]] void throw_score_exponent_error (std::string_view name) {
     throw std::invalid_argument(std::string(name) + " has to be 1, 2, or 3");
@@ -39,20 +39,20 @@ constexpr std::int64_t kExpectedWeightUnits  = 1'000'000;
     throw std::invalid_argument("Sum of weighting factors (w_z, w_m, w_p, w_s) must be within tolerance of 1");
 }
 
-void require_finite (double value, std::string_view name) {
+void require_finite (f64 value, std::string_view name) {
     if (!std::isfinite(value)) {
         throw std::invalid_argument(std::string(name) + " must be finite");
     }
 }
 
-void require_positive (double value, std::string_view name) {
+void require_positive (f64 value, std::string_view name) {
     require_finite(value, name);
     if (value <= 0.0) {
         throw std::invalid_argument(std::string(name) + " must be positive");
     }
 }
 
-void require_non_negative (double value, std::string_view name) {
+void require_non_negative (f64 value, std::string_view name) {
     require_finite(value, name);
     if (value < kWeightMinimum) {
         throw std::invalid_argument(std::string(name) + " must be non-negative");
@@ -71,22 +71,22 @@ void require_positive_integer (int value, std::string_view name) {
     }
 }
 
-void require_closed_interval (double value, std::string_view name, double minimum, double maximum) {
+void require_closed_interval (f64 value, std::string_view name, f64 minimum, f64 maximum) {
     require_finite(value, name);
     if (value < minimum || value > maximum) {
         throw std::invalid_argument(std::string(name) + " must satisfy 0 <= " + std::string(name) + " <= 1");
     }
 }
 
-std::int64_t snapped_weight_units (double value) {
-    const double units = std::round(value * kWeightMicroUnitScale);
-    if (!std::isfinite(units) || units < 0.0 || units > static_cast<double>(kExpectedWeightUnits)) {
+i64 snapped_weight_units (f64 value) {
+    const f64 units = std::round(value * kWeightMicroUnitScale);
+    if (!std::isfinite(units) || units < 0.0 || units > static_cast<f64>(kExpectedWeightUnits)) {
         throw_weight_sum_error();
     }
-    return static_cast<std::int64_t>(units);
+    return static_cast<i64>(units);
 }
 
-double weight_from_units (std::int64_t units) { return static_cast<double>(units) / kWeightMicroUnitScale; }
+f64 weight_from_units (i64 units) { return static_cast<f64>(units) / kWeightMicroUnitScale; }
 
 } // namespace
 
@@ -112,7 +112,7 @@ const char* warning_message_for_code (engine::DiagnosticCode code) {
     }
 }
 
-int score_exponent_from_double (double value, std::string_view name) {
+int score_exponent_from_double (f64 value, std::string_view name) {
     if (!std::isfinite(value)) {
         throw_score_exponent_error(name);
     }
@@ -128,8 +128,8 @@ int score_exponent_from_double (double value, std::string_view name) {
     throw_score_exponent_error(name);
 }
 
-int positive_integer_from_double (double value, std::string_view name) {
-    if (!std::isfinite(value) || value < 1.0 || value > static_cast<double>(std::numeric_limits<int>::max()) ||
+int positive_integer_from_double (f64 value, std::string_view name) {
+    if (!std::isfinite(value) || value < 1.0 || value > static_cast<f64>(std::numeric_limits<int>::max()) ||
         std::floor(value) != value) {
         throw_positive_integer_error(name);
     }
@@ -159,10 +159,10 @@ void validate_score_params (engine::ScoreParams& params) {
     require_non_negative(params.w_m, "w_m");
     require_non_negative(params.w_s, "w_s");
 
-    const std::int64_t w_z_units = snapped_weight_units(params.w_z);
-    const std::int64_t w_p_units = snapped_weight_units(params.w_p);
-    const std::int64_t w_m_units = snapped_weight_units(params.w_m);
-    const std::int64_t w_s_units = snapped_weight_units(params.w_s);
+    const i64 w_z_units = snapped_weight_units(params.w_z);
+    const i64 w_p_units = snapped_weight_units(params.w_p);
+    const i64 w_m_units = snapped_weight_units(params.w_m);
+    const i64 w_s_units = snapped_weight_units(params.w_s);
     if (w_z_units + w_p_units + w_m_units + w_s_units != kExpectedWeightUnits) {
         throw_weight_sum_error();
     }

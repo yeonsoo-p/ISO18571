@@ -1,39 +1,40 @@
 #pragma once
 
-#include <complex>
 #include <cstddef>
 #include <span>
 #include <vector>
 
+#include "types.h"
+
 namespace engine {
 using Index      = std::ptrdiff_t;
-using DoubleSpan = std::span<const double>;
+using DoubleSpan = std::span<const f64>;
 
 struct ScoreParams {
-    int    k_z;
-    int    k_p;
-    int    k_m;
-    double eps_m;
-    double e_s;
-    double init_min;
-    double a_0;
-    double b_0;
-    double w_z;
-    double w_p;
-    double w_m;
-    double w_s;
+    int k_z;
+    int k_p;
+    int k_m;
+    f64 eps_m;
+    f64 e_s;
+    f64 init_min;
+    f64 a_0;
+    f64 b_0;
+    f64 w_z;
+    f64 w_p;
+    f64 w_m;
+    f64 w_s;
 };
 
 struct PhaseAlignment {
-    Index  reference_start  = 0;
-    Index  comparison_start = 0;
-    Index  length           = 0;
-    Index  n_eps            = 0;
-    double max_shift        = 0.2;
+    Index reference_start  = 0;
+    Index comparison_start = 0;
+    Index length           = 0;
+    Index n_eps            = 0;
+    f64   max_shift        = 0.2;
 };
 
 struct PhaseCorrelation {
-    double rho_e = 0.0;
+    f64 rho_e = 0.0;
 };
 
 enum class DiagnosticSeverity {
@@ -64,24 +65,24 @@ struct Diagnostic {
 };
 
 struct CorridorResult {
-    double                  score = 0.0;
+    f64                     score = 0.0;
     std::vector<Diagnostic> diagnostics;
 };
 
 struct PhaseResult {
-    double                  score = 0.0;
+    f64                     score = 0.0;
     PhaseAlignment          alignment;
     PhaseCorrelation        correlation;
     std::vector<Diagnostic> diagnostics;
 };
 
 struct MagnitudeResult {
-    double                  score = 0.0;
+    f64                     score = 0.0;
     std::vector<Diagnostic> diagnostics;
 };
 
 struct SlopeResult {
-    double                  score = 0.0;
+    f64                     score = 0.0;
     std::vector<Diagnostic> diagnostics;
 };
 
@@ -90,28 +91,28 @@ struct ScoreResult {
     PhaseResult     phase;
     MagnitudeResult magnitude;
     SlopeResult     slope;
-    double          overall = 0.0;
+    f64             overall = 0.0;
 };
 
-using ScoreComponentsFn = ScoreResult (*)(DoubleSpan, DoubleSpan, const ScoreParams&, double);
+using ScoreComponentsFn = ScoreResult (*)(DoubleSpan, DoubleSpan, const ScoreParams&, f64);
 
 struct DispatchTable {
     ScoreComponentsFn score_components = nullptr;
     const char*       level            = "x86-64-v1";
 };
 
-ScoreResult score_components_v1 (DoubleSpan reference, DoubleSpan comparison, const ScoreParams& params, double dt);
+ScoreResult score_components_v1 (DoubleSpan reference, DoubleSpan comparison, const ScoreParams& params, f64 dt);
 
 #if defined(ISO18571_COMPILED_X86_64_V2)
-ScoreResult score_components_v2 (DoubleSpan reference, DoubleSpan comparison, const ScoreParams& params, double dt);
+ScoreResult score_components_v2 (DoubleSpan reference, DoubleSpan comparison, const ScoreParams& params, f64 dt);
 #endif
 
 #if defined(ISO18571_COMPILED_X86_64_V3)
-ScoreResult score_components_v3 (DoubleSpan reference, DoubleSpan comparison, const ScoreParams& params, double dt);
+ScoreResult score_components_v3 (DoubleSpan reference, DoubleSpan comparison, const ScoreParams& params, f64 dt);
 #endif
 
 #if defined(ISO18571_COMPILED_X86_64_V4)
-ScoreResult score_components_v4 (DoubleSpan reference, DoubleSpan comparison, const ScoreParams& params, double dt);
+ScoreResult score_components_v4 (DoubleSpan reference, DoubleSpan comparison, const ScoreParams& params, f64 dt);
 #endif
 
 const DispatchTable& dispatch_table ();
@@ -123,6 +124,6 @@ namespace fft {
 inline constexpr bool kForward  = true;
 inline constexpr bool kBackward = false;
 
-using Complex = std::complex<double>;
+using Complex = c128;
 
 } // namespace fft

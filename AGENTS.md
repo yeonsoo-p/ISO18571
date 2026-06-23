@@ -40,6 +40,13 @@
 - The native extension is built with CMake through scikit-build-core. Do not
   reintroduce `setup.py`.
 - Implementation source belongs under `src/`.
+- Native C++ uses the fixed-width and numeric aliases from `src/types.h`:
+  `u8`, `u16`, `u32`, `u64`, `i8`, `i16`, `i32`, `i64`, `f16`, `f32`,
+  `f64`, `f128`, `c64`, `c128`, and `c256`.
+- `f128` and `c256` intentionally mean `long double` and
+  `std::complex<long double>`; they are not guaranteed IEEE binary128.
+- Do not replace semantic/platform-sized types with fixed-width aliases. Keep
+  `std::size_t`, `std::uintptr_t`, `py::ssize_t`, and `Index` as written.
 - Keep GCC/Clang `-O3`, MSVC `/O2 /fp:precise`, and no fast-math or native-CPU
   flags.
 - C++ should build with warning flags enabled. Suppress warnings only narrowly

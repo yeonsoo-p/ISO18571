@@ -30,9 +30,9 @@ using engine::ScoreParams;
 using engine::ScoreResult;
 
 struct ValidatedCurves {
-    std::vector<double>     reference_values;
-    std::vector<double>     comparison_values;
-    double                  dt = 0.0;
+    std::vector<f64>        reference_values;
+    std::vector<f64>        comparison_values;
+    f64                     dt = 0.0;
     std::vector<Diagnostic> diagnostics;
 };
 
@@ -48,9 +48,9 @@ py::handle require_param (const py::dict& params, const char* name) {
     return value;
 }
 
-double get_required_double_param (const py::dict& params, const char* name) {
+f64 get_required_double_param (const py::dict& params, const char* name) {
     try {
-        return py::cast<double>(require_param(params, name));
+        return py::cast<f64>(require_param(params, name));
     } catch (const py::cast_error&) {
         throw std::invalid_argument(std::string(name) + " must be numeric");
     }
@@ -59,31 +59,31 @@ double get_required_double_param (const py::dict& params, const char* name) {
 int get_required_positive_integer_param (const py::dict& params, const char* name) {
     const py::handle value = require_param(params, name);
     if (PyNumber_Check(value.ptr()) == 0) {
-        return validation::positive_integer_from_double(std::numeric_limits<double>::quiet_NaN(), name);
+        return validation::positive_integer_from_double(std::numeric_limits<f64>::quiet_NaN(), name);
     }
 
     py::object number = py::reinterpret_steal<py::object>(PyNumber_Float(value.ptr()));
     if (!number) {
         PyErr_Clear();
-        return validation::positive_integer_from_double(std::numeric_limits<double>::quiet_NaN(), name);
+        return validation::positive_integer_from_double(std::numeric_limits<f64>::quiet_NaN(), name);
     }
 
-    return validation::positive_integer_from_double(py::cast<double>(number), name);
+    return validation::positive_integer_from_double(py::cast<f64>(number), name);
 }
 
 int get_required_score_exponent (const py::dict& params, const char* name) {
     const py::handle value = require_param(params, name);
     if (PyNumber_Check(value.ptr()) == 0) {
-        return validation::score_exponent_from_double(std::numeric_limits<double>::quiet_NaN(), name);
+        return validation::score_exponent_from_double(std::numeric_limits<f64>::quiet_NaN(), name);
     }
 
     py::object number = py::reinterpret_steal<py::object>(PyNumber_Float(value.ptr()));
     if (!number) {
         PyErr_Clear();
-        return validation::score_exponent_from_double(std::numeric_limits<double>::quiet_NaN(), name);
+        return validation::score_exponent_from_double(std::numeric_limits<f64>::quiet_NaN(), name);
     }
 
-    return validation::score_exponent_from_double(py::cast<double>(number), name);
+    return validation::score_exponent_from_double(py::cast<f64>(number), name);
 }
 
 ScoreParams score_params_from_dict (const py::dict& params) {
@@ -115,10 +115,10 @@ enum class CurveInputDtype {
     Float16,
     Float32,
     Float64,
-    LongDouble,
-    ComplexFloat32,
-    ComplexFloat64,
-    ComplexLongDouble,
+    Float128,
+    Complex64,  // real: f32  imag: f32
+    Complex128, // real: f64  imag: f64
+    Complex256, // real: f128 imag: f128
     Other,
 };
 
@@ -137,49 +137,49 @@ template<typename T>
 void visit_curve_dtype (CurveInputDtype dtype, T&& visitor) {
     switch (dtype) {
     case CurveInputDtype::Int8:
-        std::forward<T>(visitor)(TypeTag<std::int8_t> {});
+        std::forward<T>(visitor)(TypeTag<i8> {});
         return;
     case CurveInputDtype::Int16:
-        std::forward<T>(visitor)(TypeTag<std::int16_t> {});
+        std::forward<T>(visitor)(TypeTag<i16> {});
         return;
     case CurveInputDtype::Int32:
-        std::forward<T>(visitor)(TypeTag<std::int32_t> {});
+        std::forward<T>(visitor)(TypeTag<i32> {});
         return;
     case CurveInputDtype::Int64:
-        std::forward<T>(visitor)(TypeTag<std::int64_t> {});
+        std::forward<T>(visitor)(TypeTag<i64> {});
         return;
     case CurveInputDtype::UInt8:
-        std::forward<T>(visitor)(TypeTag<std::uint8_t> {});
+        std::forward<T>(visitor)(TypeTag<u8> {});
         return;
     case CurveInputDtype::UInt16:
-        std::forward<T>(visitor)(TypeTag<std::uint16_t> {});
+        std::forward<T>(visitor)(TypeTag<u16> {});
         return;
     case CurveInputDtype::UInt32:
-        std::forward<T>(visitor)(TypeTag<std::uint32_t> {});
+        std::forward<T>(visitor)(TypeTag<u32> {});
         return;
     case CurveInputDtype::UInt64:
-        std::forward<T>(visitor)(TypeTag<std::uint64_t> {});
+        std::forward<T>(visitor)(TypeTag<u64> {});
         return;
     case CurveInputDtype::Float16:
-        std::forward<T>(visitor)(TypeTag<Float16> {});
+        std::forward<T>(visitor)(TypeTag<f16> {});
         return;
     case CurveInputDtype::Float32:
-        std::forward<T>(visitor)(TypeTag<float> {});
+        std::forward<T>(visitor)(TypeTag<f32> {});
         return;
     case CurveInputDtype::Float64:
-        std::forward<T>(visitor)(TypeTag<double> {});
+        std::forward<T>(visitor)(TypeTag<f64> {});
         return;
-    case CurveInputDtype::LongDouble:
-        std::forward<T>(visitor)(TypeTag<long double> {});
+    case CurveInputDtype::Float128:
+        std::forward<T>(visitor)(TypeTag<f128> {});
         return;
-    case CurveInputDtype::ComplexFloat32:
-        std::forward<T>(visitor)(TypeTag<std::complex<float>> {});
+    case CurveInputDtype::Complex64:
+        std::forward<T>(visitor)(TypeTag<c64> {});
         return;
-    case CurveInputDtype::ComplexFloat64:
-        std::forward<T>(visitor)(TypeTag<std::complex<double>> {});
+    case CurveInputDtype::Complex128:
+        std::forward<T>(visitor)(TypeTag<c128> {});
         return;
-    case CurveInputDtype::ComplexLongDouble:
-        std::forward<T>(visitor)(TypeTag<std::complex<long double>> {});
+    case CurveInputDtype::Complex256:
+        std::forward<T>(visitor)(TypeTag<c256> {});
         return;
     case CurveInputDtype::Other:
         return;
@@ -224,13 +224,13 @@ auto real_component (const T& value) {
 
 template<typename T>
 constexpr auto typed_time_tolerance () {
-    if constexpr (std::is_same_v<T, Float16>) {
+    if constexpr (std::is_same_v<T, f16>) {
         return T {1.0e-3};
     }
-    if constexpr (std::is_same_v<T, float>) {
+    if constexpr (std::is_same_v<T, f32>) {
         return 1.0e-7F;
     }
-    if constexpr (!std::is_same_v<T, Float16> && !std::is_same_v<T, float>) {
+    if constexpr (!std::is_same_v<T, f16> && !std::is_same_v<T, f32>) {
         return T {1.0e-12};
     }
 }
@@ -305,8 +305,8 @@ void require_typed_value (const py::buffer_info& info, const char* curve_name, I
         if (!std::isfinite(real)) {
             throw std::invalid_argument(std::string(curve_name) + " must be finite");
         }
-        if constexpr (std::is_same_v<decltype(real), long double>) {
-            constexpr long double max_double = static_cast<long double>(std::numeric_limits<double>::max());
+        if constexpr (std::is_same_v<decltype(real), f128>) {
+            constexpr f128 max_double = static_cast<f128>(std::numeric_limits<f64>::max());
             if (real < -max_double || real > max_double) {
                 throw std::invalid_argument(std::string(curve_name) + " must be representable as finite float64");
             }
@@ -317,56 +317,56 @@ void require_typed_value (const py::buffer_info& info, const char* curve_name, I
 CurveInputDtype curve_input_dtype (const py::dtype& dtype, const py::buffer_info& info) {
     switch (dtype.kind()) {
     case 'i':
-        if (dtype.equal(py::dtype::of<std::int8_t>())) {
+        if (dtype.equal(py::dtype::of<i8>())) {
             return CurveInputDtype::Int8;
         }
-        if (dtype.equal(py::dtype::of<std::int16_t>())) {
+        if (dtype.equal(py::dtype::of<i16>())) {
             return CurveInputDtype::Int16;
         }
-        if (dtype.equal(py::dtype::of<std::int32_t>())) {
+        if (dtype.equal(py::dtype::of<i32>())) {
             return CurveInputDtype::Int32;
         }
-        if (dtype.equal(py::dtype::of<std::int64_t>())) {
+        if (dtype.equal(py::dtype::of<i64>())) {
             return CurveInputDtype::Int64;
         }
         return CurveInputDtype::Other;
     case 'u':
-        if (dtype.equal(py::dtype::of<std::uint8_t>())) {
+        if (dtype.equal(py::dtype::of<u8>())) {
             return CurveInputDtype::UInt8;
         }
-        if (dtype.equal(py::dtype::of<std::uint16_t>())) {
+        if (dtype.equal(py::dtype::of<u16>())) {
             return CurveInputDtype::UInt16;
         }
-        if (dtype.equal(py::dtype::of<std::uint32_t>())) {
+        if (dtype.equal(py::dtype::of<u32>())) {
             return CurveInputDtype::UInt32;
         }
-        if (dtype.equal(py::dtype::of<std::uint64_t>())) {
+        if (dtype.equal(py::dtype::of<u64>())) {
             return CurveInputDtype::UInt64;
         }
         return CurveInputDtype::Other;
     case 'f':
-        if (info.itemsize == static_cast<py::ssize_t>(sizeof(std::uint16_t))) {
+        if (info.itemsize == static_cast<py::ssize_t>(sizeof(u16))) {
             return CurveInputDtype::Float16;
         }
-        if (dtype.equal(py::dtype::of<float>())) {
+        if (dtype.equal(py::dtype::of<f32>())) {
             return CurveInputDtype::Float32;
         }
-        if (dtype.equal(py::dtype::of<double>())) {
+        if (dtype.equal(py::dtype::of<f64>())) {
             return CurveInputDtype::Float64;
         }
-        if (dtype.equal(py::dtype::of<long double>())) {
-            return CurveInputDtype::LongDouble;
+        if (dtype.equal(py::dtype::of<f128>())) {
+            return CurveInputDtype::Float128;
         }
         return CurveInputDtype::Other;
     case 'c':
-        if (dtype.equal(py::dtype::of<std::complex<float>>())) {
-            return CurveInputDtype::ComplexFloat32;
+        if (dtype.equal(py::dtype::of<c64>())) {
+            return CurveInputDtype::Complex64;
         }
-        if (dtype.equal(py::dtype::of<std::complex<double>>())) {
-            return CurveInputDtype::ComplexFloat64;
+        if (dtype.equal(py::dtype::of<c128>())) {
+            return CurveInputDtype::Complex128;
         }
-        if (dtype.equal(py::dtype::of<std::complex<long double>>())) {
-            return CurveInputDtype::ComplexLongDouble;
+        if (dtype.equal(py::dtype::of<c256>())) {
+            return CurveInputDtype::Complex256;
         }
         return CurveInputDtype::Other;
     default:
@@ -392,38 +392,38 @@ void require_curve_input (CurveInputDtype dtype, const py::buffer_info& info, co
 }
 
 template<typename T>
-double materialize_dt (const py::buffer_info& info, const char* curve_name, Index n) {
+f64 materialize_dt (const py::buffer_info& info, const char* curve_name, Index n) {
     const auto item_size  = static_cast<py::ssize_t>(sizeof(T));
     const auto row_stride = static_cast<Index>(info.strides[0] / item_size);
     const T*   data       = static_cast<const T*>(info.ptr);
 
-    const auto   first = real_component(data[0]);
-    const auto   last  = real_component(data[(n - 1) * row_stride]);
-    const double dt    = static_cast<double>((last - first) / decltype(first)(n - 1));
-    if (!std::isfinite(dt) || dt <= 0.0 || dt < std::numeric_limits<double>::min()) {
+    const auto first = real_component(data[0]);
+    const auto last  = real_component(data[(n - 1) * row_stride]);
+    const f64  dt    = static_cast<f64>((last - first) / decltype(first)(n - 1));
+    if (!std::isfinite(dt) || dt <= 0.0 || dt < std::numeric_limits<f64>::min()) {
         throw std::invalid_argument(std::string(curve_name) + " time interval is too small");
     }
     return dt;
 }
 
-double materialize_matching_dt (CurveInputDtype reference_dtype, const py::buffer_info& reference_info,
-                                CurveInputDtype comparison_dtype, const py::buffer_info& comparison_info, Index n) {
-    double reference_dt = 0.0;
+f64 materialize_matching_dt (CurveInputDtype reference_dtype, const py::buffer_info& reference_info,
+                             CurveInputDtype comparison_dtype, const py::buffer_info& comparison_info, Index n) {
+    f64 reference_dt = 0.0;
     visit_curve_dtype(reference_dtype, [&] (auto reference_tag) {
         using ReferenceT    = typename decltype(reference_tag)::type;
         using ReferenceTime = decltype(real_component(std::declval<ReferenceT>()));
         reference_dt        = materialize_dt<ReferenceT>(reference_info, "reference_curve", n);
         visit_curve_dtype(comparison_dtype, [&] (auto comparison_tag) {
-            using ComparisonT          = typename decltype(comparison_tag)::type;
-            using ComparisonTime       = decltype(real_component(std::declval<ComparisonT>()));
-            const double comparison_dt = materialize_dt<ComparisonT>(comparison_info, "comparison_curve", n);
+            using ComparisonT       = typename decltype(comparison_tag)::type;
+            using ComparisonTime    = decltype(real_component(std::declval<ComparisonT>()));
+            const f64 comparison_dt = materialize_dt<ComparisonT>(comparison_info, "comparison_curve", n);
             if constexpr (std::is_integral_v<ReferenceTime> || std::is_integral_v<ComparisonTime>) {
                 if (reference_dt != comparison_dt) {
                     throw std::invalid_argument("Curves must have matching time intervals");
                 }
             } else {
-                double reference_tolerance  = static_cast<double>(typed_time_tolerance<ReferenceTime>());
-                double comparison_tolerance = static_cast<double>(typed_time_tolerance<ComparisonTime>());
+                f64 reference_tolerance  = static_cast<f64>(typed_time_tolerance<ReferenceTime>());
+                f64 comparison_tolerance = static_cast<f64>(typed_time_tolerance<ComparisonTime>());
                 if (std::fabs(reference_dt - comparison_dt) > std::max(reference_tolerance, comparison_tolerance)) {
                     throw std::invalid_argument("Curves must have matching time intervals");
                 }
@@ -435,7 +435,7 @@ double materialize_matching_dt (CurveInputDtype reference_dtype, const py::buffe
 }
 
 template<typename T>
-void materialize_typed_curve_values (const py::buffer_info& info, Index n, std::vector<double>& values) {
+void materialize_typed_curve_values (const py::buffer_info& info, Index n, std::vector<f64>& values) {
     const auto item_size     = static_cast<py::ssize_t>(sizeof(T));
     const auto row_stride    = static_cast<Index>(info.strides[0] / item_size);
     const auto column_stride = static_cast<Index>(info.strides[1] / item_size);
@@ -443,12 +443,12 @@ void materialize_typed_curve_values (const py::buffer_info& info, Index n, std::
 
     for (Index idx = 0; idx < n; ++idx) {
         values[static_cast<std::size_t>(idx)] =
-            static_cast<double>(real_component(data[idx * row_stride + column_stride]));
+            static_cast<f64>(real_component(data[idx * row_stride + column_stride]));
     }
 }
 
-std::vector<double> materialize_curve_values (CurveInputDtype dtype, const py::buffer_info& info, Index n) {
-    std::vector<double> values(static_cast<std::size_t>(n));
+std::vector<f64> materialize_curve_values (CurveInputDtype dtype, const py::buffer_info& info, Index n) {
+    std::vector<f64> values(static_cast<std::size_t>(n));
     visit_curve_dtype(dtype, [&] (auto tag) {
         using T = typename decltype(tag)::type;
         materialize_typed_curve_values<T>(info, n, values);
@@ -521,11 +521,11 @@ ValidatedCurves validate_curves (py::array reference_curve, py::array comparison
     require_curve_input(reference_dtype, reference_info, "reference_curve", n);
     require_curve_input(comparison_dtype, comparison_info, "comparison_curve", n);
 
-    const double reference_dt =
+    const f64 reference_dt =
         materialize_matching_dt(reference_dtype, reference_info, comparison_dtype, comparison_info, n);
 
-    std::vector<double> reference_values  = materialize_curve_values(reference_dtype, reference_info, n);
-    std::vector<double> comparison_values = materialize_curve_values(comparison_dtype, comparison_info, n);
+    std::vector<f64> reference_values  = materialize_curve_values(reference_dtype, reference_info, n);
+    std::vector<f64> comparison_values = materialize_curve_values(comparison_dtype, comparison_info, n);
 
     return {
         std::move(reference_values),
