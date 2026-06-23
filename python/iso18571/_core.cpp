@@ -127,53 +127,53 @@ struct IsStdComplex: std::false_type {};
 template<typename T>
 struct IsStdComplex<std::complex<T>>: std::true_type {};
 
-template<typename Visitor>
-void visit_curve_dtype (CurveInputDtype dtype, Visitor&& visitor) {
+template<typename T>
+void visit_curve_dtype (CurveInputDtype dtype, T&& visitor) {
     switch (dtype) {
     case CurveInputDtype::Int8:
-        std::forward<Visitor>(visitor)(TypeTag<std::int8_t> {});
+        std::forward<T>(visitor)(TypeTag<std::int8_t> {});
         return;
     case CurveInputDtype::Int16:
-        std::forward<Visitor>(visitor)(TypeTag<std::int16_t> {});
+        std::forward<T>(visitor)(TypeTag<std::int16_t> {});
         return;
     case CurveInputDtype::Int32:
-        std::forward<Visitor>(visitor)(TypeTag<std::int32_t> {});
+        std::forward<T>(visitor)(TypeTag<std::int32_t> {});
         return;
     case CurveInputDtype::Int64:
-        std::forward<Visitor>(visitor)(TypeTag<std::int64_t> {});
+        std::forward<T>(visitor)(TypeTag<std::int64_t> {});
         return;
     case CurveInputDtype::UInt8:
-        std::forward<Visitor>(visitor)(TypeTag<std::uint8_t> {});
+        std::forward<T>(visitor)(TypeTag<std::uint8_t> {});
         return;
     case CurveInputDtype::UInt16:
-        std::forward<Visitor>(visitor)(TypeTag<std::uint16_t> {});
+        std::forward<T>(visitor)(TypeTag<std::uint16_t> {});
         return;
     case CurveInputDtype::UInt32:
-        std::forward<Visitor>(visitor)(TypeTag<std::uint32_t> {});
+        std::forward<T>(visitor)(TypeTag<std::uint32_t> {});
         return;
     case CurveInputDtype::UInt64:
-        std::forward<Visitor>(visitor)(TypeTag<std::uint64_t> {});
+        std::forward<T>(visitor)(TypeTag<std::uint64_t> {});
         return;
     case CurveInputDtype::Float16:
-        std::forward<Visitor>(visitor)(TypeTag<Float16> {});
+        std::forward<T>(visitor)(TypeTag<Float16> {});
         return;
     case CurveInputDtype::Float32:
-        std::forward<Visitor>(visitor)(TypeTag<float> {});
+        std::forward<T>(visitor)(TypeTag<float> {});
         return;
     case CurveInputDtype::Float64:
-        std::forward<Visitor>(visitor)(TypeTag<double> {});
+        std::forward<T>(visitor)(TypeTag<double> {});
         return;
     case CurveInputDtype::LongDouble:
-        std::forward<Visitor>(visitor)(TypeTag<long double> {});
+        std::forward<T>(visitor)(TypeTag<long double> {});
         return;
     case CurveInputDtype::ComplexFloat32:
-        std::forward<Visitor>(visitor)(TypeTag<std::complex<float>> {});
+        std::forward<T>(visitor)(TypeTag<std::complex<float>> {});
         return;
     case CurveInputDtype::ComplexFloat64:
-        std::forward<Visitor>(visitor)(TypeTag<std::complex<double>> {});
+        std::forward<T>(visitor)(TypeTag<std::complex<double>> {});
         return;
     case CurveInputDtype::ComplexLongDouble:
-        std::forward<Visitor>(visitor)(TypeTag<std::complex<long double>> {});
+        std::forward<T>(visitor)(TypeTag<std::complex<long double>> {});
         return;
     case CurveInputDtype::Other:
         return;
@@ -182,34 +182,29 @@ void visit_curve_dtype (CurveInputDtype dtype, Visitor&& visitor) {
 }
 
 template<typename T>
-Index element_stride_from_bytes (py::ssize_t byte_stride, const char* curve_name) {
+bool require_safe_element_layout (const py::buffer_info& info) {
     const auto item_size = static_cast<py::ssize_t>(sizeof(T));
-    if (byte_stride % item_size != 0) {
-        throw std::invalid_argument(std::string(curve_name) + " strides must align with its dtype item size");
-    }
-
-    const py::ssize_t element_stride = byte_stride / item_size;
-    if (element_stride * item_size != byte_stride) {
-        throw std::invalid_argument(std::string(curve_name) + " strides must be representable as element strides");
-    }
-
-    const auto index_stride = static_cast<Index>(element_stride);
-    if (static_cast<py::ssize_t>(index_stride) != element_stride) {
-        throw std::invalid_argument(std::string(curve_name) + " strides must be representable as element strides");
-    }
-    return index_stride;
-}
-
-template<typename T>
-void require_safe_element_layout (const py::buffer_info& info, const char* curve_name) {
     const auto pointer   = reinterpret_cast<std::uintptr_t>(info.ptr);
     const auto alignment = static_cast<std::uintptr_t>(alignof(T));
     if (alignment > 1U && pointer % alignment != 0U) {
-        throw std::invalid_argument(std::string(curve_name) + " data pointer must align with its dtype item size");
+        return false;
     }
 
-    element_stride_from_bytes<T>(info.strides[0], curve_name);
-    element_stride_from_bytes<T>(info.strides[1], curve_name);
+    const auto stride_is_safe = [item_size] (py::ssize_t byte_stride) {
+        if (byte_stride % item_size != 0) {
+            return false;
+        }
+
+        const py::ssize_t element_stride = byte_stride / item_size;
+        if (element_stride * item_size != byte_stride) {
+            return false;
+        }
+
+        const auto index_stride = static_cast<Index>(element_stride);
+        return static_cast<py::ssize_t>(index_stride) == element_stride;
+    };
+
+    return stride_is_safe(info.strides[0]) && stride_is_safe(info.strides[1]);
 }
 
 template<typename T>
@@ -373,10 +368,18 @@ CurveInputDtype curve_input_dtype (const py::dtype& dtype, const py::buffer_info
     }
 }
 
-void require_typed_curve_input (CurveInputDtype dtype, const py::buffer_info& info, const char* curve_name, Index n) {
+bool require_curve_layout (CurveInputDtype dtype, const py::buffer_info& info) {
+    bool layout_is_safe = false;
+    visit_curve_dtype(dtype, [&] (auto tag) {
+        using T        = typename decltype(tag)::type;
+        layout_is_safe = require_safe_element_layout<T>(info);
+    });
+    return layout_is_safe;
+}
+
+void require_curve_input (CurveInputDtype dtype, const py::buffer_info& info, const char* curve_name, Index n) {
     visit_curve_dtype(dtype, [&] (auto tag) {
         using T = typename decltype(tag)::type;
-        require_safe_element_layout<T>(info, curve_name);
         require_typed_time<T>(info, curve_name, n);
         require_typed_value<T>(info, curve_name, n);
     });
@@ -473,8 +476,8 @@ CurveInputDtype require_curve_dtype (const py::array& curve, const py::buffer_in
 }
 
 ValidatedCurves validate_curves (py::array reference_curve, py::array comparison_curve) {
-    const py::buffer_info reference_info  = require_curve_shape(reference_curve, "reference_curve");
-    const py::buffer_info comparison_info = require_curve_shape(comparison_curve, "comparison_curve");
+    py::buffer_info reference_info  = require_curve_shape(reference_curve, "reference_curve");
+    py::buffer_info comparison_info = require_curve_shape(comparison_curve, "comparison_curve");
 
     const Index n = static_cast<Index>(reference_info.shape[0]);
     if (n != static_cast<Index>(comparison_info.shape[0])) {
@@ -484,10 +487,27 @@ ValidatedCurves validate_curves (py::array reference_curve, py::array comparison
         throw std::invalid_argument("reference_curve must have at least 2 samples");
     }
 
-    const CurveInputDtype reference_dtype  = require_curve_dtype(reference_curve, reference_info, "reference_curve");
-    const CurveInputDtype comparison_dtype = require_curve_dtype(comparison_curve, comparison_info, "comparison_curve");
-    require_typed_curve_input(reference_dtype, reference_info, "reference_curve", n);
-    require_typed_curve_input(comparison_dtype, comparison_info, "comparison_curve", n);
+    CurveInputDtype reference_dtype  = require_curve_dtype(reference_curve, reference_info, "reference_curve");
+    CurveInputDtype comparison_dtype = require_curve_dtype(comparison_curve, comparison_info, "comparison_curve");
+
+    py::array reference_effective  = reference_curve;
+    py::array comparison_effective = comparison_curve;
+
+    if (!require_curve_layout(reference_dtype, reference_info)) {
+        const py::object numpy = py::module_::import("numpy");
+        reference_effective =
+            numpy.attr("require")(reference_curve, py::none(), py::make_tuple("C", "A")).cast<py::array>();
+        reference_info = reference_effective.request();
+    }
+    if (!require_curve_layout(comparison_dtype, comparison_info)) {
+        const py::object numpy = py::module_::import("numpy");
+        comparison_effective =
+            numpy.attr("require")(comparison_curve, py::none(), py::make_tuple("C", "A")).cast<py::array>();
+        comparison_info = comparison_effective.request();
+    }
+
+    require_curve_input(reference_dtype, reference_info, "reference_curve", n);
+    require_curve_input(comparison_dtype, comparison_info, "comparison_curve", n);
 
     const double reference_dt =
         materialize_matching_dt(reference_dtype, reference_info, comparison_dtype, comparison_info, n);
