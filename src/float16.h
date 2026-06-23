@@ -1,7 +1,6 @@
 #pragma once
 
 #include <algorithm>
-#include <array>
 #include <bit>
 #include <cmath>
 #include <cstdint>
@@ -9,12 +8,14 @@
 #include <type_traits>
 #include <utility>
 
-enum class Float16Bits : std::uint16_t {};
+struct Float16Bits {
+    std::uint16_t value = 0;
+};
 
 class Float16 final {
   public:
     constexpr Float16 () noexcept = default;
-    explicit constexpr Float16 (Float16Bits bits) noexcept: bits_(static_cast<std::uint16_t>(bits)) {}
+    explicit constexpr Float16 (Float16Bits bits) noexcept: bits_(bits.value) {}
 
     explicit constexpr Float16 (bool value) noexcept;
     explicit constexpr Float16 (char value) noexcept;
@@ -89,6 +90,55 @@ constexpr bool operator >=(Float16 left, Float16 right) noexcept;
 
 namespace std {
 
+template<>
+struct is_floating_point<Float16>: true_type {};
+
+template<>
+class numeric_limits<Float16> {
+  public:
+    static constexpr bool is_specialized = true;
+
+    static constexpr Float16 min () noexcept { return Float16(Float16Bits {0x0400U}); }
+    static constexpr Float16 max () noexcept { return Float16(Float16Bits {0x7BFFU}); }
+    static constexpr Float16 lowest () noexcept { return Float16(Float16Bits {0xFBFFU}); }
+
+    static constexpr int digits       = 11;
+    static constexpr int digits10     = 3;
+    static constexpr int max_digits10 = 5;
+
+    static constexpr bool is_signed  = true;
+    static constexpr bool is_integer = false;
+    static constexpr bool is_exact   = false;
+    static constexpr int  radix      = 2;
+
+    static constexpr Float16 epsilon () noexcept { return Float16(Float16Bits {0x1400U}); }
+    static constexpr Float16 round_error () noexcept { return Float16(Float16Bits {0x3800U}); }
+
+    static constexpr int min_exponent   = -13;
+    static constexpr int min_exponent10 = -4;
+    static constexpr int max_exponent   = 16;
+    static constexpr int max_exponent10 = 4;
+
+    static constexpr bool               has_infinity      = true;
+    static constexpr bool               has_quiet_NaN     = true;
+    static constexpr bool               has_signaling_NaN = true;
+    static constexpr float_denorm_style has_denorm        = denorm_present;
+    static constexpr bool               has_denorm_loss   = false;
+
+    static constexpr Float16 infinity () noexcept { return Float16(Float16Bits {0x7C00U}); }
+    static constexpr Float16 quiet_NaN () noexcept { return Float16(Float16Bits {0x7E00U}); }
+    static constexpr Float16 signaling_NaN () noexcept { return Float16(Float16Bits {0x7D00U}); }
+    static constexpr Float16 denorm_min () noexcept { return Float16(Float16Bits {0x0001U}); }
+
+    static constexpr bool is_iec559  = true;
+    static constexpr bool is_bounded = true;
+    static constexpr bool is_modulo  = false;
+
+    static constexpr bool              traps           = false;
+    static constexpr bool              tinyness_before = false;
+    static constexpr float_round_style round_style     = round_to_nearest;
+};
+
 constexpr Float16 abs (Float16 value) noexcept;
 constexpr bool    isfinite (Float16 value) noexcept;
 constexpr bool    isnan (Float16 value) noexcept;
@@ -116,6 +166,19 @@ struct Components {
     std::uint64_t significand = 0;
     int           exponent    = 0;
 };
+
+template<typename T>
+using NativeArithmeticType = std::remove_cv_t<std::remove_reference_t<T>>;
+
+template<typename T>
+inline constexpr bool kNativeArithmetic =
+    std::is_arithmetic_v<NativeArithmeticType<T>> && !std::is_same_v<NativeArithmeticType<T>, Float16>;
+
+template<typename T>
+inline constexpr bool kNativeIntegral = kNativeArithmetic<T> && std::is_integral_v<NativeArithmeticType<T>>;
+
+template<typename T>
+inline constexpr bool kNativeFloating = kNativeArithmetic<T> && std::is_floating_point_v<NativeArithmeticType<T>>;
 
 constexpr inline Float16 from_bits (std::uint16_t bits) noexcept { return Float16(Float16Bits {bits}); }
 
@@ -145,26 +208,49 @@ constexpr inline bool is_zero_bits (Float16 value) noexcept {
     return (value.bits() & static_cast<std::uint16_t>(~kSignMask)) == 0U;
 }
 
-constexpr inline std::uint64_t round_shift_right (std::uint64_t value, int shift) noexcept {
+constexpr inline std::uint64_t round_shift_right (std::uint64_t value, long long shift) noexcept {
     if (shift <= 0) {
-        return value << -shift;
+        const auto left_shift = static_cast<unsigned long long>(-shift);
+        if (left_shift >= std::numeric_limits<std::uint64_t>::digits) {
+            return std::numeric_limits<std::uint64_t>::max();
+        }
+        if (value > (std::numeric_limits<std::uint64_t>::max() >> left_shift)) {
+            return std::numeric_limits<std::uint64_t>::max();
+        }
+        return value << left_shift;
     }
-    if (shift > 64) {
+    if (shift > std::numeric_limits<std::uint64_t>::digits) {
         return 0;
     }
-    if (shift == 64) {
+    if (shift == std::numeric_limits<std::uint64_t>::digits) {
         constexpr std::uint64_t half = 1ULL << 63U;
         return value > half ? 1ULL : 0ULL;
     }
 
-    const std::uint64_t quotient = value >> shift;
-    const std::uint64_t mask     = (1ULL << shift) - 1ULL;
-    const std::uint64_t rem      = value & mask;
-    const std::uint64_t half     = 1ULL << (shift - 1);
+    const auto          right_shift = static_cast<unsigned int>(shift);
+    const std::uint64_t quotient    = value >> right_shift;
+    const std::uint64_t mask        = (1ULL << right_shift) - 1ULL;
+    const std::uint64_t rem         = value & mask;
+    const std::uint64_t half        = 1ULL << (right_shift - 1U);
     if (rem > half || (rem == half && (quotient & 1ULL) != 0ULL)) {
         return quotient + 1ULL;
     }
     return quotient;
+}
+
+constexpr inline std::uint64_t shifted_significand (const Components& components, int common_exponent) noexcept {
+    const long long shift = static_cast<long long>(components.exponent) - static_cast<long long>(common_exponent);
+    if (shift <= 0) {
+        return components.significand;
+    }
+    if (shift >= std::numeric_limits<std::uint64_t>::digits) {
+        return std::numeric_limits<std::uint64_t>::max();
+    }
+    const auto left_shift = static_cast<unsigned int>(shift);
+    if (components.significand > (std::numeric_limits<std::uint64_t>::max() >> left_shift)) {
+        return std::numeric_limits<std::uint64_t>::max();
+    }
+    return components.significand << left_shift;
 }
 
 constexpr inline Float16 pack_components (bool negative, std::uint64_t significand, int exponent) noexcept {
@@ -173,12 +259,12 @@ constexpr inline Float16 pack_components (bool negative, std::uint64_t significa
         return from_bits(sign);
     }
 
-    const int highest_bit   = static_cast<int>(std::bit_width(significand)) - 1;
-    int       binary_exp    = exponent + highest_bit;
-    const int subnorm_shift = -(exponent + 24);
+    const int highest_bit = static_cast<int>(std::bit_width(significand)) - 1;
+    int       binary_exp  = exponent + highest_bit;
 
     if (binary_exp < kMinNormalExp) {
-        const std::uint64_t rounded = round_shift_right(significand, subnorm_shift);
+        const long long     subnorm_shift = -(static_cast<long long>(exponent) + 24LL);
+        const std::uint64_t rounded       = round_shift_right(significand, subnorm_shift);
         if (rounded == 0ULL) {
             return from_bits(sign);
         }
@@ -192,8 +278,8 @@ constexpr inline Float16 pack_components (bool negative, std::uint64_t significa
         return from_bits(static_cast<std::uint16_t>(sign | kExponentMask));
     }
 
-    const int     shift   = binary_exp - kFractionBits - exponent;
-    std::uint64_t rounded = round_shift_right(significand, shift);
+    const long long shift   = static_cast<long long>(binary_exp) - kFractionBits - exponent;
+    std::uint64_t   rounded = round_shift_right(significand, shift);
     if (rounded == 0x0800ULL) {
         rounded = 0x0400ULL;
         ++binary_exp;
@@ -264,21 +350,7 @@ constexpr inline Float16 pack_double_bits (std::uint64_t bits) noexcept {
     return pack_components(negative, (1ULL << 52U) | fraction, static_cast<int>(exponent) - 1023 - 52);
 }
 
-constexpr inline bool long_double_sign_bit (long double value) noexcept {
-    constexpr std::size_t size  = sizeof(long double);
-    const auto            bytes = std::bit_cast<std::array<unsigned char, size>>(value);
-    if constexpr (size == 8) {
-        return (bytes[7] & 0x80U) != 0U;
-    } else if constexpr (size == 16 && std::numeric_limits<long double>::digits == 64) {
-        return (bytes[9] & 0x80U) != 0U;
-    } else if constexpr (size == 16) {
-        return (bytes[15] & 0x80U) != 0U;
-    } else if constexpr (size == 12) {
-        return (bytes[9] & 0x80U) != 0U;
-    } else {
-        return value < 0.0L;
-    }
-}
+constexpr inline bool long_double_sign_bit (long double value) noexcept { return std::signbit(value); }
 
 constexpr inline Float16 pack_long_double (long double value) noexcept {
     const bool          negative = long_double_sign_bit(value);
@@ -346,23 +418,20 @@ constexpr inline Float16 add_finite (Float16 left, Float16 right) noexcept {
         return left;
     }
 
-    const int common_exponent = std::min(left_components.exponent, right_components.exponent);
-    auto      left_magnitude =
-        static_cast<long long>(left_components.significand << (left_components.exponent - common_exponent));
-    auto right_magnitude =
-        static_cast<long long>(right_components.significand << (right_components.exponent - common_exponent));
-    if (left_components.negative) {
-        left_magnitude = -left_magnitude;
-    }
-    if (right_components.negative) {
-        right_magnitude = -right_magnitude;
+    const int           common_exponent = std::min(left_components.exponent, right_components.exponent);
+    const std::uint64_t left_magnitude  = shifted_significand(left_components, common_exponent);
+    const std::uint64_t right_magnitude = shifted_significand(right_components, common_exponent);
+    if (left_components.negative == right_components.negative) {
+        if (std::numeric_limits<std::uint64_t>::max() - left_magnitude < right_magnitude) {
+            return infinity(left_components.negative);
+        }
+        return pack_components(left_components.negative, left_magnitude + right_magnitude, common_exponent);
     }
 
-    const long long sum = left_magnitude + right_magnitude;
-    if (sum < 0) {
-        return pack_components(true, static_cast<std::uint64_t>(-sum), common_exponent);
+    if (left_magnitude >= right_magnitude) {
+        return pack_components(left_components.negative, left_magnitude - right_magnitude, common_exponent);
     }
-    return pack_components(false, static_cast<std::uint64_t>(sum), common_exponent);
+    return pack_components(right_components.negative, right_magnitude - left_magnitude, common_exponent);
 }
 
 constexpr inline Float16 multiply_finite (Float16 left, Float16 right) noexcept {
@@ -633,6 +702,94 @@ constexpr inline Float16 operator /(Float16 left, Float16 right) noexcept {
     return float16_detail::divide_finite(left, right);
 }
 
+template<typename T, std::enable_if_t<float16_detail::kNativeIntegral<T>, int> = 0>
+constexpr inline Float16 operator +(Float16 left, T right) noexcept {
+    return left + static_cast<Float16>(right);
+}
+
+template<typename T, std::enable_if_t<float16_detail::kNativeIntegral<T>, int> = 0>
+constexpr inline Float16 operator +(T left, Float16 right) noexcept {
+    return static_cast<Float16>(left) + right;
+}
+
+template<typename T, std::enable_if_t<float16_detail::kNativeIntegral<T>, int> = 0>
+constexpr inline Float16 operator -(Float16 left, T right) noexcept {
+    return left - static_cast<Float16>(right);
+}
+
+template<typename T, std::enable_if_t<float16_detail::kNativeIntegral<T>, int> = 0>
+constexpr inline Float16 operator -(T left, Float16 right) noexcept {
+    return static_cast<Float16>(left) - right;
+}
+
+template<typename T, std::enable_if_t<float16_detail::kNativeIntegral<T>, int> = 0>
+constexpr inline Float16 operator *(Float16 left, T right) noexcept {
+    return left * static_cast<Float16>(right);
+}
+
+template<typename T, std::enable_if_t<float16_detail::kNativeIntegral<T>, int> = 0>
+constexpr inline Float16 operator *(T left, Float16 right) noexcept {
+    return static_cast<Float16>(left) * right;
+}
+
+template<typename T, std::enable_if_t<float16_detail::kNativeIntegral<T>, int> = 0>
+constexpr inline Float16 operator /(Float16 left, T right) noexcept {
+    return left / static_cast<Float16>(right);
+}
+
+template<typename T, std::enable_if_t<float16_detail::kNativeIntegral<T>, int> = 0>
+constexpr inline Float16 operator /(T left, Float16 right) noexcept {
+    return static_cast<Float16>(left) / right;
+}
+
+template<typename T, std::enable_if_t<float16_detail::kNativeFloating<T>, int> = 0>
+constexpr inline float16_detail::NativeArithmeticType<T> operator +(Float16 left, T right) noexcept {
+    using Result = float16_detail::NativeArithmeticType<T>;
+    return static_cast<Result>(left) + static_cast<Result>(right);
+}
+
+template<typename T, std::enable_if_t<float16_detail::kNativeFloating<T>, int> = 0>
+constexpr inline float16_detail::NativeArithmeticType<T> operator +(T left, Float16 right) noexcept {
+    using Result = float16_detail::NativeArithmeticType<T>;
+    return static_cast<Result>(left) + static_cast<Result>(right);
+}
+
+template<typename T, std::enable_if_t<float16_detail::kNativeFloating<T>, int> = 0>
+constexpr inline float16_detail::NativeArithmeticType<T> operator -(Float16 left, T right) noexcept {
+    using Result = float16_detail::NativeArithmeticType<T>;
+    return static_cast<Result>(left) - static_cast<Result>(right);
+}
+
+template<typename T, std::enable_if_t<float16_detail::kNativeFloating<T>, int> = 0>
+constexpr inline float16_detail::NativeArithmeticType<T> operator -(T left, Float16 right) noexcept {
+    using Result = float16_detail::NativeArithmeticType<T>;
+    return static_cast<Result>(left) - static_cast<Result>(right);
+}
+
+template<typename T, std::enable_if_t<float16_detail::kNativeFloating<T>, int> = 0>
+constexpr inline float16_detail::NativeArithmeticType<T> operator *(Float16 left, T right) noexcept {
+    using Result = float16_detail::NativeArithmeticType<T>;
+    return static_cast<Result>(left) * static_cast<Result>(right);
+}
+
+template<typename T, std::enable_if_t<float16_detail::kNativeFloating<T>, int> = 0>
+constexpr inline float16_detail::NativeArithmeticType<T> operator *(T left, Float16 right) noexcept {
+    using Result = float16_detail::NativeArithmeticType<T>;
+    return static_cast<Result>(left) * static_cast<Result>(right);
+}
+
+template<typename T, std::enable_if_t<float16_detail::kNativeFloating<T>, int> = 0>
+constexpr inline float16_detail::NativeArithmeticType<T> operator /(Float16 left, T right) noexcept {
+    using Result = float16_detail::NativeArithmeticType<T>;
+    return static_cast<Result>(left) / static_cast<Result>(right);
+}
+
+template<typename T, std::enable_if_t<float16_detail::kNativeFloating<T>, int> = 0>
+constexpr inline float16_detail::NativeArithmeticType<T> operator /(T left, Float16 right) noexcept {
+    using Result = float16_detail::NativeArithmeticType<T>;
+    return static_cast<Result>(left) / static_cast<Result>(right);
+}
+
 constexpr inline Float16& operator +=(Float16& left, Float16 right) noexcept {
     left = left + right;
     return left;
@@ -650,6 +807,30 @@ constexpr inline Float16& operator *=(Float16& left, Float16 right) noexcept {
 
 constexpr inline Float16& operator /=(Float16& left, Float16 right) noexcept {
     left = left / right;
+    return left;
+}
+
+template<typename T, std::enable_if_t<float16_detail::kNativeArithmetic<T>, int> = 0>
+constexpr inline Float16& operator +=(Float16& left, T right) noexcept {
+    left = static_cast<Float16>(left + right);
+    return left;
+}
+
+template<typename T, std::enable_if_t<float16_detail::kNativeArithmetic<T>, int> = 0>
+constexpr inline Float16& operator -=(Float16& left, T right) noexcept {
+    left = static_cast<Float16>(left - right);
+    return left;
+}
+
+template<typename T, std::enable_if_t<float16_detail::kNativeArithmetic<T>, int> = 0>
+constexpr inline Float16& operator *=(Float16& left, T right) noexcept {
+    left = static_cast<Float16>(left * right);
+    return left;
+}
+
+template<typename T, std::enable_if_t<float16_detail::kNativeArithmetic<T>, int> = 0>
+constexpr inline Float16& operator /=(Float16& left, T right) noexcept {
+    left = static_cast<Float16>(left / right);
     return left;
 }
 
@@ -688,7 +869,10 @@ constexpr inline bool operator ==(Float16 left, Float16 right) noexcept {
 constexpr inline bool operator !=(Float16 left, Float16 right) noexcept { return !(left == right); }
 
 constexpr inline bool operator <(Float16 left, Float16 right) noexcept {
-    if (float16_detail::is_nan_bits(left) || float16_detail::is_nan_bits(right) || left == right) {
+    if (float16_detail::is_nan_bits(left) || float16_detail::is_nan_bits(right)) {
+        return false;
+    }
+    if (float16_detail::is_zero_bits(left) && float16_detail::is_zero_bits(right)) {
         return false;
     }
     if (float16_detail::sign_bit(left) != float16_detail::sign_bit(right)) {
@@ -706,6 +890,90 @@ constexpr inline bool operator <=(Float16 left, Float16 right) noexcept { return
 constexpr inline bool operator >(Float16 left, Float16 right) noexcept { return right < left; }
 
 constexpr inline bool operator >=(Float16 left, Float16 right) noexcept { return right < left || left == right; }
+
+template<typename T, std::enable_if_t<float16_detail::kNativeFloating<T>, int> = 0>
+constexpr inline bool operator ==(Float16 left, T right) noexcept {
+    using Result = float16_detail::NativeArithmeticType<T>;
+    return static_cast<Result>(left) == static_cast<Result>(right);
+}
+
+template<typename T, std::enable_if_t<float16_detail::kNativeFloating<T>, int> = 0>
+constexpr inline bool operator ==(T left, Float16 right) noexcept {
+    using Result = float16_detail::NativeArithmeticType<T>;
+    return static_cast<Result>(left) == static_cast<Result>(right);
+}
+
+template<typename T, std::enable_if_t<float16_detail::kNativeIntegral<T>, int> = 0>
+constexpr inline bool operator ==(Float16 left, T right) noexcept {
+    return static_cast<long double>(left) == static_cast<long double>(right);
+}
+
+template<typename T, std::enable_if_t<float16_detail::kNativeIntegral<T>, int> = 0>
+constexpr inline bool operator ==(T left, Float16 right) noexcept {
+    return static_cast<long double>(left) == static_cast<long double>(right);
+}
+
+template<typename T, std::enable_if_t<float16_detail::kNativeArithmetic<T>, int> = 0>
+constexpr inline bool operator !=(Float16 left, T right) noexcept {
+    return !(left == right);
+}
+
+template<typename T, std::enable_if_t<float16_detail::kNativeArithmetic<T>, int> = 0>
+constexpr inline bool operator !=(T left, Float16 right) noexcept {
+    return !(left == right);
+}
+
+template<typename T, std::enable_if_t<float16_detail::kNativeFloating<T>, int> = 0>
+constexpr inline bool operator <(Float16 left, T right) noexcept {
+    using Result = float16_detail::NativeArithmeticType<T>;
+    return static_cast<Result>(left) < static_cast<Result>(right);
+}
+
+template<typename T, std::enable_if_t<float16_detail::kNativeFloating<T>, int> = 0>
+constexpr inline bool operator <(T left, Float16 right) noexcept {
+    using Result = float16_detail::NativeArithmeticType<T>;
+    return static_cast<Result>(left) < static_cast<Result>(right);
+}
+
+template<typename T, std::enable_if_t<float16_detail::kNativeIntegral<T>, int> = 0>
+constexpr inline bool operator <(Float16 left, T right) noexcept {
+    return static_cast<long double>(left) < static_cast<long double>(right);
+}
+
+template<typename T, std::enable_if_t<float16_detail::kNativeIntegral<T>, int> = 0>
+constexpr inline bool operator <(T left, Float16 right) noexcept {
+    return static_cast<long double>(left) < static_cast<long double>(right);
+}
+
+template<typename T, std::enable_if_t<float16_detail::kNativeArithmetic<T>, int> = 0>
+constexpr inline bool operator <=(Float16 left, T right) noexcept {
+    return left < right || left == right;
+}
+
+template<typename T, std::enable_if_t<float16_detail::kNativeArithmetic<T>, int> = 0>
+constexpr inline bool operator <=(T left, Float16 right) noexcept {
+    return left < right || left == right;
+}
+
+template<typename T, std::enable_if_t<float16_detail::kNativeArithmetic<T>, int> = 0>
+constexpr inline bool operator >(Float16 left, T right) noexcept {
+    return right < left;
+}
+
+template<typename T, std::enable_if_t<float16_detail::kNativeArithmetic<T>, int> = 0>
+constexpr inline bool operator >(T left, Float16 right) noexcept {
+    return right < left;
+}
+
+template<typename T, std::enable_if_t<float16_detail::kNativeArithmetic<T>, int> = 0>
+constexpr inline bool operator >=(Float16 left, T right) noexcept {
+    return right < left || left == right;
+}
+
+template<typename T, std::enable_if_t<float16_detail::kNativeArithmetic<T>, int> = 0>
+constexpr inline bool operator >=(T left, Float16 right) noexcept {
+    return right < left || left == right;
+}
 
 namespace std {
 
@@ -738,6 +1006,27 @@ constexpr inline int fpclassify (Float16 value) noexcept {
 }
 
 } // namespace std
+
+static_assert(sizeof(Float16) == sizeof(std::uint16_t));
+static_assert(alignof(Float16) == alignof(std::uint16_t));
+static_assert(std::is_trivially_copyable_v<Float16>);
+static_assert(std::is_standard_layout_v<Float16>);
+static_assert(std::has_unique_object_representations_v<Float16>);
+static_assert(Float16Bits {0x3C00U}.value == 0x3C00U);
+static_assert(std::is_floating_point_v<Float16>);
+static_assert(std::is_arithmetic_v<Float16>);
+
+static_assert(std::numeric_limits<Float16>::is_specialized);
+static_assert(std::numeric_limits<Float16>::min().bits() == 0x0400U);
+static_assert(std::numeric_limits<Float16>::denorm_min().bits() == 0x0001U);
+static_assert(std::numeric_limits<Float16>::max().bits() == 0x7BFFU);
+static_assert(std::numeric_limits<Float16>::lowest().bits() == 0xFBFFU);
+static_assert(std::numeric_limits<Float16>::epsilon().bits() == 0x1400U);
+static_assert(std::numeric_limits<Float16>::infinity().bits() == 0x7C00U);
+static_assert(std::numeric_limits<Float16>::quiet_NaN().bits() == 0x7E00U);
+static_assert(std::numeric_limits<Float16>::digits == 11);
+static_assert(std::numeric_limits<Float16>::radix == 2);
+static_assert(std::numeric_limits<Float16>::round_style == std::round_to_nearest);
 
 static_assert(!std::is_convertible_v<Float16, bool>);
 static_assert(!std::is_convertible_v<Float16, char>);
@@ -806,11 +1095,31 @@ static_assert(std::is_same_v<decltype(std::declval<Float16>() + std::declval<Flo
 static_assert(std::is_same_v<decltype(std::declval<Float16>() - std::declval<Float16>()), Float16>);
 static_assert(std::is_same_v<decltype(std::declval<Float16>() * std::declval<Float16>()), Float16>);
 static_assert(std::is_same_v<decltype(std::declval<Float16>() / std::declval<Float16>()), Float16>);
+static_assert(std::is_same_v<decltype(std::declval<Float16>() + 1), Float16>);
+static_assert(std::is_same_v<decltype(1 + std::declval<Float16>()), Float16>);
+static_assert(std::is_same_v<decltype(std::declval<Float16>() - 1), Float16>);
+static_assert(std::is_same_v<decltype(1 - std::declval<Float16>()), Float16>);
+static_assert(std::is_same_v<decltype(std::declval<Float16>() * 2U), Float16>);
+static_assert(std::is_same_v<decltype(2U * std::declval<Float16>()), Float16>);
+static_assert(std::is_same_v<decltype(std::declval<Float16>() / 2LL), Float16>);
+static_assert(std::is_same_v<decltype(2LL / std::declval<Float16>()), Float16>);
+static_assert(std::is_same_v<decltype(std::declval<Float16>() + 1.0F), float>);
+static_assert(std::is_same_v<decltype(1.0F + std::declval<Float16>()), float>);
+static_assert(std::is_same_v<decltype(std::declval<Float16>() - 1.0), double>);
+static_assert(std::is_same_v<decltype(1.0 - std::declval<Float16>()), double>);
+static_assert(std::is_same_v<decltype(std::declval<Float16>() * 1.0L), long double>);
+static_assert(std::is_same_v<decltype(1.0L * std::declval<Float16>()), long double>);
+static_assert(std::is_same_v<decltype(std::declval<Float16>() / 1.0), double>);
+static_assert(std::is_same_v<decltype(1.0 / std::declval<Float16>()), double>);
 
 static_assert(std::is_same_v<decltype(std::declval<Float16&>() += std::declval<Float16>()), Float16&>);
 static_assert(std::is_same_v<decltype(std::declval<Float16&>() -= std::declval<Float16>()), Float16&>);
 static_assert(std::is_same_v<decltype(std::declval<Float16&>() *= std::declval<Float16>()), Float16&>);
 static_assert(std::is_same_v<decltype(std::declval<Float16&>() /= std::declval<Float16>()), Float16&>);
+static_assert(std::is_same_v<decltype(std::declval<Float16&>() += 1), Float16&>);
+static_assert(std::is_same_v<decltype(std::declval<Float16&>() -= 1.0F), Float16&>);
+static_assert(std::is_same_v<decltype(std::declval<Float16&>() *= 1.0), Float16&>);
+static_assert(std::is_same_v<decltype(std::declval<Float16&>() /= 1.0L), Float16&>);
 
 static_assert(std::is_same_v<decltype(++std::declval<Float16&>()), Float16&>);
 static_assert(std::is_same_v<decltype(std::declval<Float16&>()++), Float16>);
@@ -823,6 +1132,10 @@ static_assert(std::is_same_v<decltype(std::declval<Float16>() < std::declval<Flo
 static_assert(std::is_same_v<decltype(std::declval<Float16>() <= std::declval<Float16>()), bool>);
 static_assert(std::is_same_v<decltype(std::declval<Float16>() > std::declval<Float16>()), bool>);
 static_assert(std::is_same_v<decltype(std::declval<Float16>() >= std::declval<Float16>()), bool>);
+static_assert(std::is_same_v<decltype(std::declval<Float16>() == 1), bool>);
+static_assert(std::is_same_v<decltype(1 == std::declval<Float16>()), bool>);
+static_assert(std::is_same_v<decltype(std::declval<Float16>() < 1.0), bool>);
+static_assert(std::is_same_v<decltype(1.0 < std::declval<Float16>()), bool>);
 
 static_assert(std::is_same_v<decltype(std::abs(std::declval<Float16>())), Float16>);
 static_assert(std::is_same_v<decltype(std::isfinite(std::declval<Float16>())), bool>);
@@ -837,8 +1150,15 @@ static_assert(static_cast<Float16>(-1).bits() == 0xBC00U);
 static_assert(static_cast<Float16>(1.0F).bits() == 0x3C00U);
 static_assert(static_cast<Float16>(1.0).bits() == 0x3C00U);
 static_assert(static_cast<Float16>(1.0L).bits() == 0x3C00U);
+static_assert(static_cast<Float16>(0x1.0p-25).bits() == 0x0000U);
+static_assert(static_cast<Float16>(0x1.0p-24).bits() == 0x0001U);
+static_assert(static_cast<Float16>(0x1.8p-24).bits() == 0x0002U);
+static_assert(static_cast<Float16>(0x1.0p-14).bits() == 0x0400U);
+static_assert(static_cast<Float16>(0x1.0p-10).bits() == 0x1400U);
 static_assert(static_cast<Float16>(1.0e-3).bits() == 0x1419U);
 static_assert(static_cast<Float16>(1.0e-3L).bits() == 0x1419U);
+static_assert(static_cast<Float16>(0x1.ffcp15).bits() == 0x7BFFU);
+static_assert(static_cast<Float16>(0x1.ffep15).bits() == 0x7C00U);
 static_assert(static_cast<Float16>(-0.0L).bits() == 0x8000U);
 static_assert(static_cast<Float16>(std::numeric_limits<long double>::infinity()).bits() == 0x7C00U);
 static_assert(static_cast<Float16>(-std::numeric_limits<long double>::infinity()).bits() == 0xFC00U);
@@ -860,3 +1180,16 @@ static_assert((Float16(Float16Bits {0x3C00U}) + Float16(Float16Bits {0x3C00U})).
 static_assert((Float16(Float16Bits {0x4000U}) - Float16(Float16Bits {0x3C00U})).bits() == 0x3C00U);
 static_assert((Float16(Float16Bits {0x4000U}) * Float16(Float16Bits {0x4000U})).bits() == 0x4400U);
 static_assert((Float16(Float16Bits {0x4400U}) / Float16(Float16Bits {0x4000U})).bits() == 0x4000U);
+static_assert((Float16(Float16Bits {0x3C00U}) + 1).bits() == 0x4000U);
+static_assert((1 + Float16(Float16Bits {0x3C00U})).bits() == 0x4000U);
+static_assert((Float16(Float16Bits {0x4000U}) - 1).bits() == 0x3C00U);
+static_assert((3 - Float16(Float16Bits {0x4000U})).bits() == 0x3C00U);
+static_assert((Float16(Float16Bits {0x4000U}) * 2).bits() == 0x4400U);
+static_assert((4 / Float16(Float16Bits {0x4000U})).bits() == 0x4000U);
+static_assert(Float16(Float16Bits {0x3C00U}) + 0.5 == 1.5);
+static_assert(0.5 + Float16(Float16Bits {0x3C00U}) == 1.5);
+static_assert(Float16(Float16Bits {0x4000U}) == 2);
+static_assert(2 == Float16(Float16Bits {0x4000U}));
+static_assert(Float16(Float16Bits {0x4000U}) > 1);
+static_assert(1 < Float16(Float16Bits {0x4000U}));
+static_assert(Float16(Float16Bits {0x7C00U}) != 100000);
