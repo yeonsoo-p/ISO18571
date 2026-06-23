@@ -202,8 +202,6 @@ Index element_stride_from_bytes (py::ssize_t byte_stride, const char* curve_name
 
 template<typename T>
 void require_safe_element_layout (const py::buffer_info& info, const char* curve_name) {
-    static_assert(std::is_trivially_copyable_v<T>);
-
     const auto pointer   = reinterpret_cast<std::uintptr_t>(info.ptr);
     const auto alignment = static_cast<std::uintptr_t>(alignof(T));
     if (alignment > 1U && pointer % alignment != 0U) {
@@ -385,23 +383,46 @@ void require_typed_curve_input (CurveInputDtype dtype, const py::buffer_info& in
 }
 
 template<typename T>
-double materialize_typed_reference_dt (const py::buffer_info& info, Index n) {
+double materialize_dt (const py::buffer_info& info, const char* curve_name, Index n) {
     const auto item_size  = static_cast<py::ssize_t>(sizeof(T));
     const auto row_stride = static_cast<Index>(info.strides[0] / item_size);
     const T*   data       = static_cast<const T*>(info.ptr);
 
-    const auto first = real_component(data[0]);
-    const auto last  = real_component(data[(n - 1) * row_stride]);
-    return static_cast<double>((last - first) / decltype(first)(n - 1));
+    const auto   first = real_component(data[0]);
+    const auto   last  = real_component(data[(n - 1) * row_stride]);
+    const double dt    = static_cast<double>((last - first) / decltype(first)(n - 1));
+    if (!std::isfinite(dt) || dt <= 0.0 || dt < std::numeric_limits<double>::min()) {
+        throw std::invalid_argument(std::string(curve_name) + " time interval is too small");
+    }
+    return dt;
 }
 
-double materialize_reference_dt (CurveInputDtype dtype, const py::buffer_info& info, Index n) {
-    double dt = 0.0;
-    visit_curve_dtype(dtype, [&] (auto tag) {
-        using T = typename decltype(tag)::type;
-        dt      = materialize_typed_reference_dt<T>(info, n);
+double materialize_matching_dt (CurveInputDtype reference_dtype, const py::buffer_info& reference_info,
+                                CurveInputDtype comparison_dtype, const py::buffer_info& comparison_info, Index n) {
+    double reference_dt = 0.0;
+    visit_curve_dtype(reference_dtype, [&] (auto reference_tag) {
+        using ReferenceT    = typename decltype(reference_tag)::type;
+        using ReferenceTime = decltype(real_component(std::declval<ReferenceT>()));
+        reference_dt        = materialize_dt<ReferenceT>(reference_info, "reference_curve", n);
+        visit_curve_dtype(comparison_dtype, [&] (auto comparison_tag) {
+            using ComparisonT          = typename decltype(comparison_tag)::type;
+            using ComparisonTime       = decltype(real_component(std::declval<ComparisonT>()));
+            const double comparison_dt = materialize_dt<ComparisonT>(comparison_info, "comparison_curve", n);
+            if constexpr (std::is_integral_v<ReferenceTime> || std::is_integral_v<ComparisonTime>) {
+                if (reference_dt != comparison_dt) {
+                    throw std::invalid_argument("Curves must have matching time intervals");
+                }
+            } else {
+                double reference_tolerance  = static_cast<double>(typed_time_tolerance<ReferenceTime>());
+                double comparison_tolerance = static_cast<double>(typed_time_tolerance<ComparisonTime>());
+                if (std::fabs(reference_dt - comparison_dt) > std::max(reference_tolerance, comparison_tolerance)) {
+                    throw std::invalid_argument("Curves must have matching time intervals");
+                }
+            }
+        });
     });
-    return dt;
+
+    return reference_dt;
 }
 
 template<typename T>
@@ -452,28 +473,27 @@ CurveInputDtype require_curve_dtype (const py::array& curve, const py::buffer_in
 }
 
 ValidatedCurves validate_curves (py::array reference_curve, py::array comparison_curve) {
-    const py::buffer_info initial_reference_info  = require_curve_shape(reference_curve, "reference_curve");
-    const py::buffer_info initial_comparison_info = require_curve_shape(comparison_curve, "comparison_curve");
+    const py::buffer_info reference_info  = require_curve_shape(reference_curve, "reference_curve");
+    const py::buffer_info comparison_info = require_curve_shape(comparison_curve, "comparison_curve");
 
-    const Index n = static_cast<Index>(initial_reference_info.shape[0]);
-    if (n != static_cast<Index>(initial_comparison_info.shape[0])) {
+    const Index n = static_cast<Index>(reference_info.shape[0]);
+    if (n != static_cast<Index>(comparison_info.shape[0])) {
         throw std::invalid_argument("Curves are not equal in size/dimension");
     }
     if (n < 2) {
         throw std::invalid_argument("reference_curve must have at least 2 samples");
     }
 
-    const CurveInputDtype reference_input_dtype =
-        require_curve_dtype(reference_curve, initial_reference_info, "reference_curve");
-    const CurveInputDtype comparison_input_dtype =
-        require_curve_dtype(comparison_curve, initial_comparison_info, "comparison_curve");
-    require_typed_curve_input(reference_input_dtype, initial_reference_info, "reference_curve", n);
-    require_typed_curve_input(comparison_input_dtype, initial_comparison_info, "comparison_curve", n);
+    const CurveInputDtype reference_dtype  = require_curve_dtype(reference_curve, reference_info, "reference_curve");
+    const CurveInputDtype comparison_dtype = require_curve_dtype(comparison_curve, comparison_info, "comparison_curve");
+    require_typed_curve_input(reference_dtype, reference_info, "reference_curve", n);
+    require_typed_curve_input(comparison_dtype, comparison_info, "comparison_curve", n);
 
-    const double        reference_dt     = materialize_reference_dt(reference_input_dtype, initial_reference_info, n);
-    std::vector<double> reference_values = materialize_curve_values(reference_input_dtype, initial_reference_info, n);
-    std::vector<double> comparison_values =
-        materialize_curve_values(comparison_input_dtype, initial_comparison_info, n);
+    const double reference_dt =
+        materialize_matching_dt(reference_dtype, reference_info, comparison_dtype, comparison_info, n);
+
+    std::vector<double> reference_values  = materialize_curve_values(reference_dtype, reference_info, n);
+    std::vector<double> comparison_values = materialize_curve_values(comparison_dtype, comparison_info, n);
 
     return {
         std::move(reference_values),
