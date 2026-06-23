@@ -2,14 +2,17 @@
 #include <pybind11/pybind11.h>
 
 #include "engine.h"
+#include "float16.h"
 #include "validation.h"
 
 #include <algorithm>
 #include <cmath>
 #include <complex>
+#include <cstdint>
 #include <limits>
 #include <stdexcept>
 #include <string>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -94,67 +97,363 @@ ScoreParams score_params_from_dict (const py::dict& params) {
     return out;
 }
 
-double time_tolerance_for_dtype (const py::dtype& dtype) {
-    switch (dtype.kind()) {
-    case 'i':
-        if (dtype.equal(py::dtype::of<std::int8_t>()) || dtype.equal(py::dtype::of<std::int16_t>()) ||
-            dtype.equal(py::dtype::of<std::int32_t>()) || dtype.equal(py::dtype::of<std::int64_t>())) {
-            return 1.0e-12;
-        }
-        return 1.0e-12;
-    case 'u':
-        if (dtype.equal(py::dtype::of<std::uint8_t>()) || dtype.equal(py::dtype::of<std::uint16_t>()) ||
-            dtype.equal(py::dtype::of<std::uint32_t>()) || dtype.equal(py::dtype::of<std::uint64_t>())) {
-            return 1.0e-12;
-        }
-        return 1.0e-12;
-    case 'f':
-        if (dtype.equal(py::dtype::of<float>())) {
-            return 1.0e-7;
-        }
-        if (dtype.equal(py::dtype::of<double>()) || dtype.equal(py::dtype::of<long double>())) {
-            return 1.0e-12;
-        }
-        return 1.0e-12;
-    case 'c':
-        if (dtype.equal(py::dtype::of<std::complex<float>>())) {
-            return 1.0e-7;
-        }
-        if (dtype.equal(py::dtype::of<std::complex<double>>()) ||
-            dtype.equal(py::dtype::of<std::complex<long double>>())) {
-            return 1.0e-12;
-        }
-        return 1.0e-12;
-    default:
-        return 1.0e-12;
+enum class CurveInputDtype {
+    Int8,
+    Int16,
+    Int32,
+    Int64,
+    UInt8,
+    UInt16,
+    UInt32,
+    UInt64,
+    Float16,
+    Float32,
+    Float64,
+    LongDouble,
+    ComplexFloat32,
+    ComplexFloat64,
+    ComplexLongDouble,
+    Other,
+};
+
+template<typename T>
+struct TypeTag {
+    using type = T;
+};
+
+template<typename T>
+struct IsStdComplex: std::false_type {};
+
+template<typename T>
+struct IsStdComplex<std::complex<T>>: std::true_type {};
+
+template<typename Visitor>
+void visit_curve_dtype (CurveInputDtype dtype, Visitor&& visitor) {
+    switch (dtype) {
+    case CurveInputDtype::Int8:
+        std::forward<Visitor>(visitor)(TypeTag<std::int8_t> {});
+        return;
+    case CurveInputDtype::Int16:
+        std::forward<Visitor>(visitor)(TypeTag<std::int16_t> {});
+        return;
+    case CurveInputDtype::Int32:
+        std::forward<Visitor>(visitor)(TypeTag<std::int32_t> {});
+        return;
+    case CurveInputDtype::Int64:
+        std::forward<Visitor>(visitor)(TypeTag<std::int64_t> {});
+        return;
+    case CurveInputDtype::UInt8:
+        std::forward<Visitor>(visitor)(TypeTag<std::uint8_t> {});
+        return;
+    case CurveInputDtype::UInt16:
+        std::forward<Visitor>(visitor)(TypeTag<std::uint16_t> {});
+        return;
+    case CurveInputDtype::UInt32:
+        std::forward<Visitor>(visitor)(TypeTag<std::uint32_t> {});
+        return;
+    case CurveInputDtype::UInt64:
+        std::forward<Visitor>(visitor)(TypeTag<std::uint64_t> {});
+        return;
+    case CurveInputDtype::Float16:
+        std::forward<Visitor>(visitor)(TypeTag<Float16> {});
+        return;
+    case CurveInputDtype::Float32:
+        std::forward<Visitor>(visitor)(TypeTag<float> {});
+        return;
+    case CurveInputDtype::Float64:
+        std::forward<Visitor>(visitor)(TypeTag<double> {});
+        return;
+    case CurveInputDtype::LongDouble:
+        std::forward<Visitor>(visitor)(TypeTag<long double> {});
+        return;
+    case CurveInputDtype::ComplexFloat32:
+        std::forward<Visitor>(visitor)(TypeTag<std::complex<float>> {});
+        return;
+    case CurveInputDtype::ComplexFloat64:
+        std::forward<Visitor>(visitor)(TypeTag<std::complex<double>> {});
+        return;
+    case CurveInputDtype::ComplexLongDouble:
+        std::forward<Visitor>(visitor)(TypeTag<std::complex<long double>> {});
+        return;
+    case CurveInputDtype::Other:
+        return;
+    }
+    throw std::runtime_error("Unknown curve input dtype");
+}
+
+template<typename T>
+Index element_stride_from_bytes (py::ssize_t byte_stride, const char* curve_name) {
+    const auto item_size = static_cast<py::ssize_t>(sizeof(T));
+    if (byte_stride % item_size != 0) {
+        throw std::invalid_argument(std::string(curve_name) + " strides must align with its dtype item size");
+    }
+
+    const py::ssize_t element_stride = byte_stride / item_size;
+    if (element_stride * item_size != byte_stride) {
+        throw std::invalid_argument(std::string(curve_name) + " strides must be representable as element strides");
+    }
+
+    const auto index_stride = static_cast<Index>(element_stride);
+    if (static_cast<py::ssize_t>(index_stride) != element_stride) {
+        throw std::invalid_argument(std::string(curve_name) + " strides must be representable as element strides");
+    }
+    return index_stride;
+}
+
+template<typename T>
+void require_safe_element_layout (const py::buffer_info& info, const char* curve_name) {
+    static_assert(std::is_trivially_copyable_v<T>);
+
+    const auto pointer   = reinterpret_cast<std::uintptr_t>(info.ptr);
+    const auto alignment = static_cast<std::uintptr_t>(alignof(T));
+    if (alignment > 1U && pointer % alignment != 0U) {
+        throw std::invalid_argument(std::string(curve_name) + " data pointer must align with its dtype item size");
+    }
+
+    element_stride_from_bytes<T>(info.strides[0], curve_name);
+    element_stride_from_bytes<T>(info.strides[1], curve_name);
+}
+
+template<typename T>
+auto real_component (const T& value) {
+    if constexpr (IsStdComplex<T>::value) {
+        return value.real();
+    } else {
+        return value;
     }
 }
 
+template<typename T>
+constexpr auto typed_time_tolerance () {
+    if constexpr (std::is_same_v<T, Float16>) {
+        return T {1.0e-3};
+    }
+    if constexpr (std::is_same_v<T, float>) {
+        return 1.0e-7F;
+    }
+    if constexpr (!std::is_same_v<T, Float16> && !std::is_same_v<T, float>) {
+        return T {1.0e-12};
+    }
+}
+
+template<typename T>
+void require_typed_time (const py::buffer_info& info, const char* curve_name, Index n) {
+    using Time            = decltype(real_component(std::declval<T>()));
+    const auto item_size  = static_cast<py::ssize_t>(sizeof(T));
+    const auto row_stride = static_cast<Index>(info.strides[0] / item_size);
+    const T*   data       = static_cast<const T*>(info.ptr);
+
+    for (Index idx = 0; idx < n; ++idx) {
+        const T value = data[idx * row_stride];
+        if constexpr (IsStdComplex<T>::value) {
+            const auto zero = decltype(value.imag()) {0};
+            if (value.imag() != zero) {
+                throw std::invalid_argument(std::string(curve_name) + " must have zero imaginary components");
+            }
+        }
+        const auto real = real_component(value);
+        if (!std::isfinite(real)) {
+            throw std::invalid_argument(std::string(curve_name) + " must be finite");
+        }
+    }
+
+    const Time first = real_component(data[0]);
+    const Time last  = real_component(data[(n - 1) * row_stride]);
+    const Time dt    = (last - first) / Time(n - 1);
+
+    Time current = first;
+    for (Index idx = 1; idx < n; ++idx) {
+        const Time next = real_component(data[idx * row_stride]);
+
+        if (next <= current) {
+            throw std::invalid_argument(std::string(curve_name) + " time values must be strictly increasing");
+        }
+
+        const Time step = next - current;
+        if constexpr (std::is_integral_v<Time>) {
+            if (step != dt) {
+                throw std::invalid_argument(std::string(curve_name) + " time values must have a constant interval");
+            }
+        }
+        if constexpr (std::is_floating_point_v<Time>) {
+            const Time tolerance  = typed_time_tolerance<Time>();
+            const Time difference = std::abs(step - dt);
+            if (!std::isfinite(difference) || difference > tolerance) {
+                throw std::invalid_argument(std::string(curve_name) + " time values must have a constant interval");
+            }
+        }
+
+        current = next;
+    }
+}
+
+template<typename T>
+void require_typed_value (const py::buffer_info& info, const char* curve_name, Index n) {
+    const auto item_size     = static_cast<py::ssize_t>(sizeof(T));
+    const auto row_stride    = static_cast<Index>(info.strides[0] / item_size);
+    const auto column_stride = static_cast<Index>(info.strides[1] / item_size);
+    const T*   data          = static_cast<const T*>(info.ptr);
+
+    for (Index idx = 0; idx < n; ++idx) {
+        const T value = data[idx * row_stride + column_stride];
+        if constexpr (IsStdComplex<T>::value) {
+            const auto zero = decltype(value.imag()) {0};
+            if (value.imag() != zero) {
+                throw std::invalid_argument(std::string(curve_name) + " must have zero imaginary components");
+            }
+        }
+        const auto real = real_component(value);
+        if (!std::isfinite(real)) {
+            throw std::invalid_argument(std::string(curve_name) + " must be finite");
+        }
+        if constexpr (std::is_same_v<decltype(real), long double>) {
+            constexpr long double max_double = static_cast<long double>(std::numeric_limits<double>::max());
+            if (real < -max_double || real > max_double) {
+                throw std::invalid_argument(std::string(curve_name) + " must be representable as finite float64");
+            }
+        }
+    }
+}
+
+CurveInputDtype curve_input_dtype (const py::dtype& dtype, const py::buffer_info& info) {
+    switch (dtype.kind()) {
+    case 'i':
+        if (dtype.equal(py::dtype::of<std::int8_t>())) {
+            return CurveInputDtype::Int8;
+        }
+        if (dtype.equal(py::dtype::of<std::int16_t>())) {
+            return CurveInputDtype::Int16;
+        }
+        if (dtype.equal(py::dtype::of<std::int32_t>())) {
+            return CurveInputDtype::Int32;
+        }
+        if (dtype.equal(py::dtype::of<std::int64_t>())) {
+            return CurveInputDtype::Int64;
+        }
+        return CurveInputDtype::Other;
+    case 'u':
+        if (dtype.equal(py::dtype::of<std::uint8_t>())) {
+            return CurveInputDtype::UInt8;
+        }
+        if (dtype.equal(py::dtype::of<std::uint16_t>())) {
+            return CurveInputDtype::UInt16;
+        }
+        if (dtype.equal(py::dtype::of<std::uint32_t>())) {
+            return CurveInputDtype::UInt32;
+        }
+        if (dtype.equal(py::dtype::of<std::uint64_t>())) {
+            return CurveInputDtype::UInt64;
+        }
+        return CurveInputDtype::Other;
+    case 'f':
+        if (info.itemsize == static_cast<py::ssize_t>(sizeof(std::uint16_t))) {
+            return CurveInputDtype::Float16;
+        }
+        if (dtype.equal(py::dtype::of<float>())) {
+            return CurveInputDtype::Float32;
+        }
+        if (dtype.equal(py::dtype::of<double>())) {
+            return CurveInputDtype::Float64;
+        }
+        if (dtype.equal(py::dtype::of<long double>())) {
+            return CurveInputDtype::LongDouble;
+        }
+        return CurveInputDtype::Other;
+    case 'c':
+        if (dtype.equal(py::dtype::of<std::complex<float>>())) {
+            return CurveInputDtype::ComplexFloat32;
+        }
+        if (dtype.equal(py::dtype::of<std::complex<double>>())) {
+            return CurveInputDtype::ComplexFloat64;
+        }
+        if (dtype.equal(py::dtype::of<std::complex<long double>>())) {
+            return CurveInputDtype::ComplexLongDouble;
+        }
+        return CurveInputDtype::Other;
+    default:
+        return CurveInputDtype::Other;
+    }
+}
+
+void require_typed_curve_input (CurveInputDtype dtype, const py::buffer_info& info, const char* curve_name, Index n) {
+    visit_curve_dtype(dtype, [&] (auto tag) {
+        using T = typename decltype(tag)::type;
+        require_safe_element_layout<T>(info, curve_name);
+        require_typed_time<T>(info, curve_name, n);
+        require_typed_value<T>(info, curve_name, n);
+    });
+}
+
+template<typename T>
+double materialize_typed_reference_dt (const py::buffer_info& info, Index n) {
+    const auto item_size  = static_cast<py::ssize_t>(sizeof(T));
+    const auto row_stride = static_cast<Index>(info.strides[0] / item_size);
+    const T*   data       = static_cast<const T*>(info.ptr);
+
+    const auto first = real_component(data[0]);
+    const auto last  = real_component(data[(n - 1) * row_stride]);
+    return static_cast<double>((last - first) / decltype(first)(n - 1));
+}
+
+double materialize_reference_dt (CurveInputDtype dtype, const py::buffer_info& info, Index n) {
+    double dt = 0.0;
+    visit_curve_dtype(dtype, [&] (auto tag) {
+        using T = typename decltype(tag)::type;
+        dt      = materialize_typed_reference_dt<T>(info, n);
+    });
+    return dt;
+}
+
+template<typename T>
+void materialize_typed_curve_values (const py::buffer_info& info, Index n, std::vector<double>& values) {
+    const auto item_size     = static_cast<py::ssize_t>(sizeof(T));
+    const auto row_stride    = static_cast<Index>(info.strides[0] / item_size);
+    const auto column_stride = static_cast<Index>(info.strides[1] / item_size);
+    const T*   data          = static_cast<const T*>(info.ptr);
+
+    for (Index idx = 0; idx < n; ++idx) {
+        values[static_cast<std::size_t>(idx)] =
+            static_cast<double>(real_component(data[idx * row_stride + column_stride]));
+    }
+}
+
+std::vector<double> materialize_curve_values (CurveInputDtype dtype, const py::buffer_info& info, Index n) {
+    std::vector<double> values(static_cast<std::size_t>(n));
+    visit_curve_dtype(dtype, [&] (auto tag) {
+        using T = typename decltype(tag)::type;
+        materialize_typed_curve_values<T>(info, n, values);
+    });
+    return values;
+}
+
+py::buffer_info require_curve_shape (const py::array& curve, const char* curve_name) {
+    py::buffer_info info = curve.request();
+    if (info.ndim != 2) {
+        throw std::invalid_argument(std::string(curve_name) + " must be a 2D array");
+    }
+    if (info.shape[1] != 2) {
+        throw std::invalid_argument(std::string(curve_name) + " must have shape (n, 2)");
+    }
+    return info;
+}
+
+CurveInputDtype require_curve_dtype (const py::array& curve, const py::buffer_info& info, const char* curve_name) {
+    const py::dtype   dtype     = curve.dtype();
+    const std::string byteorder = py::cast<std::string>(dtype.attr("byteorder"));
+    if (byteorder != "=" && byteorder != "|") {
+        throw std::invalid_argument(std::string(curve_name) + " must use native byte order");
+    }
+
+    const CurveInputDtype input_dtype = curve_input_dtype(dtype, info);
+    if (input_dtype == CurveInputDtype::Other) {
+        throw std::invalid_argument(std::string(curve_name) + " has unsupported dtype");
+    }
+    return input_dtype;
+}
+
 ValidatedCurves validate_curves (py::array reference_curve, py::array comparison_curve) {
-    py::array reference  = reference_curve;
-    py::array comparison = comparison_curve;
-
-    const py::buffer_info initial_reference_info = reference.request();
-    if (initial_reference_info.ndim != 2) {
-        throw std::invalid_argument("reference_curve must be a 2D array");
-    }
-    if (initial_reference_info.shape[0] <= 0) {
-        throw std::invalid_argument("reference_curve must not be empty");
-    }
-    if (initial_reference_info.shape[1] != 2) {
-        throw std::invalid_argument("reference_curve must have shape (n, 2)");
-    }
-
-    const py::buffer_info initial_comparison_info = comparison.request();
-    if (initial_comparison_info.ndim != 2) {
-        throw std::invalid_argument("comparison_curve must be a 2D array");
-    }
-    if (initial_comparison_info.shape[0] <= 0) {
-        throw std::invalid_argument("comparison_curve must not be empty");
-    }
-    if (initial_comparison_info.shape[1] != 2) {
-        throw std::invalid_argument("comparison_curve must have shape (n, 2)");
-    }
+    const py::buffer_info initial_reference_info  = require_curve_shape(reference_curve, "reference_curve");
+    const py::buffer_info initial_comparison_info = require_curve_shape(comparison_curve, "comparison_curve");
 
     const Index n = static_cast<Index>(initial_reference_info.shape[0]);
     if (n != static_cast<Index>(initial_comparison_info.shape[0])) {
@@ -164,210 +463,17 @@ ValidatedCurves validate_curves (py::array reference_curve, py::array comparison
         throw std::invalid_argument("reference_curve must have at least 2 samples");
     }
 
-    const py::dtype initial_reference_dtype = reference.dtype();
-    const char      initial_reference_kind  = initial_reference_dtype.kind();
-    if (initial_reference_kind != 'i' && initial_reference_kind != 'u' && initial_reference_kind != 'f' &&
-        initial_reference_kind != 'c') {
-        throw std::invalid_argument("reference_curve must be numeric");
-    }
+    const CurveInputDtype reference_input_dtype =
+        require_curve_dtype(reference_curve, initial_reference_info, "reference_curve");
+    const CurveInputDtype comparison_input_dtype =
+        require_curve_dtype(comparison_curve, initial_comparison_info, "comparison_curve");
+    require_typed_curve_input(reference_input_dtype, initial_reference_info, "reference_curve", n);
+    require_typed_curve_input(comparison_input_dtype, initial_comparison_info, "comparison_curve", n);
 
-    const py::dtype initial_comparison_dtype = comparison.dtype();
-    const char      initial_comparison_kind  = initial_comparison_dtype.kind();
-    if (initial_comparison_kind != 'i' && initial_comparison_kind != 'u' && initial_comparison_kind != 'f' &&
-        initial_comparison_kind != 'c') {
-        throw std::invalid_argument("comparison_curve must be numeric");
-    }
-
-    bool            reference_is_float32  = false;
-    py::buffer_info reference_native_info = reference.request();
-    if (!((reference_native_info.itemsize == static_cast<py::ssize_t>(sizeof(double)) &&
-           reference_native_info.format == py::format_descriptor<double>::format()) ||
-          (reference_native_info.itemsize == static_cast<py::ssize_t>(sizeof(float)) &&
-           reference_native_info.format == py::format_descriptor<float>::format()))) {
-        py::array_t<double, py::array::forcecast> casted = py::array_t<double, py::array::forcecast>::ensure(reference);
-        if (!casted) {
-            throw std::invalid_argument("reference_curve must be convertible to float64");
-        }
-        reference = py::array(casted);
-    }
-    reference_native_info = reference.request();
-    reference_is_float32  = reference_native_info.itemsize == static_cast<py::ssize_t>(sizeof(float)) &&
-                            reference_native_info.format == py::format_descriptor<float>::format();
-    if (!reference_is_float32 && !(reference_native_info.itemsize == static_cast<py::ssize_t>(sizeof(double)) &&
-                                   reference_native_info.format == py::format_descriptor<double>::format())) {
-        throw std::runtime_error("reference_curve did not cast to a supported native dtype");
-    }
-
-    bool            comparison_is_float32  = false;
-    py::buffer_info comparison_native_info = comparison.request();
-    if (!((comparison_native_info.itemsize == static_cast<py::ssize_t>(sizeof(double)) &&
-           comparison_native_info.format == py::format_descriptor<double>::format()) ||
-          (comparison_native_info.itemsize == static_cast<py::ssize_t>(sizeof(float)) &&
-           comparison_native_info.format == py::format_descriptor<float>::format()))) {
-        py::array_t<double, py::array::forcecast> casted =
-            py::array_t<double, py::array::forcecast>::ensure(comparison);
-        if (!casted) {
-            throw std::invalid_argument("comparison_curve must be convertible to float64");
-        }
-        comparison = py::array(casted);
-    }
-    comparison_native_info = comparison.request();
-    comparison_is_float32  = comparison_native_info.itemsize == static_cast<py::ssize_t>(sizeof(float)) &&
-                             comparison_native_info.format == py::format_descriptor<float>::format();
-    if (!comparison_is_float32 && !(comparison_native_info.itemsize == static_cast<py::ssize_t>(sizeof(double)) &&
-                                    comparison_native_info.format == py::format_descriptor<double>::format())) {
-        throw std::runtime_error("comparison_curve did not cast to a supported native dtype");
-    }
-
-    const py::buffer_info reference_info  = reference.request();
-    const py::buffer_info comparison_info = comparison.request();
-
-    const char* reference_data          = static_cast<const char*>(reference_info.ptr);
-    const Index reference_row_stride    = static_cast<Index>(reference_info.strides[0]);
-    const Index reference_column_stride = static_cast<Index>(reference_info.strides[1]);
-
-    const char* comparison_data          = static_cast<const char*>(comparison_info.ptr);
-    const Index comparison_row_stride    = static_cast<Index>(comparison_info.strides[0]);
-    const Index comparison_column_stride = static_cast<Index>(comparison_info.strides[1]);
-
-    const char* reference_first_time_ptr = reference_data;
-    double      reference_previous_time =
-        reference_is_float32 ? static_cast<double>(*reinterpret_cast<const float*>(reference_first_time_ptr))
-                             : static_cast<double>(*reinterpret_cast<const double*>(reference_first_time_ptr));
-    if (!std::isfinite(reference_previous_time)) {
-        throw std::invalid_argument("reference_curve time values must be finite");
-    }
-
-    const char*  reference_second_time_ptr = reference_data + reference_row_stride;
-    const double reference_second_time =
-        reference_is_float32 ? static_cast<double>(*reinterpret_cast<const float*>(reference_second_time_ptr))
-                             : static_cast<double>(*reinterpret_cast<const double*>(reference_second_time_ptr));
-    if (!std::isfinite(reference_second_time)) {
-        throw std::invalid_argument("reference_curve time values must be finite");
-    }
-
-    const double reference_dt = reference_second_time - reference_previous_time;
-    if (!std::isfinite(reference_dt) || reference_dt <= 0.0) {
-        throw std::invalid_argument("reference_curve time values must be strictly increasing");
-    }
-
-    const double reference_time_tolerance = time_tolerance_for_dtype(initial_reference_dtype);
-    reference_previous_time               = reference_second_time;
-    for (Index idx = 2; idx < n; ++idx) {
-        const char*  reference_time_ptr = reference_data + idx * reference_row_stride;
-        const double current_time       = reference_is_float32
-                                            ? static_cast<double>(*reinterpret_cast<const float*>(reference_time_ptr))
-                                            : static_cast<double>(*reinterpret_cast<const double*>(reference_time_ptr));
-        if (!std::isfinite(current_time)) {
-            throw std::invalid_argument("reference_curve time values must be finite");
-        }
-        const double step = current_time - reference_previous_time;
-        if (step <= 0.0) {
-            throw std::invalid_argument("reference_curve time values must be strictly increasing");
-        }
-        if (std::abs(step - reference_dt) > reference_time_tolerance) {
-            throw std::invalid_argument("reference_curve time values must have a constant interval");
-        }
-        reference_previous_time = current_time;
-    }
-
-    const char* comparison_first_time_ptr = comparison_data;
-    double      comparison_previous_time =
-        comparison_is_float32 ? static_cast<double>(*reinterpret_cast<const float*>(comparison_first_time_ptr))
-                              : static_cast<double>(*reinterpret_cast<const double*>(comparison_first_time_ptr));
-    if (!std::isfinite(comparison_previous_time)) {
-        throw std::invalid_argument("comparison_curve time values must be finite");
-    }
-
-    const char*  comparison_second_time_ptr = comparison_data + comparison_row_stride;
-    const double comparison_second_time =
-        comparison_is_float32 ? static_cast<double>(*reinterpret_cast<const float*>(comparison_second_time_ptr))
-                              : static_cast<double>(*reinterpret_cast<const double*>(comparison_second_time_ptr));
-    if (!std::isfinite(comparison_second_time)) {
-        throw std::invalid_argument("comparison_curve time values must be finite");
-    }
-
-    const double comparison_dt = comparison_second_time - comparison_previous_time;
-    if (!std::isfinite(comparison_dt) || comparison_dt <= 0.0) {
-        throw std::invalid_argument("comparison_curve time values must be strictly increasing");
-    }
-
-    const double comparison_time_tolerance = time_tolerance_for_dtype(initial_comparison_dtype);
-    comparison_previous_time               = comparison_second_time;
-    for (Index idx = 2; idx < n; ++idx) {
-        const char*  comparison_time_ptr = comparison_data + idx * comparison_row_stride;
-        const double current_time = comparison_is_float32
-                                      ? static_cast<double>(*reinterpret_cast<const float*>(comparison_time_ptr))
-                                      : static_cast<double>(*reinterpret_cast<const double*>(comparison_time_ptr));
-        if (!std::isfinite(current_time)) {
-            throw std::invalid_argument("comparison_curve time values must be finite");
-        }
-        const double step = current_time - comparison_previous_time;
-        if (step <= 0.0) {
-            throw std::invalid_argument("comparison_curve time values must be strictly increasing");
-        }
-        if (std::abs(step - comparison_dt) > comparison_time_tolerance) {
-            throw std::invalid_argument("comparison_curve time values must have a constant interval");
-        }
-        comparison_previous_time = current_time;
-    }
-
-    const double time_tolerance = std::max(reference_time_tolerance, comparison_time_tolerance);
-    if (std::abs(comparison_dt - reference_dt) > time_tolerance) {
-        throw std::invalid_argument("Curve time intervals are not equal");
-    }
-
-    for (Index idx = 0; idx < n; ++idx) {
-        const char*  reference_time_ptr  = reference_data + idx * reference_row_stride;
-        const char*  comparison_time_ptr = comparison_data + idx * comparison_row_stride;
-        const double reference_time  = reference_is_float32
-                                         ? static_cast<double>(*reinterpret_cast<const float*>(reference_time_ptr))
-                                         : static_cast<double>(*reinterpret_cast<const double*>(reference_time_ptr));
-        const double comparison_time = comparison_is_float32
-                                         ? static_cast<double>(*reinterpret_cast<const float*>(comparison_time_ptr))
-                                         : static_cast<double>(*reinterpret_cast<const double*>(comparison_time_ptr));
-        if (std::abs(reference_time - comparison_time) > time_tolerance) {
-            throw std::invalid_argument("Curve time values are not equal");
-        }
-    }
-
-    for (Index idx = 0; idx < n; ++idx) {
-        const char*  reference_value_ptr = reference_data + idx * reference_row_stride + reference_column_stride;
-        const double reference_value = reference_is_float32
-                                         ? static_cast<double>(*reinterpret_cast<const float*>(reference_value_ptr))
-                                         : static_cast<double>(*reinterpret_cast<const double*>(reference_value_ptr));
-        if (!std::isfinite(reference_value)) {
-            throw std::invalid_argument("reference_curve signal values must be finite");
-        }
-    }
-
-    for (Index idx = 0; idx < n; ++idx) {
-        const char*  comparison_value_ptr = comparison_data + idx * comparison_row_stride + comparison_column_stride;
-        const double comparison_value = comparison_is_float32
-                                          ? static_cast<double>(*reinterpret_cast<const float*>(comparison_value_ptr))
-                                          : static_cast<double>(*reinterpret_cast<const double*>(comparison_value_ptr));
-        if (!std::isfinite(comparison_value)) {
-            throw std::invalid_argument("comparison_curve signal values must be finite");
-        }
-    }
-
-    std::vector<double> reference_values(static_cast<std::size_t>(n));
-    for (Index idx = 0; idx < n; ++idx) {
-        const std::size_t offset              = static_cast<std::size_t>(idx);
-        const char*       reference_value_ptr = reference_data + idx * reference_row_stride + reference_column_stride;
-        reference_values[offset] = reference_is_float32
-                                     ? static_cast<double>(*reinterpret_cast<const float*>(reference_value_ptr))
-                                     : static_cast<double>(*reinterpret_cast<const double*>(reference_value_ptr));
-    }
-
-    std::vector<double> comparison_values(static_cast<std::size_t>(n));
-    for (Index idx = 0; idx < n; ++idx) {
-        const std::size_t offset         = static_cast<std::size_t>(idx);
-        const char* comparison_value_ptr = comparison_data + idx * comparison_row_stride + comparison_column_stride;
-        comparison_values[offset] = comparison_is_float32
-                                      ? static_cast<double>(*reinterpret_cast<const float*>(comparison_value_ptr))
-                                      : static_cast<double>(*reinterpret_cast<const double*>(comparison_value_ptr));
-    }
+    const double        reference_dt     = materialize_reference_dt(reference_input_dtype, initial_reference_info, n);
+    std::vector<double> reference_values = materialize_curve_values(reference_input_dtype, initial_reference_info, n);
+    std::vector<double> comparison_values =
+        materialize_curve_values(comparison_input_dtype, initial_comparison_info, n);
 
     return {
         std::move(reference_values),
