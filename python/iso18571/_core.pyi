@@ -9,4 +9,5 @@ def _score_components(
     reference_curve: ArrayLike,
     comparison_curve: ArrayLike,
     params: dict[str, float | int],
+    store_validation: bool,
 ) -> ScoreComponents: ...

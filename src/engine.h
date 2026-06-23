@@ -25,18 +25,6 @@ struct ScoreParams {
     f64 w_s;
 };
 
-struct PhaseAlignment {
-    Index reference_start  = 0;
-    Index comparison_start = 0;
-    Index length           = 0;
-    Index n_eps            = 0;
-    f64   max_shift        = 0.2;
-};
-
-struct PhaseCorrelation {
-    f64 rho_e = 0.0;
-};
-
 enum class DiagnosticSeverity {
     Warning,
 };
@@ -64,25 +52,67 @@ struct Diagnostic {
     DiagnosticCode      code;
 };
 
+struct DtwPathCell {
+    Index comparison_index = 0;
+    Index reference_index  = 0;
+};
+
 struct CorridorResult {
-    f64                     score = 0.0;
+    // Score
+    f64 score = 0.0;
+
+    // Validation
+    f64 t_norm           = 0.0;
+    f64 inner_half_width = 0.0;
+    f64 outer_half_width = 0.0;
+
+    // Diagnostics
     std::vector<Diagnostic> diagnostics;
 };
 
 struct PhaseResult {
-    f64                     score = 0.0;
-    PhaseAlignment          alignment;
-    PhaseCorrelation        correlation;
+    // Score
+    f64 score = 0.0;
+
+    // Validation
+    Index reference_start  = 0;
+    Index comparison_start = 0;
+    Index length           = 0;
+    Index n_eps            = 0;
+    f64   max_shift        = 0.2;
+    f64   rho_e            = 0.0;
+
+    // Diagnostics
     std::vector<Diagnostic> diagnostics;
 };
 
 struct MagnitudeResult {
-    f64                     score = 0.0;
+    // Score
+    f64 score = 0.0;
+
+    // Validation
+    f64   numerator     = 0.0;
+    f64   denominator   = 0.0;
+    f64   error         = 0.0;
+    f64   dtw_cost      = 0.0;
+    Index window_radius = 0;
+
+    std::vector<DtwPathCell> dtw_path;
+
+    // Diagnostics
     std::vector<Diagnostic> diagnostics;
 };
 
 struct SlopeResult {
-    f64                     score = 0.0;
+    // Score
+    f64 score = 0.0;
+
+    // Validation
+    f64 numerator   = 0.0;
+    f64 denominator = 0.0;
+    f64 error       = 0.0;
+
+    // Diagnostics
     std::vector<Diagnostic> diagnostics;
 };
 
@@ -94,25 +124,29 @@ struct ScoreResult {
     f64             overall = 0.0;
 };
 
-using ScoreComponentsFn = ScoreResult (*)(DoubleSpan, DoubleSpan, const ScoreParams&, f64);
+using ScoreComponentsFn = ScoreResult (*)(DoubleSpan, DoubleSpan, const ScoreParams&, f64, bool);
 
 struct DispatchTable {
     ScoreComponentsFn score_components = nullptr;
     const char*       level            = "x86-64-v1";
 };
 
-ScoreResult score_components_v1 (DoubleSpan reference, DoubleSpan comparison, const ScoreParams& params, f64 dt);
+ScoreResult score_components_v1 (DoubleSpan reference, DoubleSpan comparison, const ScoreParams& params, f64 dt,
+                                 bool store_validation);
 
 #if defined(ISO18571_COMPILED_X86_64_V2)
-ScoreResult score_components_v2 (DoubleSpan reference, DoubleSpan comparison, const ScoreParams& params, f64 dt);
+ScoreResult score_components_v2 (DoubleSpan reference, DoubleSpan comparison, const ScoreParams& params, f64 dt,
+                                 bool store_validation);
 #endif
 
 #if defined(ISO18571_COMPILED_X86_64_V3)
-ScoreResult score_components_v3 (DoubleSpan reference, DoubleSpan comparison, const ScoreParams& params, f64 dt);
+ScoreResult score_components_v3 (DoubleSpan reference, DoubleSpan comparison, const ScoreParams& params, f64 dt,
+                                 bool store_validation);
 #endif
 
 #if defined(ISO18571_COMPILED_X86_64_V4)
-ScoreResult score_components_v4 (DoubleSpan reference, DoubleSpan comparison, const ScoreParams& params, f64 dt);
+ScoreResult score_components_v4 (DoubleSpan reference, DoubleSpan comparison, const ScoreParams& params, f64 dt,
+                                 bool store_validation);
 #endif
 
 const DispatchTable& dispatch_table ();

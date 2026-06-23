@@ -135,10 +135,16 @@ def large_offset_shifted_pair() -> tuple[NDArray[np.float64], NDArray[np.float64
 def score_with_warnings(
     reference_curve: ArrayLike,
     comparison_curve: ArrayLike,
+    *,
+    store_validation: bool = False,
 ) -> tuple[ISO18571, list[str]]:
     with warnings.catch_warnings(record=True) as records:
         warnings.simplefilter("always", RuntimeWarning)
-        iso = ISO18571(reference_curve, comparison_curve)
+        iso = ISO18571(
+            reference_curve,
+            comparison_curve,
+            store_validation=store_validation,
+        )
     messages = []
     for record in records:
         assert record.category is RuntimeWarning, (
@@ -171,7 +177,20 @@ def test_native_surface_is_small_and_accepts_numpy_arrays(
     )
     iso = ISO18571(case.reference_curve, case.comparison_curve)
     scores = iso.scores
-    assert set(scores) == {
+    assert set(scores) == {"Z", "EP", "EM", "ES", "R"}
+    assert iso.n_eps is None
+    assert iso.rho_e is None
+    assert iso.reference_start is None
+    assert iso.comparison_start is None
+    assert iso.shift_length is None
+
+    iso_with_validation = ISO18571(
+        case.reference_curve,
+        case.comparison_curve,
+        store_validation=True,
+    )
+    scores_with_validation = iso_with_validation.scores
+    assert set(scores_with_validation) == {
         "Z",
         "EP",
         "EM",
@@ -183,6 +202,11 @@ def test_native_surface_is_small_and_accepts_numpy_arrays(
         "comparison_start",
         "shift_length",
     }
+    assert iso_with_validation.n_eps is not None
+    assert iso_with_validation.rho_e is not None
+    assert iso_with_validation.reference_start is not None
+    assert iso_with_validation.comparison_start is not None
+    assert iso_with_validation.shift_length is not None
     assert iso18571.__all__ == ["ISO18571", "backend_info", "ScoreComponents"]
     assert not hasattr(iso18571, "score_components")
     assert not hasattr(iso18571, "magnitude_ratio")
@@ -219,7 +243,11 @@ def test_native_short_curves_fail_clearly() -> None:
 def test_zero_identical_edge_lengths_use_finite_fallback_scores() -> None:
     for n in ROBUSTNESS_EDGE_LENGTHS:
         curve = curve_from_values(np.zeros(n, dtype=np.float64))
-        iso, messages = score_with_warnings(curve, curve.copy())
+        iso, messages = score_with_warnings(
+            curve,
+            curve.copy(),
+            store_validation=True,
+        )
 
         assert messages == [
             PHASE_UNDEFINED_WARNING,
@@ -241,7 +269,11 @@ def test_zero_identical_edge_lengths_use_finite_fallback_scores() -> None:
 def test_zero_reference_nonzero_comparison_uses_finite_fallback_scores() -> None:
     reference = curve_from_values(np.zeros(9, dtype=np.float64))
     comparison = curve_from_values(np.ones(9, dtype=np.float64))
-    iso, messages = score_with_warnings(reference, comparison)
+    iso, messages = score_with_warnings(
+        reference,
+        comparison,
+        store_validation=True,
+    )
 
     assert messages == [
         PHASE_UNDEFINED_WARNING,
@@ -258,7 +290,11 @@ def test_zero_reference_nonzero_comparison_uses_finite_fallback_scores() -> None
 
 def test_constant_identical_uses_finite_slope_fallback_score() -> None:
     curve = curve_from_values(np.full(9, 2.0, dtype=np.float64))
-    iso, messages = score_with_warnings(curve, curve.copy())
+    iso, messages = score_with_warnings(
+        curve,
+        curve.copy(),
+        store_validation=True,
+    )
 
     assert messages == [PHASE_UNDEFINED_WARNING, SLOPE_ZERO_WARNING]
     assert_scores_close(
@@ -272,7 +308,11 @@ def test_constant_identical_uses_finite_slope_fallback_score() -> None:
 def test_constant_offset_edge_lengths_use_finite_fallback_scores() -> None:
     for n in ROBUSTNESS_EDGE_LENGTHS:
         reference, comparison = constant_offset_pair(n)
-        iso, messages = score_with_warnings(reference, comparison)
+        iso, messages = score_with_warnings(
+            reference,
+            comparison,
+            store_validation=True,
+        )
 
         assert messages == [PHASE_UNDEFINED_WARNING, SLOPE_ZERO_WARNING]
         assert_scores_close(
@@ -289,7 +329,11 @@ def test_constant_offset_edge_lengths_use_finite_fallback_scores() -> None:
 
 def test_short_shift_candidate_clamps_to_unshifted_alignment() -> None:
     reference, comparison = noisy_ramp_shifted_pair()
-    iso, messages = score_with_warnings(reference, comparison)
+    iso, messages = score_with_warnings(
+        reference,
+        comparison,
+        store_validation=True,
+    )
 
     assert messages == [PHASE_CLAMP_WARNING]
     assert_scores_close(
@@ -304,7 +348,9 @@ def test_short_shift_candidate_clamps_to_unshifted_alignment() -> None:
         "short shifted noisy ramp",
     )
     assert iso.n_eps == 0
-    np.testing.assert_allclose(iso.rho_e, 0.41217625773989897, atol=PARITY_ATOL)
+    rho_e = iso.rho_e
+    assert rho_e is not None
+    np.testing.assert_allclose(rho_e, 0.41217625773989897, atol=PARITY_ATOL)
     assert iso.reference_start == 0
     assert iso.comparison_start == 0
     assert iso.shift_length == 9
@@ -327,7 +373,11 @@ def test_nonfinite_signal_values_fail_clearly_before_dtw() -> None:
 
 def test_periodic_identical_sine_prefers_unshifted_native_alignment() -> None:
     curve = curve_from_values(sine_values(65))
-    iso, messages = score_with_warnings(curve, curve.copy())
+    iso, messages = score_with_warnings(
+        curve,
+        curve.copy(),
+        store_validation=True,
+    )
 
     assert messages == []
     assert_scores_close(
@@ -336,7 +386,9 @@ def test_periodic_identical_sine_prefers_unshifted_native_alignment() -> None:
         "periodic sine identical",
     )
     assert iso.n_eps == 0
-    np.testing.assert_allclose(iso.rho_e, 1.0, atol=1e-12)
+    rho_e = iso.rho_e
+    assert rho_e is not None
+    np.testing.assert_allclose(rho_e, 1.0, atol=1e-12)
     assert iso.reference_start == 0
     assert iso.comparison_start == 0
     assert iso.shift_length == 65
@@ -344,7 +396,11 @@ def test_periodic_identical_sine_prefers_unshifted_native_alignment() -> None:
 
 def test_large_offset_phase_fallback_candidate_survives_fft_refinement() -> None:
     reference, comparison = large_offset_shifted_pair()
-    iso, messages = score_with_warnings(reference, comparison)
+    iso, messages = score_with_warnings(
+        reference,
+        comparison,
+        store_validation=True,
+    )
 
     assert messages == []
     assert_scores_close(
@@ -359,7 +415,9 @@ def test_large_offset_phase_fallback_candidate_survives_fft_refinement() -> None
         "large offset shifted phase fallback",
     )
     assert iso.n_eps == 5
-    assert iso.rho_e > 0.999999999
+    rho_e = iso.rho_e
+    assert rho_e is not None
+    assert rho_e > 0.999999999
     assert iso.reference_start == 0
     assert iso.comparison_start == 5
     assert iso.shift_length == 507
@@ -367,7 +425,11 @@ def test_large_offset_phase_fallback_candidate_survives_fft_refinement() -> None
 
 def test_float32_uniform_time_grid_is_accepted_by_native_validation() -> None:
     curve = float32_curve_from_values(np.linspace(-1.0, 1.0, 32, dtype=np.float64))
-    iso, messages = score_with_warnings(curve, curve.copy())
+    iso, messages = score_with_warnings(
+        curve,
+        curve.copy(),
+        store_validation=True,
+    )
 
     assert messages == []
     assert_scores_close(
@@ -382,7 +444,11 @@ def test_float32_uniform_time_grid_is_accepted_by_native_validation() -> None:
 
 def test_float16_uniform_time_grid_is_accepted_by_native_validation() -> None:
     curve = float16_curve_from_values(np.linspace(-1.0, 1.0, 32, dtype=np.float64))
-    iso, messages = score_with_warnings(curve, curve.copy())
+    iso, messages = score_with_warnings(
+        curve,
+        curve.copy(),
+        store_validation=True,
+    )
 
     assert messages == []
     assert_scores_close(
@@ -404,7 +470,11 @@ def test_mixed_float32_float64_time_grids_are_accepted() -> None:
         ("float32 reference float64 comparison", curve32, curve64),
         ("float64 reference float32 comparison", curve64, curve32),
     ):
-        iso, messages = score_with_warnings(reference, comparison)
+        iso, messages = score_with_warnings(
+            reference,
+            comparison,
+            store_validation=True,
+        )
 
         assert messages == []
         assert_scores_close(
@@ -440,7 +510,11 @@ def test_strided_float_curve_inputs_are_accepted_by_native_validation() -> None:
     for context, reference, comparison in cases:
         assert not reference.flags.c_contiguous
         assert not comparison.flags.c_contiguous
-        iso, messages = score_with_warnings(reference, comparison)
+        iso, messages = score_with_warnings(
+            reference,
+            comparison,
+            store_validation=True,
+        )
 
         assert messages == []
         assert_scores_close(
@@ -505,7 +579,11 @@ def test_numeric_non_float_curve_inputs_are_force_cast_to_float64() -> None:
     values = ((time * time + 3) % 17) - 8
     curve = np.column_stack((time, values)).astype(np.int64, copy=False)
 
-    iso, messages = score_with_warnings(curve, curve.copy())
+    iso, messages = score_with_warnings(
+        curve,
+        curve.copy(),
+        store_validation=True,
+    )
 
     assert messages == []
     assert_scores_close(
@@ -540,13 +618,21 @@ def test_aliased_sine_scaling_oracle_limit_is_hard_coded() -> None:
     reference = curve_from_values(sine_values(10))
     comparison = reference.copy()
     comparison[:, 1] += 0.05
-    base, base_messages = score_with_warnings(reference, comparison)
+    base, base_messages = score_with_warnings(
+        reference,
+        comparison,
+        store_validation=True,
+    )
 
     reference_scaled = reference.copy()
     comparison_scaled = comparison.copy()
     reference_scaled[:, 1] *= 2.5
     comparison_scaled[:, 1] *= 2.5
-    scaled, scaled_messages = score_with_warnings(reference_scaled, comparison_scaled)
+    scaled, scaled_messages = score_with_warnings(
+        reference_scaled,
+        comparison_scaled,
+        store_validation=True,
+    )
 
     assert base_messages == []
     assert scaled_messages == []
@@ -611,7 +697,11 @@ def test_short_sparse_edge_cases_clamp_to_unshifted_alignment() -> None:
     )
 
     for context, (reference, comparison), expected_scores, expected_rho_e in edge_cases:
-        iso, messages = score_with_warnings(reference, comparison)
+        iso, messages = score_with_warnings(
+            reference,
+            comparison,
+            store_validation=True,
+        )
 
         assert messages == [PHASE_CLAMP_WARNING]
         assert_scores_close(
@@ -620,7 +710,9 @@ def test_short_sparse_edge_cases_clamp_to_unshifted_alignment() -> None:
             context,
         )
         assert iso.n_eps == 0
-        np.testing.assert_allclose(iso.rho_e, expected_rho_e, atol=PARITY_ATOL)
+        rho_e = iso.rho_e
+        assert rho_e is not None
+        np.testing.assert_allclose(rho_e, expected_rho_e, atol=PARITY_ATOL)
         assert iso.reference_start == 0
         assert iso.comparison_start == 0
         assert iso.shift_length == 9

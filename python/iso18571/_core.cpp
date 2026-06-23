@@ -6,6 +6,7 @@
 #include "validation.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <complex>
 #include <cstdint>
@@ -25,6 +26,7 @@ using engine::DiagnosticCode;
 using engine::DiagnosticComponent;
 using engine::DiagnosticSeverity;
 using engine::DoubleSpan;
+using engine::DtwPathCell;
 using engine::Index;
 using engine::ScoreParams;
 using engine::ScoreResult;
@@ -558,20 +560,50 @@ void emit_score_warnings (const ScoreResult& result) {
     emit_component_warnings(result.slope.diagnostics);
 }
 
-void add_score_fields (py::dict& out, const ScoreResult& result) {
-    out["Z"]                = result.corridor.score;
-    out["EP"]               = result.phase.score;
-    out["EM"]               = result.magnitude.score;
-    out["ES"]               = result.slope.score;
-    out["R"]                = result.overall;
-    out["n_eps"]            = result.phase.alignment.n_eps;
-    out["rho_e"]            = result.phase.correlation.rho_e;
-    out["reference_start"]  = result.phase.alignment.reference_start;
-    out["comparison_start"] = result.phase.alignment.comparison_start;
-    out["shift_length"]     = result.phase.alignment.length;
+void add_score_fields (py::dict& out, const ScoreResult& result, const ValidatedCurves& curves, bool store_validation) {
+    out["Z"]  = result.corridor.score;
+    out["EP"] = result.phase.score;
+    out["EM"] = result.magnitude.score;
+    out["ES"] = result.slope.score;
+    out["R"]  = result.overall;
+    if (store_validation) {
+        out["dt"] = curves.dt;
+
+        out["corridor_t_norm"]           = result.corridor.t_norm;
+        out["corridor_inner_half_width"] = result.corridor.inner_half_width;
+        out["corridor_outer_half_width"] = result.corridor.outer_half_width;
+
+        out["phase_n_eps"]            = result.phase.n_eps;
+        out["phase_rho_e"]            = result.phase.rho_e;
+        out["phase_reference_start"]  = result.phase.reference_start;
+        out["phase_comparison_start"] = result.phase.comparison_start;
+        out["phase_shift_length"]     = result.phase.length;
+        out["phase_max_shift"]        = result.phase.max_shift;
+
+        out["magnitude_numerator"]             = result.magnitude.numerator;
+        out["magnitude_denominator"]           = result.magnitude.denominator;
+        out["magnitude_error"]                 = result.magnitude.error;
+        out["magnitude_dtw_cost"]              = result.magnitude.dtw_cost;
+        out["magnitude_window_radius"]         = result.magnitude.window_radius;
+        const py::ssize_t                rows  = static_cast<py::ssize_t>(result.magnitude.dtw_path.size());
+        const std::array<py::ssize_t, 2> shape = {rows, 2};
+        py::array_t<Index>               path(shape);
+        auto                             view = path.mutable_unchecked<2>();
+        for (py::ssize_t row = 0; row < view.shape(0); ++row) {
+            const DtwPathCell& cell = result.magnitude.dtw_path[static_cast<std::size_t>(row)];
+            view(row, 0)            = cell.comparison_index;
+            view(row, 1)            = cell.reference_index;
+        }
+        out["magnitude_dtw_path"] = std::move(path);
+
+        out["slope_numerator"]   = result.slope.numerator;
+        out["slope_denominator"] = result.slope.denominator;
+        out["slope_error"]       = result.slope.error;
+    }
 }
 
-py::dict score_components (py::array reference_curve, py::array comparison_curve, py::dict params) {
+py::dict score_components (py::array reference_curve, py::array comparison_curve, py::dict params,
+                           bool store_validation) {
     const ValidatedCurves curves       = validate_curves(reference_curve, comparison_curve);
     ScoreParams           score_params = score_params_from_dict(params);
     validation::validate_score_params(score_params);
@@ -581,15 +613,15 @@ py::dict score_components (py::array reference_curve, py::array comparison_curve
     ScoreResult result;
     {
         py::gil_scoped_release release;
-        result =
-            engine::dispatch_table().score_components(reference_values, comparison_values, score_params, curves.dt);
+        result = engine::dispatch_table().score_components(reference_values, comparison_values, score_params, curves.dt,
+                                                           store_validation);
     }
 
     emit_component_warnings(curves.diagnostics);
     emit_score_warnings(result);
 
     py::dict out;
-    add_score_fields(out, result);
+    add_score_fields(out, result, curves, store_validation);
     return out;
 }
 
@@ -606,5 +638,5 @@ PYBIND11_MODULE (_core, m) {
     m.doc() = "Clean-room native ISO/TS 18571 engine";
     m.def("backend_info", &backend_info);
     m.def("_score_components", &score_components, py::arg("reference_curve"), py::arg("comparison_curve"),
-          py::arg("params"));
+          py::arg("params"), py::arg("store_validation"));
 }

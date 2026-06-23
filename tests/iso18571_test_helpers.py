@@ -51,19 +51,19 @@ class AnnexParityResult:
 
 class Scorer(Protocol):
     @property
-    def n_eps(self) -> int: ...
+    def n_eps(self) -> int | None: ...
 
     @property
-    def rho_e(self) -> float: ...
+    def rho_e(self) -> float | None: ...
 
     @property
-    def reference_start(self) -> int: ...
+    def reference_start(self) -> int | None: ...
 
     @property
-    def comparison_start(self) -> int: ...
+    def comparison_start(self) -> int | None: ...
 
     @property
-    def shift_length(self) -> int: ...
+    def shift_length(self) -> int | None: ...
 
     def corridor_rating(self, ndigits: int = 3) -> float: ...
 
@@ -114,6 +114,7 @@ def scores_for_case(case: AnnexCase, backend: str) -> AnnexParityResult:
         iso = iso18571.ISO18571(
             case.reference_curve,
             case.comparison_curve,
+            store_validation=True,
         )
     elif backend == "dtwalign":
         iso = rating_dtwalign.ISO18571(
@@ -142,13 +143,23 @@ def scores_for_case(case: AnnexCase, backend: str) -> AnnexParityResult:
         "ES_round": iso.slope_rating(ndigits=3),
         "R_round": iso.overall_rating(ndigits=3),
     }
+    n_eps = iso.n_eps
+    rho_e = iso.rho_e
+    reference_start = iso.reference_start
+    comparison_start = iso.comparison_start
+    shift_length = iso.shift_length
+    assert n_eps is not None
+    assert rho_e is not None
+    assert reference_start is not None
+    assert comparison_start is not None
+    assert shift_length is not None
     return AnnexParityResult(
         scores=scores,
-        n_eps=iso.n_eps,
-        rho_e=iso.rho_e,
-        reference_start=iso.reference_start,
-        comparison_start=iso.comparison_start,
-        shift_length=iso.shift_length,
+        n_eps=n_eps,
+        rho_e=rho_e,
+        reference_start=reference_start,
+        comparison_start=comparison_start,
+        shift_length=shift_length,
     )
 
 

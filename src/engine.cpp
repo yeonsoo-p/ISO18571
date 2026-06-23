@@ -67,7 +67,6 @@ using engine::DiagnosticSeverity;
 using engine::DoubleSpan;
 using engine::Index;
 using engine::MagnitudeResult;
-using engine::PhaseAlignment;
 using engine::PhaseResult;
 using engine::ScoreParams;
 using engine::ScoreResult;
@@ -867,12 +866,12 @@ f64 correlation_from_cached_product (const PhaseCache& cache, Index reference_st
 PhaseResult phase_candidate_for_shift (DoubleSpan reference, DoubleSpan comparison, Index reference_start,
                                        Index comparison_start, Index length, Index n_eps, f64 max_shift) {
     PhaseResult result;
-    result.alignment.reference_start  = reference_start;
-    result.alignment.comparison_start = comparison_start;
-    result.alignment.length           = length;
-    result.alignment.n_eps            = n_eps;
-    result.alignment.max_shift        = max_shift;
-    result.correlation.rho_e =
+    result.reference_start  = reference_start;
+    result.comparison_start = comparison_start;
+    result.length           = length;
+    result.n_eps            = n_eps;
+    result.max_shift        = max_shift;
+    result.rho_e =
         correlation_for_shift(reference, comparison, reference_start, comparison_start, length, result.diagnostics);
     return result;
 }
@@ -880,12 +879,12 @@ PhaseResult phase_candidate_for_shift (DoubleSpan reference, DoubleSpan comparis
 PhaseResult phase_candidate_from_correlation (Index reference_start, Index comparison_start, Index length, Index n_eps,
                                               f64 max_shift, f64 rho_e) {
     PhaseResult result;
-    result.alignment.reference_start  = reference_start;
-    result.alignment.comparison_start = comparison_start;
-    result.alignment.length           = length;
-    result.alignment.n_eps            = n_eps;
-    result.alignment.max_shift        = max_shift;
-    result.correlation.rho_e          = rho_e;
+    result.reference_start  = reference_start;
+    result.comparison_start = comparison_start;
+    result.length           = length;
+    result.n_eps            = n_eps;
+    result.max_shift        = max_shift;
+    result.rho_e            = rho_e;
     return result;
 }
 
@@ -904,15 +903,15 @@ PhaseResult phase_candidate_from_fft_product (DoubleSpan reference, DoubleSpan c
     if (std::isnan(rho_e)) {
         PhaseResult direct = phase_candidate_for_shift(reference, comparison, reference_start, comparison_start, length,
                                                        n_eps, max_shift);
-        cached_rho         = direct.correlation.rho_e;
+        cached_rho         = direct.rho_e;
         return direct;
     }
     return phase_candidate_from_correlation(reference_start, comparison_start, length, n_eps, max_shift, rho_e);
 }
 
 void select_phase_candidate (PhaseResult& result, f64& ccr_max, const PhaseResult& candidate) {
-    if (candidate.correlation.rho_e > ccr_max + CORRELATION_TIE_TOLERANCE) {
-        ccr_max = candidate.correlation.rho_e;
+    if (candidate.rho_e > ccr_max + CORRELATION_TIE_TOLERANCE) {
+        ccr_max = candidate.rho_e;
         result  = candidate;
     }
 }
@@ -921,7 +920,7 @@ PhaseResult refine_fft_phase_result (DoubleSpan reference, DoubleSpan comparison
                                      f64 max_shift, f64 fft_ccr_max, const std::vector<f64>& left_cached_rho,
                                      const std::vector<f64>& right_cached_rho) {
     PhaseResult refined = phase_candidate_for_shift(reference, comparison, 0, 0, span_size(reference), 0, max_shift);
-    f64         refined_ccr = refined.correlation.rho_e;
+    f64         refined_ccr = refined.rho_e;
 
     for (Index idx = 1; idx < bounded_window_size; ++idx) {
         const Index length = span_size(reference) - idx;
@@ -954,14 +953,14 @@ PhaseResult compute_phase_alignment (DoubleSpan reference, DoubleSpan comparison
     const Index comparison_n = span_size(comparison);
     const f64   max_shift    = std::round((1.0 - params.init_min) * 100.0) / 100.0;
     PhaseResult result       = phase_candidate_for_shift(reference, comparison, 0, 0, reference_n, 0, max_shift);
-    if (result.correlation.rho_e == 1.0) {
+    if (result.rho_e == 1.0) {
         return result;
     }
 
     const Index      window_size = static_cast<Index>(std::floor(static_cast<f64>(comparison_n) * max_shift) + 1.0);
     const Index      bounded_window_size = std::min(window_size, reference_n);
     const PhaseCache cache               = build_phase_cache(reference, comparison);
-    f64              ccr_max             = result.correlation.rho_e;
+    f64              ccr_max             = result.rho_e;
 
     const PhaseProductSums sums = fft_product_sums(reference, comparison);
     std::vector<f64>       left_cached_rho(static_cast<std::size_t>(bounded_window_size),
@@ -984,7 +983,7 @@ PhaseResult compute_phase_alignment (DoubleSpan reference, DoubleSpan comparison
     result = refine_fft_phase_result(reference, comparison, bounded_window_size, max_shift, ccr_max, left_cached_rho,
                                      right_cached_rho);
 
-    if (result.alignment.length < 9) {
+    if (result.length < 9) {
         result = phase_candidate_for_shift(reference, comparison, 0, 0, reference_n, 0, max_shift);
         append_warning(result.diagnostics, DiagnosticComponent::Phase, DiagnosticCode::PhaseShiftClampedToUnshifted);
     }
@@ -1026,15 +1025,15 @@ f64 corridor_score (DoubleSpan reference, DoubleSpan comparison, const ScorePara
     return sum / static_cast<f64>(n);
 }
 
-f64 phase_score (DoubleSpan reference, const ScoreParams& params, const PhaseAlignment& alignment) {
-    const f64 max_allowable_time_shift_threshold = static_cast<f64>(span_size(reference)) * alignment.max_shift;
-    if (alignment.n_eps == 0) {
+f64 phase_score (DoubleSpan reference, const ScoreParams& params, const PhaseResult& phase) {
+    const f64 max_allowable_time_shift_threshold = static_cast<f64>(span_size(reference)) * phase.max_shift;
+    if (phase.n_eps == 0) {
         return 1.0;
     }
-    if (std::abs(static_cast<f64>(alignment.n_eps)) >= max_allowable_time_shift_threshold) {
+    if (std::abs(static_cast<f64>(phase.n_eps)) >= max_allowable_time_shift_threshold) {
         return 0.0;
     }
-    return integer_power((max_allowable_time_shift_threshold - std::abs(static_cast<f64>(alignment.n_eps))) /
+    return integer_power((max_allowable_time_shift_threshold - std::abs(static_cast<f64>(phase.n_eps))) /
                              max_allowable_time_shift_threshold,
                          params.k_p);
 }
@@ -1142,21 +1141,29 @@ SlopeResult fused_slope_score_from_values (DoubleSpan reference_values, DoubleSp
     return {(params.e_s - e_slope) / params.e_s, {}};
 }
 
-ScoreResult score_components_impl (DoubleSpan reference, DoubleSpan comparison, const ScoreParams& params, f64 dt) {
+ScoreResult score_components_impl (DoubleSpan reference, DoubleSpan comparison, const ScoreParams& params, f64 dt,
+                                   bool store_validation) {
     ScoreResult result;
-    result.phase          = compute_phase_alignment(reference, comparison, params);
+    PhaseResult phase     = compute_phase_alignment(reference, comparison, params);
     result.corridor.score = corridor_score(reference, comparison, params);
-    result.phase.score    = phase_score(reference, params, result.phase.alignment);
+    result.phase.score    = phase_score(reference, params, phase);
 
-    const DoubleSpan aligned_comparison =
-        comparison.subspan(offset(result.phase.alignment.comparison_start), offset(result.phase.alignment.length));
-    const DoubleSpan aligned_reference =
-        reference.subspan(offset(result.phase.alignment.reference_start), offset(result.phase.alignment.length));
+    const DoubleSpan aligned_comparison = comparison.subspan(offset(phase.comparison_start), offset(phase.length));
+    const DoubleSpan aligned_reference  = reference.subspan(offset(phase.reference_start), offset(phase.length));
 
-    result.magnitude = magnitude_score_from_values(aligned_reference, aligned_comparison, params);
-    result.slope     = fused_slope_score_from_values(aligned_reference, aligned_comparison, params, dt);
-    result.overall   = params.w_z * result.corridor.score + params.w_p * result.phase.score +
-                       params.w_m * result.magnitude.score + params.w_s * result.slope.score;
+    result.magnitude         = magnitude_score_from_values(aligned_reference, aligned_comparison, params);
+    result.slope             = fused_slope_score_from_values(aligned_reference, aligned_comparison, params, dt);
+    result.overall           = params.w_z * result.corridor.score + params.w_p * result.phase.score +
+                               params.w_m * result.magnitude.score + params.w_s * result.slope.score;
+    result.phase.diagnostics = std::move(phase.diagnostics);
+    if (store_validation) {
+        result.phase.reference_start  = phase.reference_start;
+        result.phase.comparison_start = phase.comparison_start;
+        result.phase.length           = phase.length;
+        result.phase.n_eps            = phase.n_eps;
+        result.phase.rho_e            = phase.rho_e;
+        result.phase.max_shift        = phase.max_shift;
+    }
     return result;
 }
 
@@ -1164,8 +1171,9 @@ ScoreResult score_components_impl (DoubleSpan reference, DoubleSpan comparison, 
 
 namespace engine {
 
-ScoreResult VARIANT (score_components)(DoubleSpan reference, DoubleSpan comparison, const ScoreParams& params, f64 dt) {
-    return score_components_impl(reference, comparison, params, dt);
+ScoreResult VARIANT (score_components)(DoubleSpan reference, DoubleSpan comparison, const ScoreParams& params, f64 dt,
+                                       bool store_validation) {
+    return score_components_impl(reference, comparison, params, dt, store_validation);
 }
 
 } // namespace engine
