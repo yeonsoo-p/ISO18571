@@ -579,11 +579,9 @@ void add_score_fields (py::dict& out, const ScoreResult& result, const Validated
         out["phase_shift_length"]     = result.phase.length;
         out["phase_max_shift"]        = result.phase.max_shift;
 
-        out["magnitude_numerator"]     = result.magnitude.numerator;
-        out["magnitude_denominator"]   = result.magnitude.denominator;
-        out["magnitude_error"]         = result.magnitude.error;
-        out["magnitude_dtw_cost"]      = result.magnitude.dtw_cost;
-        out["magnitude_window_radius"] = result.magnitude.window_radius;
+        out["magnitude_numerator"]   = result.magnitude.numerator;
+        out["magnitude_denominator"] = result.magnitude.denominator;
+        out["magnitude_error"]       = result.magnitude.error;
 
         out["slope_numerator"]   = result.slope.numerator;
         out["slope_denominator"] = result.slope.denominator;

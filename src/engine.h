@@ -86,11 +86,9 @@ struct MagnitudeResult {
     f64 score = 0.0;
 
     // Validation
-    f64   numerator     = 0.0;
-    f64   denominator   = 0.0;
-    f64   error         = 0.0;
-    f64   dtw_cost      = 0.0;
-    Index window_radius = 0;
+    f64 numerator   = 0.0;
+    f64 denominator = 0.0;
+    f64 error       = 0.0;
 
     // Diagnostics
     std::vector<Diagnostic> diagnostics;

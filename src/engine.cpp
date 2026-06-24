@@ -709,10 +709,6 @@ std::pair<f64, f64> magnitude_error_from_dtw (MagnitudeResult& result, DoubleSpa
     if (!std::isfinite(previous_cost[final_index])) {
         throw std::runtime_error("No valid ISO DTW path found");
     }
-    if (store_validation) {
-        result.window_radius = radius;
-        result.dtw_cost      = previous_cost[final_index];
-    }
     return {previous_numerator[final_index], previous_denominator[final_index]};
 }
 

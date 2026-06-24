@@ -50,8 +50,6 @@ class ScoreComponents(TypedDict):
     magnitude_numerator: NotRequired[float]
     magnitude_denominator: NotRequired[float]
     magnitude_error: NotRequired[float]
-    magnitude_dtw_cost: NotRequired[float]
-    magnitude_window_radius: NotRequired[int]
 
     # Slope validation
     slope_numerator: NotRequired[float]
@@ -169,14 +167,6 @@ class ISO18571:
     @property
     def magnitude_error(self) -> float | None:
         return self._validation_float("magnitude_error")
-
-    @property
-    def magnitude_dtw_cost(self) -> float | None:
-        return self._validation_float("magnitude_dtw_cost")
-
-    @property
-    def magnitude_window_radius(self) -> int | None:
-        return self._validation_int("magnitude_window_radius")
 
     @property
     def slope_numerator(self) -> float | None:
