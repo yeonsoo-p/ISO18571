@@ -2,56 +2,35 @@
 
 ## ISO/TS 18571 Native Scorer
 
-- The native scorer must remain clean-room. Do not copy implementation code from
-  third-party DTW packages.
+- The native scorer must remain clean-room. Do not copy implementation code from third-party DTW packages.
 
 ## Current Package Shape
 
 - The public production scorer is `iso18571.ISO18571`.
-- The native extension module is `iso18571._core`; public package exports are
-  `ISO18571`, `backend_info`, and `ScoreComponents`.
-- Reference scorers live in source-only `reference` and are used for
-  tests/research only:
+- The native extension module is `iso18571._core`; public package exports are `ISO18571`, `backend_info`, and `ScoreComponents`.
+- Reference scorers live in source-only `reference` and are used for tests/research only:
   - `rating_dtwalign.ISO18571`;
   - `rating_dtw_python.ISO18571`;
   - `rating_librosa.ISO18571`.
-- Do not install `reference` into production wheels.
+- Do not install `reference` `tools` `tests` into production wheels.
 
 ## Correctness
 
-- Preserve the NumPy `(n, 2)` curve input contract, including strided arrays and numeric force-casting to `float64`.
+- Preserve the NumPy `(n, 2)` curve input contract.
 - Preserve ISO/TS 18571 DTW behavior already captured in this repo:
-  - squared local cost;
-  - Sakoe-Chiba radius `min(n, max(1, ceil(window_size*n)))`;
-  - valid cells where `abs(i-j) < radius`;
-  - predecessor tie priority vertical, horizontal, diagonal;
-  - Annex `R`, `Z`, `EP`, `EM`, and `ES` within `0.001`.
-- Generated Annex parity compares four full scorers: `native`, `dtwalign`,
-  `dtw_python`, and `librosa`.
-- Generated parity compares `n_eps`, `rho_e`, unrounded scores, and rounded
-  three-decimal scores. Degenerate generated cases pass only when all four
-  scorers produce matching numeric results with `equal_nan=True` or matching
-  exception types.
-- Avoid perfectly affine synthetic ramps as strict phase-oracle cases because
-  NumPy/BLAS last-bit behavior can decide strict-correlation ties.
 
 ## Native Build
 
-- The native extension is built with CMake through scikit-build-core. Do not
-  reintroduce `setup.py`.
+- The native extension is built with CMake through scikit-build-core.
 - Implementation source belongs under `src/`.
-- Native C++ uses the fixed-width and numeric aliases from `src/types.h`:
-  `u8`, `u16`, `u32`, `u64`, `i8`, `i16`, `i32`, `i64`, `f16`, `f32`,
-  `f64`, `f128`, `c64`, `c128`, and `c256`.
-- `f128` and `c256` intentionally mean `long double` and
-  `std::complex<long double>`; they are not guaranteed IEEE binary128.
-- Do not replace semantic/platform-sized types with fixed-width aliases. Keep
-  `std::size_t`, `std::uintptr_t`, `py::ssize_t`, and `Index` as written.
+- Native C++ uses the fixed-width and numeric aliases from `src/types.h`: `u8`, `u16`, `u32`, `u64`, `i8`, `i16`, `i32`, `i64`, `f16`, `f32`, `f64`, `f128`, `c64`, `c128`, and `c256`.
+- `f128` and `c256` intentionally mean `long double` and `std::complex<long double>`; they are not guaranteed IEEE binary128.
+- Do not replace semantic/platform-sized types with fixed-width aliases. Keep `std::size_t`, `std::uintptr_t`, `py::ssize_t`, and `Index` as written.
 - Keep GCC/Clang `-O3`, MSVC `/O2 /fp:precise`, and no fast-math or native-CPU
   flags.
 - C++ should build with warning flags enabled. Suppress warnings only narrowly
   and document why.
-- The scorer is scalar-source C++ with internal x86-64 level dispatch:
+- The scorer engine is scalar-source C++ with internal x86-64 level dispatch:
   - v1 builds always;
   - GCC/Clang compile v2/v3/v4 source variants on a best-effort basis;
   - MSVC compiles v3/v4 variants on a best-effort basis because it has no direct
@@ -59,17 +38,15 @@
   - runtime C++ initialization selects the highest compiled-and-supported level
     once and stores direct function pointers;
   - Python does not configure dispatch, but `backend_info()` reports it.
+- Other artifacts that consist the binary should be built in v1 to guarantee maximum portability
 
 ## Test And Style
 
-- Do not use pytest outcome helpers in tests or `tests/conftest.py`; outcomes
-  should be normal `assert` or explicit `raise AssertionError`.
-- Expected degenerate numeric warnings must be caught and asserted explicitly;
-  unexpected warnings should fail tests.
+- Test outcomes should explicitly `assert` or `raise`.
 - Avoid inline imports in project Python. Use module-level imports or shared
   loading helpers.
-- `ref/` is ignored reference material. Do not lint, package, or build files from
-  `ref/`.
+- Avoid resorting to `assert` or `cast` to satisfy mypy constraints.
+- `reference/` is ignored reference material.
 - Install commit hooks once per checkout with:
   - `uv run --extra test pre-commit install`
 - Before committing code changes, let the installed hook run or run:
