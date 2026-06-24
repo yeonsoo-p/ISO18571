@@ -1,5 +1,5 @@
-#include "engine.h"
 #include "dispatch.h"
+#include "engine.h"
 #include "validation.h"
 
 #include <algorithm>
@@ -11,51 +11,8 @@
 #include <utility>
 #include <vector>
 
-#if defined(ISO18571_ENGINE_DISPATCH)
-
-namespace engine {
-
-namespace {
-
-DispatchTable make_dispatch_table () {
-    switch (dispatch::best_x86_64_level(dispatch::compiled_levels())) {
-    case dispatch::X86_64Level::V4:
-#if defined(ISO18571_COMPILED_X86_64_V4)
-        return {score_components_v4, dispatch::level_name(dispatch::X86_64Level::V4)};
-#else
-        break;
-#endif
-    case dispatch::X86_64Level::V3:
-#if defined(ISO18571_COMPILED_X86_64_V3)
-        return {score_components_v3, dispatch::level_name(dispatch::X86_64Level::V3)};
-#else
-        break;
-#endif
-    case dispatch::X86_64Level::V2:
-#if defined(ISO18571_COMPILED_X86_64_V2)
-        return {score_components_v2, dispatch::level_name(dispatch::X86_64Level::V2)};
-#else
-        break;
-#endif
-    case dispatch::X86_64Level::V1:
-        return {score_components_v1, dispatch::level_name(dispatch::X86_64Level::V1)};
-    }
-    return {score_components_v1, dispatch::level_name(dispatch::X86_64Level::V1)};
-}
-
-} // namespace
-
-const DispatchTable& dispatch_table () {
-    static const DispatchTable table = make_dispatch_table();
-    return table;
-}
-
-} // namespace engine
-
-#else
-
 #ifndef IMPL_SUFFIX
-#error "IMPL_SUFFIX must be defined before including engine.cpp"
+#error "IMPL_SUFFIX must be defined before compiling engine_impl.cpp"
 #endif
 
 namespace {
@@ -523,8 +480,7 @@ Index window_radius (Index n, f64 window_size) {
     return std::min<Index>(n, std::max<Index>(1, raw));
 }
 
-std::pair<f64, f64> magnitude_error_from_dtw (MagnitudeResult& result, DoubleSpan x, DoubleSpan y, f64 window_size,
-                                              const bool store_validation) {
+std::pair<f64, f64> magnitude_error_from_dtw (MagnitudeResult& result, DoubleSpan x, DoubleSpan y, f64 window_size) {
     const Index n      = span_size(x);
     const Index radius = window_radius(n, window_size);
     const f64   inf    = std::numeric_limits<f64>::infinity();
@@ -1057,9 +1013,9 @@ void phase_score (PhaseResult& result, DoubleSpan reference, DoubleSpan comparis
 }
 
 void magnitude_score (MagnitudeResult& result, DoubleSpan reference_values, DoubleSpan comparison_values,
-                      const ScoreParams& params, const bool store_validation) {
+                      const ScoreParams& params) {
     const std::pair<f64, f64> magnitude_error =
-        magnitude_error_from_dtw(result, comparison_values, reference_values, 0.1, store_validation);
+        magnitude_error_from_dtw(result, comparison_values, reference_values, 0.1);
     const f64 numerator   = magnitude_error.first;
     const f64 denominator = magnitude_error.second;
 
@@ -1170,8 +1126,7 @@ void slope_score (SlopeResult& result, DoubleSpan reference_values, DoubleSpan c
     result.score = (params.e_s - e_slope) / params.e_s;
 }
 
-ScoreResult score_components_impl (DoubleSpan reference, DoubleSpan comparison, const ScoreParams& params, f64 dt,
-                                   const bool store_validation) {
+ScoreResult score_components_impl (DoubleSpan reference, DoubleSpan comparison, const ScoreParams& params, f64 dt) {
     ScoreResult result;
     corridor_score(result.corridor, reference, comparison, params);
     phase_score(result.phase, reference, comparison, params);
@@ -1181,7 +1136,7 @@ ScoreResult score_components_impl (DoubleSpan reference, DoubleSpan comparison, 
     const DoubleSpan aligned_reference =
         reference.subspan(offset(result.phase.reference_start), offset(result.phase.length));
 
-    magnitude_score(result.magnitude, aligned_reference, aligned_comparison, params, store_validation);
+    magnitude_score(result.magnitude, aligned_reference, aligned_comparison, params);
     slope_score(result.slope, aligned_reference, aligned_comparison, params, dt);
     result.overall = params.w_z * result.corridor.score + params.w_p * result.phase.score +
                      params.w_m * result.magnitude.score + params.w_s * result.slope.score;
@@ -1193,11 +1148,8 @@ ScoreResult score_components_impl (DoubleSpan reference, DoubleSpan comparison, 
 
 namespace engine {
 
-ScoreResult VARIANT (score_components)(DoubleSpan reference, DoubleSpan comparison, const ScoreParams& params, f64 dt,
-                                       bool store_validation) {
-    return score_components_impl(reference, comparison, params, dt, store_validation);
+ScoreResult VARIANT (score_components)(DoubleSpan reference, DoubleSpan comparison, const ScoreParams& params, f64 dt) {
+    return score_components_impl(reference, comparison, params, dt);
 }
 
 } // namespace engine
-
-#endif

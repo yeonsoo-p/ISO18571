@@ -115,29 +115,25 @@ struct ScoreResult {
     f64             overall = 0.0;
 };
 
-using ScoreComponentsFn = ScoreResult (*)(DoubleSpan, DoubleSpan, const ScoreParams&, f64, bool);
+using ScoreComponentsFn = ScoreResult (*)(DoubleSpan, DoubleSpan, const ScoreParams&, f64);
 
 struct DispatchTable {
     ScoreComponentsFn score_components = nullptr;
     const char*       level            = "x86-64-v1";
 };
 
-ScoreResult score_components_v1 (DoubleSpan reference, DoubleSpan comparison, const ScoreParams& params, f64 dt,
-                                 bool store_validation);
+ScoreResult score_components_v1 (DoubleSpan reference, DoubleSpan comparison, const ScoreParams& params, f64 dt);
 
 #if defined(ISO18571_COMPILED_X86_64_V2)
-ScoreResult score_components_v2 (DoubleSpan reference, DoubleSpan comparison, const ScoreParams& params, f64 dt,
-                                 bool store_validation);
+ScoreResult score_components_v2 (DoubleSpan reference, DoubleSpan comparison, const ScoreParams& params, f64 dt);
 #endif
 
 #if defined(ISO18571_COMPILED_X86_64_V3)
-ScoreResult score_components_v3 (DoubleSpan reference, DoubleSpan comparison, const ScoreParams& params, f64 dt,
-                                 bool store_validation);
+ScoreResult score_components_v3 (DoubleSpan reference, DoubleSpan comparison, const ScoreParams& params, f64 dt);
 #endif
 
 #if defined(ISO18571_COMPILED_X86_64_V4)
-ScoreResult score_components_v4 (DoubleSpan reference, DoubleSpan comparison, const ScoreParams& params, f64 dt,
-                                 bool store_validation);
+ScoreResult score_components_v4 (DoubleSpan reference, DoubleSpan comparison, const ScoreParams& params, f64 dt);
 #endif
 
 const DispatchTable& dispatch_table ();

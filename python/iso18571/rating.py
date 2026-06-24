@@ -1,12 +1,8 @@
 from __future__ import annotations
 
 from typing import (
-    NotRequired,
     TypedDict,
     TypeAlias,
-    Mapping,
-    SupportsFloat,
-    SupportsIndex,
 )
 import numpy as np
 from numpy.typing import NDArray
@@ -31,30 +27,30 @@ class ScoreComponents(TypedDict):
     R: float
 
     # Input validation
-    dt: NotRequired[float]
+    dt: float
 
     # Corridor validation
-    corridor_t_norm: NotRequired[float]
-    corridor_inner_half_width: NotRequired[float]
-    corridor_outer_half_width: NotRequired[float]
+    corridor_t_norm: float
+    corridor_inner_half_width: float
+    corridor_outer_half_width: float
 
     # Phase validation
-    phase_n_eps: NotRequired[int]
-    phase_rho_e: NotRequired[float]
-    phase_reference_start: NotRequired[int]
-    phase_comparison_start: NotRequired[int]
-    phase_shift_length: NotRequired[int]
-    phase_max_shift: NotRequired[float]
+    phase_n_eps: int
+    phase_rho_e: float
+    phase_reference_start: int
+    phase_comparison_start: int
+    phase_shift_length: int
+    phase_max_shift: float
 
     # Magnitude validation
-    magnitude_numerator: NotRequired[float]
-    magnitude_denominator: NotRequired[float]
-    magnitude_error: NotRequired[float]
+    magnitude_numerator: float
+    magnitude_denominator: float
+    magnitude_error: float
 
     # Slope validation
-    slope_numerator: NotRequired[float]
-    slope_denominator: NotRequired[float]
-    slope_error: NotRequired[float]
+    slope_numerator: float
+    slope_denominator: float
+    slope_error: float
 
 
 class ISO18571:
@@ -74,14 +70,12 @@ class ISO18571:
         w_p: float = 0.2,
         w_m: float = 0.2,
         w_s: float = 0.2,
-        store_validation: bool = False,
     ) -> None:
         if np.ma.isMaskedArray(reference_curve):
             raise ValueError("reference_curve must not be a masked array")
         if np.ma.isMaskedArray(comparison_curve):
             raise ValueError("comparison_curve must not be a masked array")
 
-        self._store_validation = store_validation
         self._reference_curve = np.asarray(reference_curve)
         self._comparison_curve = np.asarray(comparison_curve)
         self._k_z = int(k_z)
@@ -104,129 +98,96 @@ class ISO18571:
                 "w_m": w_m,
                 "w_s": w_s,
             },
-            store_validation,
         )
-
-    def _validation_scores(self) -> Mapping[str, object]:
-        return self._scores
-
-    def _validation_float(self, key: str) -> float | None:
-        if not self._store_validation:
-            return None
-        value = self._validation_scores()[key]
-        assert isinstance(value, SupportsFloat)
-        return float(value)
-
-    def _validation_int(self, key: str) -> int | None:
-        if not self._store_validation:
-            return None
-        value = self._validation_scores()[key]
-        assert isinstance(value, SupportsIndex)
-        return int(value)
 
     @property
     def scores(self) -> ScoreComponents:
         return self._scores.copy()
 
     @property
-    def dt(self) -> float | None:
-        return self._validation_float("dt")
+    def dt(self) -> float:
+        return self._scores["dt"]
 
     @property
-    def phase_n_eps(self) -> int | None:
-        return self._validation_int("phase_n_eps")
+    def phase_n_eps(self) -> int:
+        return self._scores["phase_n_eps"]
 
     @property
-    def phase_rho_e(self) -> float | None:
-        return self._validation_float("phase_rho_e")
+    def phase_rho_e(self) -> float:
+        return self._scores["phase_rho_e"]
 
     @property
-    def phase_max_shift(self) -> float | None:
-        return self._validation_float("phase_max_shift")
+    def phase_max_shift(self) -> float:
+        return self._scores["phase_max_shift"]
 
     @property
-    def corridor_t_norm(self) -> float | None:
-        return self._validation_float("corridor_t_norm")
+    def corridor_t_norm(self) -> float:
+        return self._scores["corridor_t_norm"]
 
     @property
-    def corridor_inner_half_width(self) -> float | None:
-        return self._validation_float("corridor_inner_half_width")
+    def corridor_inner_half_width(self) -> float:
+        return self._scores["corridor_inner_half_width"]
 
     @property
-    def corridor_outer_half_width(self) -> float | None:
-        return self._validation_float("corridor_outer_half_width")
+    def corridor_outer_half_width(self) -> float:
+        return self._scores["corridor_outer_half_width"]
 
     @property
-    def magnitude_numerator(self) -> float | None:
-        return self._validation_float("magnitude_numerator")
+    def magnitude_numerator(self) -> float:
+        return self._scores["magnitude_numerator"]
 
     @property
-    def magnitude_denominator(self) -> float | None:
-        return self._validation_float("magnitude_denominator")
+    def magnitude_denominator(self) -> float:
+        return self._scores["magnitude_denominator"]
 
     @property
-    def magnitude_error(self) -> float | None:
-        return self._validation_float("magnitude_error")
+    def magnitude_error(self) -> float:
+        return self._scores["magnitude_error"]
 
     @property
-    def slope_numerator(self) -> float | None:
-        return self._validation_float("slope_numerator")
+    def slope_numerator(self) -> float:
+        return self._scores["slope_numerator"]
 
     @property
-    def slope_denominator(self) -> float | None:
-        return self._validation_float("slope_denominator")
+    def slope_denominator(self) -> float:
+        return self._scores["slope_denominator"]
 
     @property
-    def slope_error(self) -> float | None:
-        return self._validation_float("slope_error")
+    def slope_error(self) -> float:
+        return self._scores["slope_error"]
 
     @property
-    def shifted_reference_values(self) -> NumericArray | None:
-        if not self._store_validation:
-            return None
+    def shifted_reference_values(self) -> NumericArray:
         start = int(self._scores["phase_reference_start"])
         length = int(self._scores["phase_shift_length"])
         values: NumericArray = self._reference_curve[start : start + length, 1]
         return values
 
     @property
-    def shifted_comparison_values(self) -> NumericArray | None:
-        if not self._store_validation:
-            return None
+    def shifted_comparison_values(self) -> NumericArray:
         start = int(self._scores["phase_comparison_start"])
         length = int(self._scores["phase_shift_length"])
         values: NumericArray = self._comparison_curve[start : start + length, 1]
         return values
 
     @property
-    def corridor_outer_upper_values(self) -> NumericArray | None:
-        if not self._store_validation:
-            return None
+    def corridor_outer_upper_values(self) -> NumericArray:
         return self._reference_curve[:, 1] + self._scores["corridor_outer_half_width"]
 
     @property
-    def corridor_inner_upper_values(self) -> NumericArray | None:
-        if not self._store_validation:
-            return None
+    def corridor_inner_upper_values(self) -> NumericArray:
         return self._reference_curve[:, 1] + self._scores["corridor_inner_half_width"]
 
     @property
-    def corridor_inner_lower_values(self) -> NumericArray | None:
-        if not self._store_validation:
-            return None
+    def corridor_inner_lower_values(self) -> NumericArray:
         return self._reference_curve[:, 1] - self._scores["corridor_inner_half_width"]
 
     @property
-    def corridor_outer_lower_values(self) -> NumericArray | None:
-        if not self._store_validation:
-            return None
+    def corridor_outer_lower_values(self) -> NumericArray:
         return self._reference_curve[:, 1] - self._scores["corridor_outer_half_width"]
 
     @property
-    def corridor_point_scores(self) -> NDArray[np.float64] | None:
-        if not self._store_validation:
-            return None
-
+    def corridor_point_scores(self) -> NDArray[np.float64]:
         t_norm = float(self._scores["corridor_t_norm"])
         inner = float(self._scores["corridor_inner_half_width"])
         outer = float(self._scores["corridor_outer_half_width"])
@@ -270,39 +231,25 @@ class ISO18571:
         return smoothed
 
     @property
-    def raw_reference_slope_values(self) -> NumericArray | None:
-        if not self._store_validation:
-            return None
+    def raw_reference_slope_values(self) -> NumericArray:
         values = self.shifted_reference_values
         dt = self.dt
-        assert values is not None
-        assert dt is not None
         return ISO18571._gradient_values(values, dt)
 
     @property
-    def raw_comparison_slope_values(self) -> NumericArray | None:
-        if not self._store_validation:
-            return None
+    def raw_comparison_slope_values(self) -> NumericArray:
         values = self.shifted_comparison_values
         dt = self.dt
-        assert values is not None
-        assert dt is not None
         return ISO18571._gradient_values(values, dt)
 
     @property
-    def smoothed_reference_slope_values(self) -> NumericArray | None:
-        if not self._store_validation:
-            return None
+    def smoothed_reference_slope_values(self) -> NumericArray:
         raw = self.raw_reference_slope_values
-        assert raw is not None
         return ISO18571._smoothed_slope_values(raw)
 
     @property
-    def smoothed_comparison_slope_values(self) -> NumericArray | None:
-        if not self._store_validation:
-            return None
+    def smoothed_comparison_slope_values(self) -> NumericArray:
         raw = self.raw_comparison_slope_values
-        assert raw is not None
         return ISO18571._smoothed_slope_values(raw)
 
     @staticmethod

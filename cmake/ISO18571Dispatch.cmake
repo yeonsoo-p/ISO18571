@@ -3,7 +3,7 @@ include_guard(GLOBAL)
 include(CheckCXXCompilerFlag)
 
 function(iso18571_add_engine_variant target_name suffix flag)
-    add_library("${target_name}" OBJECT "${CMAKE_CURRENT_SOURCE_DIR}/src/engine.cpp")
+    add_library("${target_name}" OBJECT "${CMAKE_CURRENT_SOURCE_DIR}/src/engine_impl.cpp")
     target_include_directories("${target_name}" PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
     target_compile_definitions("${target_name}" PRIVATE "IMPL_SUFFIX=${suffix}")
     iso18571_configure_native_target("${target_name}")
@@ -17,13 +17,11 @@ function(iso18571_add_engine_variant target_name suffix flag)
 endfunction()
 
 function(iso18571_add_engine_dispatch target_name)
-    add_library("${target_name}" OBJECT "${CMAKE_CURRENT_SOURCE_DIR}/src/engine.cpp")
+    add_library("${target_name}" OBJECT "${CMAKE_CURRENT_SOURCE_DIR}/src/engine_dispatch.cpp")
     target_include_directories("${target_name}" PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
-    target_compile_definitions(
-        "${target_name}"
-        PRIVATE ISO18571_ENGINE_DISPATCH=1 ${ISO18571_ENGINE_DEFINITIONS}
-    )
+    target_compile_definitions("${target_name}" PRIVATE ${ISO18571_ENGINE_DEFINITIONS})
     iso18571_configure_native_target("${target_name}")
+    iso18571_configure_x86_64_v1_target("${target_name}")
 
     list(APPEND ISO18571_ENGINE_OBJECTS "$<TARGET_OBJECTS:${target_name}>")
     set(ISO18571_ENGINE_OBJECTS "${ISO18571_ENGINE_OBJECTS}" PARENT_SCOPE)

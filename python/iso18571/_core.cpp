@@ -559,38 +559,35 @@ void emit_score_warnings (const ScoreResult& result) {
     emit_component_warnings(result.slope.diagnostics);
 }
 
-void add_score_fields (py::dict& out, const ScoreResult& result, const ValidatedCurves& curves, bool store_validation) {
+void add_score_fields (py::dict& out, const ScoreResult& result, const ValidatedCurves& curves) {
     out["Z"]  = result.corridor.score;
     out["EP"] = result.phase.score;
     out["EM"] = result.magnitude.score;
     out["ES"] = result.slope.score;
     out["R"]  = result.overall;
-    if (store_validation) {
-        out["dt"] = curves.dt;
+    out["dt"] = curves.dt;
 
-        out["corridor_t_norm"]           = result.corridor.t_norm;
-        out["corridor_inner_half_width"] = result.corridor.inner_half_width;
-        out["corridor_outer_half_width"] = result.corridor.outer_half_width;
+    out["corridor_t_norm"]           = result.corridor.t_norm;
+    out["corridor_inner_half_width"] = result.corridor.inner_half_width;
+    out["corridor_outer_half_width"] = result.corridor.outer_half_width;
 
-        out["phase_n_eps"]            = result.phase.n_eps;
-        out["phase_rho_e"]            = result.phase.rho_e;
-        out["phase_reference_start"]  = result.phase.reference_start;
-        out["phase_comparison_start"] = result.phase.comparison_start;
-        out["phase_shift_length"]     = result.phase.length;
-        out["phase_max_shift"]        = result.phase.max_shift;
+    out["phase_n_eps"]            = result.phase.n_eps;
+    out["phase_rho_e"]            = result.phase.rho_e;
+    out["phase_reference_start"]  = result.phase.reference_start;
+    out["phase_comparison_start"] = result.phase.comparison_start;
+    out["phase_shift_length"]     = result.phase.length;
+    out["phase_max_shift"]        = result.phase.max_shift;
 
-        out["magnitude_numerator"]   = result.magnitude.numerator;
-        out["magnitude_denominator"] = result.magnitude.denominator;
-        out["magnitude_error"]       = result.magnitude.error;
+    out["magnitude_numerator"]   = result.magnitude.numerator;
+    out["magnitude_denominator"] = result.magnitude.denominator;
+    out["magnitude_error"]       = result.magnitude.error;
 
-        out["slope_numerator"]   = result.slope.numerator;
-        out["slope_denominator"] = result.slope.denominator;
-        out["slope_error"]       = result.slope.error;
-    }
+    out["slope_numerator"]   = result.slope.numerator;
+    out["slope_denominator"] = result.slope.denominator;
+    out["slope_error"]       = result.slope.error;
 }
 
-py::dict score_components (py::array reference_curve, py::array comparison_curve, py::dict params,
-                           bool store_validation) {
+py::dict score_components (py::array reference_curve, py::array comparison_curve, py::dict params) {
     const ValidatedCurves curves       = validate_curves(reference_curve, comparison_curve);
     ScoreParams           score_params = score_params_from_dict(params);
     validation::validate_score_params(score_params);
@@ -600,15 +597,15 @@ py::dict score_components (py::array reference_curve, py::array comparison_curve
     ScoreResult result;
     {
         py::gil_scoped_release release;
-        result = engine::dispatch_table().score_components(reference_values, comparison_values, score_params, curves.dt,
-                                                           store_validation);
+        result =
+            engine::dispatch_table().score_components(reference_values, comparison_values, score_params, curves.dt);
     }
 
     emit_component_warnings(curves.diagnostics);
     emit_score_warnings(result);
 
     py::dict out;
-    add_score_fields(out, result, curves, store_validation);
+    add_score_fields(out, result, curves);
     return out;
 }
 
@@ -625,5 +622,5 @@ PYBIND11_MODULE (_core, m) {
     m.doc() = "Clean-room native ISO/TS 18571 engine";
     m.def("backend_info", &backend_info);
     m.def("_score_components", &score_components, py::arg("reference_curve"), py::arg("comparison_curve"),
-          py::arg("params"), py::arg("store_validation"));
+          py::arg("params"));
 }

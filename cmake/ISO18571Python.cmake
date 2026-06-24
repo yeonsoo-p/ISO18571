@@ -17,6 +17,7 @@ function(iso18571_add_python_module)
     pybind11_add_module(_core MODULE "${CMAKE_CURRENT_SOURCE_DIR}/python/iso18571/_core.cpp")
     target_link_libraries(_core PRIVATE iso18571_engine)
     iso18571_configure_native_target(_core)
+    iso18571_configure_x86_64_v1_target(_core)
 
     set(ISO18571_EXTENSION_SUFFIX "" CACHE STRING "Override native extension suffix for cross-built wheels")
     if(ISO18571_EXTENSION_SUFFIX)

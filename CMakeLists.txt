@@ -47,6 +47,7 @@ target_include_directories(iso18571_engine PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/s
 target_compile_features(iso18571_engine PUBLIC cxx_std_23)
 target_compile_definitions(iso18571_engine PRIVATE ${ISO18571_ENGINE_DEFINITIONS})
 iso18571_configure_native_target(iso18571_engine)
+iso18571_configure_x86_64_v1_target(iso18571_engine)
 
 option(ISO18571_BUILD_PYTHON "Build the iso18571 Python extension module" ON)
 if(ISO18571_BUILD_PYTHON)
