@@ -16,15 +16,22 @@
       - Expected response: Error < 0.001
     - Slope score ES
       - Expected response: Error < 0.001
-    - Original test and CAE signals
     - Inner corridor upper/lower curves
+      - Expected response: Compare scorer-generated curves directly; Error < 0.001
     - Outer corridor upper/lower curves
+      - Expected response: Compare scorer-generated curves directly; Error < 0.001
     - Phase-shifted test curve
+      - Expected response: Compare scorer-selected shifted curve directly; Error < 0.001
     - Phase-shifted CAE curve
+      - Expected response: Compare scorer-selected shifted curve directly; Error < 0.001
     - Slope of shifted test curve
+      - Expected response: Compare scorer-generated smoothed slope curve directly; Error < 0.001
     - Slope of shifted CAE curve
+      - Expected response: Compare scorer-generated smoothed slope curve directly; Error < 0.001
     - Warped time-shifted test curve
+      - Expected response: Do not compare native warped curve directly; use Annex curve as oracle input for magnitude numerator, denominator, and error
     - Warped time-shifted CAE curve
+      - Expected response: Do not compare native warped curve directly; use Annex curve as oracle input for magnitude numerator, denominator, and error
     - Magnitude numerator, denominator, and error from warped time-shifted curves
       - Expected response: Error < 0.001
 
