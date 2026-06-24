@@ -52,11 +52,6 @@ struct Diagnostic {
     DiagnosticCode      code;
 };
 
-struct DtwPathCell {
-    Index comparison_index = 0;
-    Index reference_index  = 0;
-};
-
 struct CorridorResult {
     // Score
     f64 score = 0.0;
@@ -96,8 +91,6 @@ struct MagnitudeResult {
     f64   error         = 0.0;
     f64   dtw_cost      = 0.0;
     Index window_radius = 0;
-
-    std::vector<DtwPathCell> dtw_path;
 
     // Diagnostics
     std::vector<Diagnostic> diagnostics;

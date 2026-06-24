@@ -24,3 +24,4 @@ examples/data/
 .python-version
 uv.lock
 .xwin-cache/
+.cache/

@@ -22,11 +22,6 @@ Numeric: TypeAlias = SignedInteger | UnsignedInteger | FloatingPoint | ComplexFl
 NumericArray: TypeAlias = NDArray[Numeric]
 
 
-class DtwPathCell(TypedDict):
-    comparison_index: int
-    reference_index: int
-
-
 class ScoreComponents(TypedDict):
     # Scores
     Z: float
@@ -57,7 +52,6 @@ class ScoreComponents(TypedDict):
     magnitude_error: NotRequired[float]
     magnitude_dtw_cost: NotRequired[float]
     magnitude_window_radius: NotRequired[int]
-    magnitude_dtw_path: NotRequired[NDArray[SignedInteger]]
 
     # Slope validation
     slope_numerator: NotRequired[float]
@@ -134,11 +128,7 @@ class ISO18571:
 
     @property
     def scores(self) -> ScoreComponents:
-        scores = self._scores.copy()
-        if self._store_validation and "magnitude_dtw_path" in scores:
-            path: NDArray[SignedInteger] = scores["magnitude_dtw_path"]
-            scores["magnitude_dtw_path"] = path.copy()
-        return scores
+        return self._scores.copy()
 
     @property
     def dt(self) -> float | None:
@@ -199,12 +189,6 @@ class ISO18571:
     @property
     def slope_error(self) -> float | None:
         return self._validation_float("slope_error")
-
-    @property
-    def magnitude_dtw_path(self) -> NDArray[SignedInteger] | None:
-        if not self._store_validation:
-            return None
-        return self._scores["magnitude_dtw_path"]
 
     @property
     def shifted_reference_values(self) -> NumericArray | None:
@@ -271,28 +255,6 @@ class ISO18571:
         point_scores[diff < inner] = 1.0
         point_scores[diff > outer] = 0.0
         return point_scores
-
-    @property
-    def warped_reference_values(self) -> NumericArray | None:
-        if not self._store_validation:
-            return None
-        shifted = self.shifted_reference_values
-        path = self.magnitude_dtw_path
-        assert shifted is not None
-        assert path is not None
-        values: NumericArray = shifted[path[:, 1]]
-        return values
-
-    @property
-    def warped_comparison_values(self) -> NumericArray | None:
-        if not self._store_validation:
-            return None
-        shifted = self.shifted_comparison_values
-        path = self.magnitude_dtw_path
-        assert shifted is not None
-        assert path is not None
-        values: NumericArray = shifted[path[:, 0]]
-        return values
 
     @staticmethod
     def _gradient_values(values: NumericArray, dt: float) -> NumericArray:

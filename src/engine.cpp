@@ -60,6 +60,7 @@ const DispatchTable& dispatch_table () {
 
 namespace {
 
+using engine::CorridorResult;
 using engine::Diagnostic;
 using engine::DiagnosticCode;
 using engine::DiagnosticComponent;
@@ -522,7 +523,8 @@ Index window_radius (Index n, f64 window_size) {
     return std::min<Index>(n, std::max<Index>(1, raw));
 }
 
-std::pair<f64, f64> magnitude_error_from_dtw (DoubleSpan x, DoubleSpan y, f64 window_size) {
+std::pair<f64, f64> magnitude_error_from_dtw (MagnitudeResult& result, DoubleSpan x, DoubleSpan y, f64 window_size,
+                                              const bool store_validation) {
     const Index n      = span_size(x);
     const Index radius = window_radius(n, window_size);
     const f64   inf    = std::numeric_limits<f64>::infinity();
@@ -706,6 +708,10 @@ std::pair<f64, f64> magnitude_error_from_dtw (DoubleSpan x, DoubleSpan y, f64 wi
     const std::size_t final_index = static_cast<std::size_t>(n - 1);
     if (!std::isfinite(previous_cost[final_index])) {
         throw std::runtime_error("No valid ISO DTW path found");
+    }
+    if (store_validation) {
+        result.window_radius = radius;
+        result.dtw_cost      = previous_cost[final_index];
     }
     return {previous_numerator[final_index], previous_denominator[final_index]};
 }
@@ -991,12 +997,19 @@ PhaseResult compute_phase_alignment (DoubleSpan reference, DoubleSpan comparison
     return result;
 }
 
-f64 corridor_score (DoubleSpan reference, DoubleSpan comparison, const ScoreParams& params) {
+void corridor_score (CorridorResult& result, DoubleSpan reference, DoubleSpan comparison, const ScoreParams& params) {
     const Index n      = span_size(reference);
     f64         t_norm = 0.0;
     for (Index idx = 0; idx < n; ++idx) {
         t_norm = std::max(t_norm, std::abs(value_at(reference, idx)));
     }
+
+    const f64 inner_corridor = params.a_0 * t_norm;
+    const f64 outer_corridor = params.b_0 * t_norm;
+
+    result.t_norm           = t_norm;
+    result.inner_half_width = inner_corridor;
+    result.outer_half_width = outer_corridor;
 
     if (t_norm == 0.0) {
         f64 sum = 0.0;
@@ -1005,12 +1018,11 @@ f64 corridor_score (DoubleSpan reference, DoubleSpan comparison, const ScorePara
                 sum += 1.0;
             }
         }
-        return sum / static_cast<f64>(n);
+        result.score = sum / static_cast<f64>(n);
+        return;
     }
 
-    const f64 inner_corridor = params.a_0 * t_norm;
-    const f64 outer_corridor = params.b_0 * t_norm;
-    f64       sum            = 0.0;
+    f64 sum = 0.0;
     for (Index idx = 0; idx < n; ++idx) {
         const f64 diff = std::abs(value_at(reference, idx) - value_at(comparison, idx));
         f64       c_i  = integer_power((outer_corridor - diff) / (outer_corridor - inner_corridor), params.k_z);
@@ -1022,46 +1034,60 @@ f64 corridor_score (DoubleSpan reference, DoubleSpan comparison, const ScorePara
         }
         sum += c_i;
     }
-    return sum / static_cast<f64>(n);
+    result.score = sum / static_cast<f64>(n);
 }
 
-f64 phase_score (DoubleSpan reference, const ScoreParams& params, const PhaseResult& phase) {
+void phase_score (PhaseResult& result, DoubleSpan reference, DoubleSpan comparison, const ScoreParams& params) {
+    PhaseResult phase                            = compute_phase_alignment(reference, comparison, params);
+    result.reference_start                       = phase.reference_start;
+    result.comparison_start                      = phase.comparison_start;
+    result.length                                = phase.length;
+    result.n_eps                                 = phase.n_eps;
+    result.rho_e                                 = phase.rho_e;
+    result.max_shift                             = phase.max_shift;
+    result.diagnostics                           = std::move(phase.diagnostics);
     const f64 max_allowable_time_shift_threshold = static_cast<f64>(span_size(reference)) * phase.max_shift;
     if (phase.n_eps == 0) {
-        return 1.0;
+        result.score = 1.0;
+        return;
     }
     if (std::abs(static_cast<f64>(phase.n_eps)) >= max_allowable_time_shift_threshold) {
-        return 0.0;
+        result.score = 0.0;
+        return;
     }
-    return integer_power((max_allowable_time_shift_threshold - std::abs(static_cast<f64>(phase.n_eps))) /
-                             max_allowable_time_shift_threshold,
-                         params.k_p);
+    result.score = integer_power((max_allowable_time_shift_threshold - std::abs(static_cast<f64>(phase.n_eps))) /
+                                     max_allowable_time_shift_threshold,
+                                 params.k_p);
 }
 
-MagnitudeResult magnitude_score_from_values (DoubleSpan reference_values, DoubleSpan comparison_values,
-                                             const ScoreParams& params) {
-    const std::pair<f64, f64> magnitude_error = magnitude_error_from_dtw(comparison_values, reference_values, 0.1);
-    const f64                 numerator       = magnitude_error.first;
-    const f64                 denominator     = magnitude_error.second;
+void magnitude_score (MagnitudeResult& result, DoubleSpan reference_values, DoubleSpan comparison_values,
+                      const ScoreParams& params, const bool store_validation) {
+    const std::pair<f64, f64> magnitude_error =
+        magnitude_error_from_dtw(result, comparison_values, reference_values, 0.1, store_validation);
+    const f64 numerator   = magnitude_error.first;
+    const f64 denominator = magnitude_error.second;
+
+    result.denominator = denominator;
+    result.numerator   = numerator;
     if (denominator == 0.0) {
-        MagnitudeResult result;
         result.score = numerator == 0.0 ? 1.0 : 0.0;
+        result.error = std::numeric_limits<f64>::quiet_NaN();
         append_warning(result.diagnostics, DiagnosticComponent::Magnitude,
                        DiagnosticCode::MagnitudeZeroReferenceDenominator);
-        return result;
+        return;
     }
 
     const f64 e_mag = numerator / denominator;
+    result.error    = e_mag;
     if (e_mag == 0.0) {
-        return {1.0, {}};
+        result.score = 1.0;
+        return;
     }
     if (e_mag > params.eps_m) {
-        return {0.0, {}};
+        result.score = 0.0;
+        return;
     }
-    return {
-        integer_power((params.eps_m - e_mag) / params.eps_m, params.k_m),
-        {},
-    };
+    result.score = integer_power((params.eps_m - e_mag) / params.eps_m, params.k_m);
 }
 
 void gradient_values (DoubleSpan values, f64 dt, std::vector<f64>& gradient) {
@@ -1103,8 +1129,8 @@ f64 smoothed_slope_at (const std::vector<f64>& gradient, Index idx) {
     return sum / 9.0;
 }
 
-SlopeResult fused_slope_score_from_values (DoubleSpan reference_values, DoubleSpan comparison_values,
-                                           const ScoreParams& params, f64 dt) {
+void slope_score (SlopeResult& result, DoubleSpan reference_values, DoubleSpan comparison_values,
+                  const ScoreParams& params, f64 dt) {
     const Index n = span_size(reference_values);
     if (n < 9) {
         throw std::invalid_argument("Shifted curves must have at least 9 samples for slope rating");
@@ -1117,6 +1143,7 @@ SlopeResult fused_slope_score_from_values (DoubleSpan reference_values, DoubleSp
 
     f64 numerator   = 0.0;
     f64 denominator = 0.0;
+
     for (Index idx = 0; idx < n; ++idx) {
         const f64 comparison_smoothed = smoothed_slope_at(comparison_gradient, idx);
         const f64 reference_smoothed  = smoothed_slope_at(reference_gradient, idx);
@@ -1124,46 +1151,45 @@ SlopeResult fused_slope_score_from_values (DoubleSpan reference_values, DoubleSp
         denominator += std::abs(reference_smoothed);
     }
 
+    result.denominator = denominator;
+    result.numerator   = numerator;
+
     if (denominator == 0.0) {
-        SlopeResult result;
         result.score = numerator == 0.0 ? 1.0 : 0.0;
+        result.error = std::numeric_limits<f64>::quiet_NaN();
         append_warning(result.diagnostics, DiagnosticComponent::Slope, DiagnosticCode::SlopeZeroReferenceDenominator);
-        return result;
+        return;
     }
 
     const f64 e_slope = numerator / denominator;
+    result.error      = e_slope;
     if (e_slope <= 0.0) {
-        return {1.0, {}};
+        result.score = 1.0;
+        return;
     }
     if (e_slope >= params.e_s) {
-        return {0.0, {}};
+        result.score = 0.0;
+        return;
     }
-    return {(params.e_s - e_slope) / params.e_s, {}};
+    result.score = (params.e_s - e_slope) / params.e_s;
 }
 
 ScoreResult score_components_impl (DoubleSpan reference, DoubleSpan comparison, const ScoreParams& params, f64 dt,
-                                   bool store_validation) {
+                                   const bool store_validation) {
     ScoreResult result;
-    PhaseResult phase     = compute_phase_alignment(reference, comparison, params);
-    result.corridor.score = corridor_score(reference, comparison, params);
-    result.phase.score    = phase_score(reference, params, phase);
+    corridor_score(result.corridor, reference, comparison, params);
+    phase_score(result.phase, reference, comparison, params);
 
-    const DoubleSpan aligned_comparison = comparison.subspan(offset(phase.comparison_start), offset(phase.length));
-    const DoubleSpan aligned_reference  = reference.subspan(offset(phase.reference_start), offset(phase.length));
+    const DoubleSpan aligned_comparison =
+        comparison.subspan(offset(result.phase.comparison_start), offset(result.phase.length));
+    const DoubleSpan aligned_reference =
+        reference.subspan(offset(result.phase.reference_start), offset(result.phase.length));
 
-    result.magnitude         = magnitude_score_from_values(aligned_reference, aligned_comparison, params);
-    result.slope             = fused_slope_score_from_values(aligned_reference, aligned_comparison, params, dt);
-    result.overall           = params.w_z * result.corridor.score + params.w_p * result.phase.score +
-                               params.w_m * result.magnitude.score + params.w_s * result.slope.score;
-    result.phase.diagnostics = std::move(phase.diagnostics);
-    if (store_validation) {
-        result.phase.reference_start  = phase.reference_start;
-        result.phase.comparison_start = phase.comparison_start;
-        result.phase.length           = phase.length;
-        result.phase.n_eps            = phase.n_eps;
-        result.phase.rho_e            = phase.rho_e;
-        result.phase.max_shift        = phase.max_shift;
-    }
+    magnitude_score(result.magnitude, aligned_reference, aligned_comparison, params, store_validation);
+    slope_score(result.slope, aligned_reference, aligned_comparison, params, dt);
+    result.overall = params.w_z * result.corridor.score + params.w_p * result.phase.score +
+                     params.w_m * result.magnitude.score + params.w_s * result.slope.score;
+
     return result;
 }
 

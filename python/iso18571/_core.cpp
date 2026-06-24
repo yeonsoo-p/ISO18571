@@ -26,7 +26,6 @@ using engine::DiagnosticCode;
 using engine::DiagnosticComponent;
 using engine::DiagnosticSeverity;
 using engine::DoubleSpan;
-using engine::DtwPathCell;
 using engine::Index;
 using engine::ScoreParams;
 using engine::ScoreResult;
@@ -580,21 +579,11 @@ void add_score_fields (py::dict& out, const ScoreResult& result, const Validated
         out["phase_shift_length"]     = result.phase.length;
         out["phase_max_shift"]        = result.phase.max_shift;
 
-        out["magnitude_numerator"]             = result.magnitude.numerator;
-        out["magnitude_denominator"]           = result.magnitude.denominator;
-        out["magnitude_error"]                 = result.magnitude.error;
-        out["magnitude_dtw_cost"]              = result.magnitude.dtw_cost;
-        out["magnitude_window_radius"]         = result.magnitude.window_radius;
-        const py::ssize_t                rows  = static_cast<py::ssize_t>(result.magnitude.dtw_path.size());
-        const std::array<py::ssize_t, 2> shape = {rows, 2};
-        py::array_t<Index>               path(shape);
-        auto                             view = path.mutable_unchecked<2>();
-        for (py::ssize_t row = 0; row < view.shape(0); ++row) {
-            const DtwPathCell& cell = result.magnitude.dtw_path[static_cast<std::size_t>(row)];
-            view(row, 0)            = cell.comparison_index;
-            view(row, 1)            = cell.reference_index;
-        }
-        out["magnitude_dtw_path"] = std::move(path);
+        out["magnitude_numerator"]     = result.magnitude.numerator;
+        out["magnitude_denominator"]   = result.magnitude.denominator;
+        out["magnitude_error"]         = result.magnitude.error;
+        out["magnitude_dtw_cost"]      = result.magnitude.dtw_cost;
+        out["magnitude_window_radius"] = result.magnitude.window_radius;
 
         out["slope_numerator"]   = result.slope.numerator;
         out["slope_denominator"] = result.slope.denominator;
