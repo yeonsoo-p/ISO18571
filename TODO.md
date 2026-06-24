@@ -5,12 +5,17 @@
 - Implement warning messages for non f64 inputs
 
 - Revamp test suite including
-  - Against Annex & Inter-backend:
+  - Against Annex:
     - Overall rating R
+      - Expected response: Error < 0.001
     - Corridor score Z
+      - Expected response: Error < 0.001
     - Phase score EP
+      - Expected response: Error < 0.001
     - Magnitude score EM
+      - Expected response: Error < 0.001
     - Slope score ES
+      - Expected response: Error < 0.001
     - Original test and CAE signals
     - Inner corridor upper/lower curves
     - Outer corridor upper/lower curves
@@ -18,35 +23,92 @@
     - Phase-shifted CAE curve
     - Slope of shifted test curve
     - Slope of shifted CAE curve
+    - Warped time-shifted test curve
+    - Warped time-shifted CAE curve
+    - Magnitude numerator, denominator, and error from warped time-shifted curves
+      - Expected response: Error < 0.001
 
   - Input data lengths
     - Shorter than 9
+      - Expected response: Reject
     - Shorter than 9 when preferred shift makes it so
+      - Expected response: Clamp
 
   - Input data types
-    - Unsigned integer
-    - Signed integer
-    - Non-f64 floats
-    - f64 floats
-    - Complex floats
+    - Object
+      - Expected response: Reject
+    - Bool
+      - Expected response: Reject
+    - String
+      - Expected response: Reject
+    - Masked arrays
+      - Expected response: Reject
+    - Unsigned integer: [u8, u16, u32, u64]
+      - Expected response: Accept, scores and validation fields match f64 materialization
+    - Signed integer:   [i8, i16, i32, i64]
+      - Expected response: Accept, scores and validation fields match f64 materialization
+    - Non-f64 floats:   [f16, f32]
+      - Expected response: Accept, scores and validation fields match f64 materialization
+    - f64 floats:       [f64]
+      - Expected response: Accept, scores and validation fields match f64 materialization
+    - Non-zero imaginary complex floats:   [c64, c128, c256]
+      - Expected response: Reject
+    - Zero imaginary complex floats:   [c64, c128, c256]
+      - Expected response: Ignore imaginary and accept, scores and validation fields match f64 materialization
+
+  - DTW algorithm oracles
+    - Squared local cost
+      - Expected response: magnitude numerator, denominator, and error match clean-room oracle
+    - 10 percent Sakoe-Chiba window
+      - Expected response: magnitude numerator, denominator, and error match clean-room oracle
+    - Valid-cell boundary where abs(i-j) < radius
+      - Expected response: cells at the boundary are rejected by clean-room oracle comparison
+    - Predecessor tie priority vertical, horizontal, diagonal
+      - Expected response: magnitude numerator, denominator, and error match clean-room oracle
 
   - Input signal type
-    - Non-zero identical signals
+    - Non-zero identical signals:
+      - Expected response: 1.0 for all scores
     - Constant identical signals
+      - Expected response: 1.0 for all scores, expected warnings, and zero-denominator fallback fields
     - Phase shifted identical signals
+      - Expected response: 0.0 EP for shifts beyond threshold
+    - Phase tie priority with equal maximum correlations
+      - Expected response: Prefer fewer shifts, then left shift when shift count is also tied
     - Zero signals
-    - Constant offset signals
-    - Signal types of different classes
-  
+      - Expected response: 1.0 for all scores, expected warnings, and zero-denominator fallback fields
+    - Constant signals with constant offset
+      - Expected response: Z is 1.0 within the inner corridor and 0.0 beyond the outer corridor; EM is 0.0 once magnitude error reaches or exceeds eps_m; ES uses the zero-slope fallback fields
+    - Non-constant signals with constant offset
+      - Expected response: Z is 0.0 beyond the outer corridor; EM is 0.0 once magnitude error reaches or exceeds eps_m; EP and ES are asserted separately from corridor and magnitude behavior
+    - Signal types of different classes:
+      - ramp
+      - piecewise_ramp
+      - impulse
+      - sparse_spikes
+      - sine
+      - chirp
+      - square_step
+      - gaussian_noise
+      - ramp_impulses
+      - piecewise_discontinuous
+      - sine_noise
+
   - Input signal values
     - NaN/Inf
+      - Expected response: Reject
     - Finite large amplitudes
+      - Expected response: Accept, no overflow, scores are not NaN/Inf
     - Finite small amplitudes
+      - Expected response: Accept, no overflow, scores are not NaN/Inf
   
   - Input signal times
     - Non-uniform
+      - Expected response: Reject
     - Uniform small dt
+      - Expected response: Accept, no overflow, scores are not NaN/Inf
     - Uniform large dt
+      - Expected response: Accept, no overflow, scores are not NaN/Inf
 
 - Investigate edge cases
   - Integer overflow during time validation for signed integers
