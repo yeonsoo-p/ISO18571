@@ -92,6 +92,7 @@ constexpr bool operator >=(Float16 left, Float16 right) noexcept;
 
 namespace std {
 
+// Intentional: Float16 participates in the same generic floating-point paths as f32 and f64.
 template<>
 struct is_floating_point<Float16>: true_type {};
 
@@ -345,7 +346,7 @@ constexpr inline Float16 pack_double_bits (u64 bits) noexcept {
 
 constexpr inline bool long_double_sign_bit (f128 value) noexcept { return std::signbit(value); }
 
-constexpr inline Float16 pack_long_double (f128 value) noexcept {
+constexpr inline Float16 pack_long_double_constexpr (f128 value) noexcept {
     const bool negative = long_double_sign_bit(value);
     const u16  sign     = negative ? kSignMask : 0U;
 
@@ -378,6 +379,36 @@ constexpr inline Float16 pack_long_double (f128 value) noexcept {
         scaled_value *= 2.0L;
     }
     return pack_components(negative, static_cast<unsigned long long>(scaled_value), exponent - 63);
+}
+
+inline Float16 pack_long_double_runtime (f128 value) noexcept {
+    const bool negative = std::signbit(value);
+    const u16  sign     = negative ? kSignMask : 0U;
+
+    if (std::isnan(value)) {
+        return from_bits(static_cast<u16>(sign | kQuietNaN));
+    }
+    if (std::isinf(value)) {
+        return from_bits(static_cast<u16>(sign | kExponentMask));
+    }
+
+    const f128 magnitude = std::fabs(value);
+    if (magnitude == 0.0L) {
+        return from_bits(sign);
+    }
+
+    int        exponent     = 0;
+    const f128 normalized   = std::frexp(magnitude, &exponent);
+    const f128 scaled_value = std::ldexp(normalized, 63);
+    return pack_components(negative, static_cast<unsigned long long>(scaled_value), exponent - 63);
+}
+
+constexpr inline Float16 pack_long_double (f128 value) noexcept {
+    if consteval {
+        return pack_long_double_constexpr(value);
+    } else {
+        return pack_long_double_runtime(value);
+    }
 }
 
 constexpr inline Components decode_finite (Float16 value) noexcept {
@@ -1002,7 +1033,13 @@ static_assert(std::is_standard_layout_v<Float16>);
 static_assert(std::has_unique_object_representations_v<Float16>);
 static_assert(Float16Bits {0x3C00U}.value == 0x3C00U);
 static_assert(std::is_floating_point_v<Float16>);
+static_assert(std::is_floating_point_v<f16>);
+static_assert(std::is_floating_point_v<f32>);
+static_assert(std::is_floating_point_v<f64>);
 static_assert(std::is_arithmetic_v<Float16>);
+static_assert(std::is_arithmetic_v<f16>);
+static_assert(std::is_arithmetic_v<f32>);
+static_assert(std::is_arithmetic_v<f64>);
 
 static_assert(std::numeric_limits<Float16>::is_specialized);
 static_assert(std::numeric_limits<Float16>::min().bits() == 0x0400U);
