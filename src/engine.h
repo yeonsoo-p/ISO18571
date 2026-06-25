@@ -7,8 +7,7 @@
 #include "types.h"
 
 namespace engine {
-using Index      = std::ptrdiff_t;
-using DoubleSpan = std::span<const f64>;
+using Index = std::ptrdiff_t;
 
 struct ScoreParams {
     int k_z;
@@ -115,25 +114,29 @@ struct ScoreResult {
     f64             overall = 0.0;
 };
 
-using ScoreComponentsFn = ScoreResult (*)(DoubleSpan, DoubleSpan, const ScoreParams&, f64);
+using ScoreComponentsFn = ScoreResult (*)(std::span<const f64>, std::span<const f64>, const ScoreParams&, f64);
 
 struct DispatchTable {
     ScoreComponentsFn score_components = nullptr;
     const char*       level            = "x86-64-v1";
 };
 
-ScoreResult score_components_v1 (DoubleSpan reference, DoubleSpan comparison, const ScoreParams& params, f64 dt);
+ScoreResult score_components_v1 (std::span<const f64> reference, std::span<const f64> comparison,
+                                 const ScoreParams& params, f64 dt);
 
 #if defined(ISO18571_COMPILED_X86_64_V2)
-ScoreResult score_components_v2 (DoubleSpan reference, DoubleSpan comparison, const ScoreParams& params, f64 dt);
+ScoreResult score_components_v2 (std::span<const f64> reference, std::span<const f64> comparison,
+                                 const ScoreParams& params, f64 dt);
 #endif
 
 #if defined(ISO18571_COMPILED_X86_64_V3)
-ScoreResult score_components_v3 (DoubleSpan reference, DoubleSpan comparison, const ScoreParams& params, f64 dt);
+ScoreResult score_components_v3 (std::span<const f64> reference, std::span<const f64> comparison,
+                                 const ScoreParams& params, f64 dt);
 #endif
 
 #if defined(ISO18571_COMPILED_X86_64_V4)
-ScoreResult score_components_v4 (DoubleSpan reference, DoubleSpan comparison, const ScoreParams& params, f64 dt);
+ScoreResult score_components_v4 (std::span<const f64> reference, std::span<const f64> comparison,
+                                 const ScoreParams& params, f64 dt);
 #endif
 
 const DispatchTable& dispatch_table ();
@@ -144,7 +147,5 @@ namespace fft {
 
 inline constexpr bool kForward  = true;
 inline constexpr bool kBackward = false;
-
-using Complex = c128;
 
 } // namespace fft

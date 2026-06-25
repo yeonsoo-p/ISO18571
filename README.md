@@ -195,17 +195,31 @@ The production `iso18571` package is MIT-licensed under `LICENSE`. All source fi
 
 ## Benchmarks
 
-Benchmark tests are excluded from default pytest. They compare `native`, `dtwalign`, `dtw_python`, and `librosa` on a mixed signal at lengths `512`, `2048`, `8192`, and `32768`.
+Benchmark tests are excluded from default pytest. They measure the production
+native scorer on mixed generated signals at lengths `512`, `2048`, `8192`, and
+`32768`. The benchmark signals are built with the same `tools.signals`
+generation helpers used by the current test suite.
 
 ```bash
 uv run --extra test python -m pytest -q -m benchmark --benchmark-json .benchmarks/iso18571-readme/benchmarks.json
 ```
 
-To run only the native backend rows:
+The benchmark report separates setup/load behavior from dynamic calculation
+behavior:
+
+- `load_memory` rows measure a fresh spawned Python process importing
+  `iso18571`, generating data, scoring once, and reporting peak process memory
+  and peak swap/pagefile usage.
+- `runtime` rows measure repeated scoring in a warmed spawned process.
+- Any row with `extra_info.swap_invalidated == true` leaked into swap/pagefile;
+  keep it as a stress outcome, but do not treat its timing as a valid in-memory
+  runtime number.
+
+To collect only warmed runtime rows:
 
 ```bash
 mkdir -p .benchmarks/iso18571-native
-uv run --extra test python -m pytest -q tests/test_iso18571_benchmarks.py -m benchmark -k native --benchmark-json .benchmarks/iso18571-native/benchmarks.json
+uv run --extra test python -m pytest -q tests/test_iso18571_benchmarks.py -m benchmark -k runtime --benchmark-json .benchmarks/iso18571-native/runtime.json
 ```
 
 To collect more warmed runtime samples, set `ISO18571_BENCHMARK_RUNTIME_ROUNDS`.
@@ -213,57 +227,13 @@ The default is `3`.
 
 ```bash
 ISO18571_BENCHMARK_RUNTIME_ROUNDS=10 \
-uv run --extra test python -m pytest -q tests/test_iso18571_benchmarks.py -m benchmark -k "native and runtime" --benchmark-json .benchmarks/iso18571-native/runtime-10.json
+uv run --extra test python -m pytest -q tests/test_iso18571_benchmarks.py -m benchmark -k runtime --benchmark-json .benchmarks/iso18571-native/runtime-10.json
 ```
 
-The benchmark report separates setup/load behavior from dynamic calculation behavior:
-
-- `load_memory` rows measure a fresh spawned Python process importing the backend, generating data, scoring once, and reporting peak process memory and peak swap/pagefile usage.
-- `runtime` rows measure repeated scoring in a warmed spawned process.
-- Any row with `extra_info.swap_invalidated == true` leaked into swap/pagefile; keep it as a stress outcome, but do not treat its timing as a valid in-memory runtime number.
-
-Large reference-backend rows may need substantial swap to complete. On Linux, create temporary swap outside the test runner before the full benchmark matrix:
+To collect more cold setup/load samples, set `ISO18571_BENCHMARK_LOAD_ROUNDS`.
+The default is `1`.
 
 ```bash
-sudo fallocate -l 64G /swap_iso18571_bench.img
-sudo chmod 600 /swap_iso18571_bench.img
-sudo mkswap /swap_iso18571_bench.img
-sudo swapon /swap_iso18571_bench.img
+ISO18571_BENCHMARK_LOAD_ROUNDS=3 \
+uv run --extra test python -m pytest -q tests/test_iso18571_benchmarks.py -m benchmark -k load_memory --benchmark-json .benchmarks/iso18571-native/load-3.json
 ```
-
-After benchmark collection, remove the temporary swap file when it is no longer needed:
-
-```bash
-sudo swapoff /swap_iso18571_bench.img
-sudo rm /swap_iso18571_bench.img
-```
-
-Benchmark snapshot from this machine. Native rows were refreshed with the current optimized native backend; reference rows
-are retained as comparison baselines from the existing full benchmark snapshot.
-
-### Load Time, ms
-
-| Backend | 512 | 2048 | 8192 | 32768 |
-| --- | ---: | ---: | ---: | ---: |
-| native | 144.96 | 152.99 | 144.14 | 388.89 |
-| dtwalign | 3898.99 | 3813.41 | 4897.01 | - |
-| dtw_python | 931.82 | 995.43 | 1803.67 | - |
-| librosa | 1231.87 | 1274.18 | 2253.83 | 17590.40 |
-
-### Peak RSS, MiB
-
-| Backend | 512 | 2048 | 8192 | 32768 |
-| --- | ---: | ---: | ---: | ---: |
-| native | 45.85 | 45.95 | 46.79 | 52.38 |
-| dtwalign | 359.48 | 450.83 | 2105.46 | - |
-| dtw_python | 253.07 | 431.89 | 3278.38 | - |
-| librosa | 312.04 | 385.59 | 1759.17 | 24522.72 |
-
-### Runtime, ms
-
-| Backend | 512 | 2048 | 8192 | 32768 |
-| --- | ---: | ---: | ---: | ---: |
-| native | 0.17 | 1.27 | 15.79 | 225.06 |
-| dtwalign | 6.97 | 87.72 | 1177.31 | - |
-| dtw_python | 7.01 | 62.88 | 936.57 | - |
-| librosa | 7.02 | 77.73 | 1049.70 | 16130.18 |

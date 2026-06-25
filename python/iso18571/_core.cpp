@@ -11,6 +11,7 @@
 #include <complex>
 #include <cstdint>
 #include <limits>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <type_traits>
@@ -25,7 +26,6 @@ using engine::Diagnostic;
 using engine::DiagnosticCode;
 using engine::DiagnosticComponent;
 using engine::DiagnosticSeverity;
-using engine::DoubleSpan;
 using engine::Index;
 using engine::ScoreParams;
 using engine::ScoreResult;
@@ -591,8 +591,8 @@ py::dict score_components (py::array reference_curve, py::array comparison_curve
     const ValidatedCurves curves       = validate_curves(reference_curve, comparison_curve);
     ScoreParams           score_params = score_params_from_dict(params);
     validation::validate_score_params(score_params);
-    const DoubleSpan reference_values(curves.reference_values.data(), curves.reference_values.size());
-    const DoubleSpan comparison_values(curves.comparison_values.data(), curves.comparison_values.size());
+    const std::span<const f64> reference_values(curves.reference_values.data(), curves.reference_values.size());
+    const std::span<const f64> comparison_values(curves.comparison_values.data(), curves.comparison_values.size());
 
     ScoreResult result;
     {
