@@ -112,20 +112,11 @@
       scores `Z`, `EP`, `EM`, `ES`, and `R` should either be finite and
       inside `[0.0, 1.0]`, or the scorer should reject the input before
       returning scores with a clear error.
-    - Magnitude / DTW: finite accepted-looking inputs can overflow squared
-      DTW local costs and throw `No valid ISO DTW path found`; decide whether
-      to make the DTW cost path overflow-resistant or reject such inputs with
-      a clearer range/scale error before scoring.
     - Near-`1.0` raw scores such as `0.999999999` are expected formula
       behavior, not necessarily bugs. Document that default rating methods
       round these to `1.0`, and any grade/classification logic must use raw
       `R`, not rounded `overall_rating()`.
   - New tests needed to confirm the decisions:
-    - DTW overflow / no-path cases should assert the chosen clearer behavior:
-      either stable finite scoring or a specific pre-score rejection message.
-    - Phase tie-priority tests should include near-identical signals where a
-      no-tolerance selector would choose one shift; the production scorer
-      should prefer the smaller shift under the documented tolerance.
     - Near-one raw score examples for `Z`, `EM`, `ES`, and `R` should confirm
       raw `.scores` preserve values below `1.0` while `*_rating()` rounds as
       documented.

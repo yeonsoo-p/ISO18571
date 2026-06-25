@@ -929,7 +929,8 @@ void magnitude_score (MagnitudeResult& result, std::span<const f64> reference_va
     result.numerator   = numerator;
     if (normalized_denominator == 0.0) {
         result.score = normalized_numerator == 0.0 ? 1.0 : 0.0;
-        result.error = std::numeric_limits<f64>::quiet_NaN();
+        result.error =
+            normalized_numerator == 0.0 ? std::numeric_limits<f64>::quiet_NaN() : std::numeric_limits<f64>::infinity();
         diagnostics.push_back({DiagnosticSeverity::Warning, DiagnosticComponent::Magnitude,
                                DiagnosticCode::MagnitudeZeroReferenceDenominator});
         return;
@@ -1031,7 +1032,8 @@ void slope_score (SlopeResult& result, std::span<const f64> reference_values, st
 
     if (normalized_denominator == 0.0) {
         result.score = normalized_numerator == 0.0 ? 1.0 : 0.0;
-        result.error = std::numeric_limits<f64>::quiet_NaN();
+        result.error =
+            normalized_numerator == 0.0 ? std::numeric_limits<f64>::quiet_NaN() : std::numeric_limits<f64>::infinity();
         diagnostics.push_back(
             {DiagnosticSeverity::Warning, DiagnosticComponent::Slope, DiagnosticCode::SlopeZeroReferenceDenominator});
         return;

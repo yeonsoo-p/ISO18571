@@ -267,6 +267,60 @@ def test_infinite_slope_error_scores_zero_without_nan() -> None:
     assert np.isfinite(scorer.scores["R"])
 
 
+def test_zero_reference_and_ramp_comparison_emit_infinite_ratio_errors() -> None:
+    reference_values = np.zeros(16, dtype=np.float64)
+    comparison_values = np.arange(16, dtype=np.float64)
+
+    scorer, messages = _score_with_warnings(
+        _curve(reference_values), _curve(comparison_values)
+    )
+
+    assert messages == [
+        "ISO18571 phase correlation is undefined; using finite fallback rho_e",
+        "ISO18571 magnitude reference denominator is zero; using fallback magnitude score",
+        "ISO18571 slope reference denominator is zero; using fallback slope score",
+    ]
+    assert scorer.scores["EM"] == 0.0
+    assert scorer.scores["ES"] == 0.0
+    assert math.isinf(scorer.scores["magnitude_error"])
+    assert math.isinf(scorer.scores["slope_error"])
+
+
+def test_zero_reference_and_constant_comparison_keep_flat_slope_identity() -> None:
+    reference_values = np.zeros(16, dtype=np.float64)
+    comparison_values = np.ones(16, dtype=np.float64)
+
+    scorer, messages = _score_with_warnings(
+        _curve(reference_values), _curve(comparison_values)
+    )
+
+    assert messages == [
+        "ISO18571 phase correlation is undefined; using finite fallback rho_e",
+        "ISO18571 magnitude reference denominator is zero; using fallback magnitude score",
+        "ISO18571 slope reference denominator is zero; using fallback slope score",
+    ]
+    assert scorer.scores["EM"] == 0.0
+    assert scorer.scores["ES"] == 1.0
+    assert math.isinf(scorer.scores["magnitude_error"])
+    assert math.isnan(scorer.scores["slope_error"])
+
+
+def test_constant_reference_and_ramp_comparison_emit_infinite_slope_error() -> None:
+    reference_values = np.ones(16, dtype=np.float64)
+    comparison_values = np.arange(16, dtype=np.float64)
+
+    scorer, messages = _score_with_warnings(
+        _curve(reference_values), _curve(comparison_values)
+    )
+
+    assert messages == [
+        "ISO18571 phase correlation is undefined; using finite fallback rho_e",
+        "ISO18571 slope reference denominator is zero; using fallback slope score",
+    ]
+    assert scorer.scores["ES"] == 0.0
+    assert math.isinf(scorer.scores["slope_error"])
+
+
 def test_smallest_subnormal_identical_signal_scores_one() -> None:
     amplitude = np.nextafter(0.0, 1.0)
     curve = _curve(np.full(16, amplitude, dtype=np.float64))
