@@ -346,14 +346,14 @@ def test_annex_original_input_signals_match_loader_inputs(
 ) -> None:
     case = _case(case_name, annex_dataset)
 
-    np.testing.assert_array_equal(
-        case.reference_curve()[:, 0], case.input_values("Time")
+    assert np.array_equal(
+        case.reference_curve()[:, 0], case.input_values("Time"), equal_nan=True
     )
-    np.testing.assert_array_equal(
-        case.reference_curve()[:, 1], case.input_values("Test")
+    assert np.array_equal(
+        case.reference_curve()[:, 1], case.input_values("Test"), equal_nan=True
     )
-    np.testing.assert_array_equal(
-        case.comparison_curve()[:, 1], case.input_values("CAE")
+    assert np.array_equal(
+        case.comparison_curve()[:, 1], case.input_values("CAE"), equal_nan=True
     )
 
 

@@ -39,8 +39,8 @@ def test_annex_case_imports_and_exports_canonical_csv(
     reloaded = AnnexCase.from_csv(exported)
 
     for name in OFFICIAL_COLUMNS:
-        np.testing.assert_array_equal(
-            reloaded.columns[name].values, case.columns[name].values
+        assert np.array_equal(
+            reloaded.columns[name].values, case.columns[name].values, equal_nan=True
         )
         assert reloaded.columns[name].unit == case.columns[name].unit
 

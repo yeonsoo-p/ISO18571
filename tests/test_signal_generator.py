@@ -15,8 +15,10 @@ def test_signal_generator_materializes_curve_shape_and_time() -> None:
 
     curve = generator.curve()
 
-    np.testing.assert_allclose(curve[:, 0], np.array([1.0, 1.25, 1.5, 1.75, 2.0]))
-    np.testing.assert_allclose(curve[:, 1], np.full(5, 3.0))
+    assert np.allclose(
+        curve[:, 0], np.array([1.0, 1.25, 1.5, 1.75, 2.0]), rtol=1.0e-7, atol=0.0
+    )
+    assert np.allclose(curve[:, 1], np.full(5, 3.0), rtol=1.0e-7, atol=0.0)
     assert curve.dtype == np.float64
     assert curve.shape == (5, 2)
 
@@ -28,7 +30,9 @@ def test_signal_generator_composes_functions_and_scaling() -> None:
         .add(signals.constant, scale=0.5, value=4.0)
     )
 
-    np.testing.assert_allclose(generator.values(), np.array([3.0, 5.0, 7.0, 9.0]))
+    assert np.allclose(
+        generator.values(), np.array([3.0, 5.0, 7.0, 9.0]), rtol=1.0e-7, atol=0.0
+    )
 
 
 def test_signal_generator_supports_custom_callable_without_rng() -> None:
@@ -37,7 +41,9 @@ def test_signal_generator_supports_custom_callable_without_rng() -> None:
 
     generator = SignalGenerator(4, 1.0).add(quadratic, gain=2.0)
 
-    np.testing.assert_allclose(generator.values(), np.array([0.0, 2.0, 8.0, 18.0]))
+    assert np.allclose(
+        generator.values(), np.array([0.0, 2.0, 8.0, 18.0]), rtol=1.0e-7, atol=0.0
+    )
 
 
 def test_signal_generator_sample_shift_changes_evaluation_time_without_wrapping() -> (
@@ -45,7 +51,9 @@ def test_signal_generator_sample_shift_changes_evaluation_time_without_wrapping(
 ):
     generator = SignalGenerator(4, 1.0).add(signals.ramp, slope=1.0, sample_shift=2)
 
-    np.testing.assert_allclose(generator.values(), np.array([-2.0, -1.0, 0.0, 1.0]))
+    assert np.allclose(
+        generator.values(), np.array([-2.0, -1.0, 0.0, 1.0]), rtol=1.0e-7, atol=0.0
+    )
 
 
 def test_signal_generator_noise_is_seeded_and_repeatable() -> None:
@@ -53,8 +61,8 @@ def test_signal_generator_noise_is_seeded_and_repeatable() -> None:
     second = SignalGenerator(8, 0.1, seed=12).add(signals.gaussian_noise, std=0.5)
     different = SignalGenerator(8, 0.1, seed=13).add(signals.gaussian_noise, std=0.5)
 
-    np.testing.assert_allclose(first.values(), first.values())
-    np.testing.assert_allclose(first.values(), second.values())
+    assert np.allclose(first.values(), first.values(), rtol=1.0e-7, atol=0.0)
+    assert np.allclose(first.values(), second.values(), rtol=1.0e-7, atol=0.0)
     assert not np.array_equal(first.values(), different.values())
 
 

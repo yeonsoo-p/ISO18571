@@ -75,10 +75,9 @@ class LoadProbe:
     def __call__(self) -> float:
         result = run_load_child(self.length)
         self.results.append(result)
-        if result.status != "ok" or result.score is None:
-            raise AssertionError(
-                result.error or f"{BENCHMARK_BACKEND} n={self.length} load probe failed"
-            )
+        assert result.status == "ok" and result.score is not None, (
+            result.error or f"{BENCHMARK_BACKEND} n={self.length} load probe failed"
+        )
         return result.score
 
     @property
@@ -176,16 +175,14 @@ def positive_env_int(name: str, default: int) -> int:
         return default
     try:
         value = int(raw)
-    except ValueError as exc:
-        raise AssertionError(f"{name} must be a positive integer") from exc
-    if value <= 0:
-        raise AssertionError(f"{name} must be a positive integer")
+    except ValueError:
+        value = None
+    assert value is not None and value > 0, f"{name} must be a positive integer"
     return value
 
 
 def make_benchmark_case(length: int) -> BenchmarkCase:
-    if length < 9:
-        raise ValueError("benchmark length must be at least 9")
+    assert length >= 9, "benchmark length must be at least 9"
 
     dt = 1.0 / float(length - 1)
     reference = (
@@ -404,7 +401,7 @@ def runtime_worker(length: int, connection: Connection) -> None:
             elif message == "stop":
                 return
             else:
-                raise ValueError(f"unknown runtime worker message {message!r}")
+                assert False, f"unknown runtime worker message {message!r}"
     except BaseException:
         connection.send(worker_result("failed", None, None, traceback.format_exc()))
     finally:
@@ -460,8 +457,7 @@ def run_load_child(length: int) -> WorkerResult:
     process.start()
     child.close()
     pid = process.pid
-    if pid is None:
-        raise AssertionError("load child process has no pid")
+    assert pid is not None, "load child process has no pid"
 
     monitor = ProcessMemoryMonitor(pid)
     monitor.start()
@@ -501,9 +497,9 @@ def start_runtime_child(length: int) -> tuple[BaseProcess, Connection, WorkerRes
     result = receive_worker_result(parent, process, length)
     if result.status != "ready":
         stop_runtime_child(process, parent)
-        raise AssertionError(
-            result.error or f"{BENCHMARK_BACKEND} n={length} runtime worker failed"
-        )
+    assert result.status == "ready", (
+        result.error or f"{BENCHMARK_BACKEND} n={length} runtime worker failed"
+    )
     return process, parent, result
 
 
@@ -543,18 +539,16 @@ def test_native_mixed_signal_load_memory_benchmark(benchmark: Any, length: int) 
 def test_native_mixed_signal_runtime_benchmark(benchmark: Any, length: int) -> None:
     process, connection, ready = start_runtime_child(length)
     pid = process.pid
-    if pid is None:
-        raise AssertionError("runtime child process has no pid")
+    assert pid is not None, "runtime child process has no pid"
     monitor = ProcessMemoryMonitor(pid)
     worker_memory: MemorySnapshot | None = None
 
     def score_in_worker() -> float:
         connection.send("score")
         score = connection.recv()
-        if not isinstance(score, float):
-            raise AssertionError(
-                f"{BENCHMARK_BACKEND} n={length} runtime child returned {type(score)!r}"
-            )
+        assert isinstance(score, float), (
+            f"{BENCHMARK_BACKEND} n={length} runtime child returned {type(score)!r}"
+        )
         return score
 
     rounds = positive_env_int(RUNTIME_BENCHMARK_ROUNDS_ENV, 3)

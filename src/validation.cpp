@@ -90,11 +90,6 @@ f64 weight_from_units (i64 units) { return static_cast<f64>(units) / kWeightMicr
 
 } // namespace
 
-void append_warning (std::vector<engine::Diagnostic>& diagnostics, engine::DiagnosticComponent component,
-                     engine::DiagnosticCode code) {
-    diagnostics.push_back({engine::DiagnosticSeverity::Warning, component, code});
-}
-
 const char* warning_message_for_code (engine::DiagnosticCode code) {
     switch (code) {
     case engine::DiagnosticCode::ReferenceCurveLayoutCopied:

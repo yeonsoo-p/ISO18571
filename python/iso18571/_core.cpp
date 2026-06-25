@@ -492,7 +492,7 @@ void apply_curve_layout_fallback (CurveInputDtype dtype, const py::array& source
     const py::object numpy = py::module_::import("numpy");
     effective_curve = numpy.attr("require")(source_curve, py::none(), py::make_tuple("C", "A")).cast<py::array>();
     info            = effective_curve.request();
-    validation::append_warning(diagnostics, DiagnosticComponent::Validation, copied_code);
+    diagnostics.push_back({DiagnosticSeverity::Warning, DiagnosticComponent::Validation, copied_code});
 }
 
 ValidatedCurves validate_curves (py::array reference_curve, py::array comparison_curve) {

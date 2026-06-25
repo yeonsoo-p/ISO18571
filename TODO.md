@@ -111,17 +111,14 @@
 
 - Reinforce f16 implementation
   - Align with C++23 stl implementation
-  - Review pack_long_double()
 
 - Need to wire annex.py and signals.py into main.py and notebook
-- phase should use signal.py instead of hand waving
 - signal.py should be able to generate sufficent edge cases. In this case instead of hard coding the numbers, we need to be able to produce the array programmatically.
 
 - Since the documentation does say about having same timeframe, and having interval, and 10ms, we need to emit warning at least.
 - Fuzz input tests to find edge cases may be needed
 
 - Need to check if the test implementations are faithful implementations of the descriptions here
-- Instead of pytest.*, only assert and raise, bake into AGENTS.md
 
 - Default values source?
 - Scores need to be bound 0.0 to 1.0
@@ -131,5 +128,5 @@
 - Study proper shifted n < 9 path; maybe the throw is unnecessary
 - Static asserts that can be done from engine?
 - Need to investigate throws in engine
-- simple push_back can be inlined
 - Need to find magic numbers
+- Need to emit warning before throw

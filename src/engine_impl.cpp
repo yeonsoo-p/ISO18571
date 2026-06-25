@@ -23,6 +23,7 @@ namespace {
 using engine::CorridorResult;
 using engine::DiagnosticCode;
 using engine::DiagnosticComponent;
+using engine::DiagnosticSeverity;
 using engine::Index;
 using engine::MagnitudeResult;
 using engine::PhaseResult;
@@ -30,7 +31,6 @@ using engine::ScoreParams;
 using engine::ScoreResult;
 using engine::SlopeResult;
 using std::size_t;
-using validation::append_warning;
 
 inline void sum_difference (c128& a, c128& b, c128 c, c128 d) {
     a = c + d;
@@ -528,7 +528,8 @@ void phase_score (PhaseResult& result, std::span<const f64> reference, std::span
     }
 
     if (baseline_reference_cov <= 0.0 || baseline_comparison_cov <= 0.0) {
-        append_warning(result.diagnostics, DiagnosticComponent::Phase, DiagnosticCode::PhaseUndefinedCorrelation);
+        result.diagnostics.push_back(
+            {DiagnosticSeverity::Warning, DiagnosticComponent::Phase, DiagnosticCode::PhaseUndefinedCorrelation});
         result.rho_e = values_equal_for_shift(reference, comparison, 0, 0, reference_n) ? 1.0 : 0.0;
     } else {
         f64 baseline_correlation = baseline_cross_cov / std::sqrt(baseline_reference_cov);
@@ -546,7 +547,8 @@ void phase_score (PhaseResult& result, std::span<const f64> reference, std::span
         return;
     }
     if (reference_n < 9) {
-        append_warning(result.diagnostics, DiagnosticComponent::Phase, DiagnosticCode::PhaseShiftClampedToUnshifted);
+        result.diagnostics.push_back(
+            {DiagnosticSeverity::Warning, DiagnosticComponent::Phase, DiagnosticCode::PhaseShiftClampedToUnshifted});
         result.score = 1.0;
         return;
     }
@@ -775,8 +777,8 @@ void phase_score (PhaseResult& result, std::span<const f64> reference, std::span
                 result.rho_e            = candidate_rho;
                 result.diagnostics.clear();
                 if (undefined_candidate) {
-                    append_warning(result.diagnostics, DiagnosticComponent::Phase,
-                                   DiagnosticCode::PhaseUndefinedCorrelation);
+                    result.diagnostics.push_back({DiagnosticSeverity::Warning, DiagnosticComponent::Phase,
+                                                  DiagnosticCode::PhaseUndefinedCorrelation});
                 }
             }
         }
@@ -784,7 +786,8 @@ void phase_score (PhaseResult& result, std::span<const f64> reference, std::span
 
     if (result.length < 9) {
         result = unshifted_result;
-        append_warning(result.diagnostics, DiagnosticComponent::Phase, DiagnosticCode::PhaseShiftClampedToUnshifted);
+        result.diagnostics.push_back(
+            {DiagnosticSeverity::Warning, DiagnosticComponent::Phase, DiagnosticCode::PhaseShiftClampedToUnshifted});
     }
 
     if (result.n_eps == 0) {
@@ -854,8 +857,8 @@ void magnitude_score (MagnitudeResult& result, std::span<const f64> reference_va
     if (denominator == 0.0) {
         result.score = numerator == 0.0 ? 1.0 : 0.0;
         result.error = std::numeric_limits<f64>::quiet_NaN();
-        append_warning(result.diagnostics, DiagnosticComponent::Magnitude,
-                       DiagnosticCode::MagnitudeZeroReferenceDenominator);
+        result.diagnostics.push_back({DiagnosticSeverity::Warning, DiagnosticComponent::Magnitude,
+                                      DiagnosticCode::MagnitudeZeroReferenceDenominator});
         return;
     }
 
@@ -939,7 +942,8 @@ void slope_score (SlopeResult& result, std::span<const f64> reference_values, st
     if (denominator == 0.0) {
         result.score = numerator == 0.0 ? 1.0 : 0.0;
         result.error = std::numeric_limits<f64>::quiet_NaN();
-        append_warning(result.diagnostics, DiagnosticComponent::Slope, DiagnosticCode::SlopeZeroReferenceDenominator);
+        result.diagnostics.push_back(
+            {DiagnosticSeverity::Warning, DiagnosticComponent::Slope, DiagnosticCode::SlopeZeroReferenceDenominator});
         return;
     }
 

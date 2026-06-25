@@ -42,7 +42,7 @@
 
 ## Test And Style
 
-- Test outcomes should explicitly `assert` or `raise`.
+- Test outcomes should explicitly `assert` or `pytest.raise`.
 - Avoid inline imports in project Python. Use module-level imports or shared
   loading helpers.
 - Avoid resorting to `assert` or `cast` to satisfy mypy constraints.
