@@ -7,12 +7,12 @@
 ## Current Package Shape
 
 - The public production scorer is `iso18571.ISO18571`.
-- The native extension module is `iso18571._core`; public package exports are `ISO18571`, `backend_info`, and `ScoreComponents`.
+- The native extension module is `iso18571._core`; public package exports are `ISO18571`, `backend_info`, `ScoreComponents`, and `ScoreTimings`.
 - Reference scorers live in source-only `reference` and are used for tests/research only:
   - `rating_dtwalign.ISO18571`;
   - `rating_dtw_python.ISO18571`;
   - `rating_librosa.ISO18571`.
-- Do not install `reference` `tools` `tests` into production wheels.
+- Do not install `reference` `tools` `tests` into production wheels or source distributions.
 
 ## Correctness
 

@@ -30,7 +30,7 @@ test = [
 [tool.scikit-build]
 build-dir = "build/{wheel_tag}"
 cmake.version = ">=3.21"
-sdist.exclude = ["reference", "reference/**", "tests", "tests/**", "ref", "ref/**"]
+sdist.exclude = ["reference", "reference/**", "tests", "tests/**", "tools", "tools/**", "ref", "ref/**"]
 wheel.packages = []
 wheel.license-files = ["LICENSE"]
 

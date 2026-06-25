@@ -87,7 +87,6 @@ class ISO18571:
 
         self._reference_curve = np.asarray(reference_curve)
         self._comparison_curve = np.asarray(comparison_curve)
-        self._k_z = int(k_z)
 
         self._scores: ScoreComponents
         self._timings: ScoreTimings

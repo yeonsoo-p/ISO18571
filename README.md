@@ -11,6 +11,8 @@ score = ISO18571(reference_curve, comparison_curve)
 overall = score.overall_rating()
 ```
 
+The package-level public exports are `ISO18571`, `backend_info`, `ScoreComponents`, and `ScoreTimings`.
+
 Curves are NumPy-compatible arrays with shape `(n, 2)`: time in the first column and signal value in the second column. The native scorer derives the sample interval from matching, uniformly spaced time columns.
 
 For a small runnable CSV example, use the bundled demo files in `examples/reference.csv` and `examples/comparison.csv`:
@@ -19,23 +21,13 @@ For a small runnable CSV example, use the bundled demo files in `examples/refere
 uv run python main.py
 ```
 
-To regenerate those two demo CSVs:
-
-```bash
-uv run python tools/example_data.py
-```
-
 For a guided notebook with signal plots, open:
 
 ```bash
 uv run --extra examples jupyter lab examples/quickstart.ipynb
 ```
 
-The notebook walks through the bundled demo CSVs, a downloaded official Annex case, and a generated Annex case. The same data prep can be run from the terminal:
-
-```bash
-uv run python tools/example_data.py --all
-```
+The notebook walks through the bundled demo CSVs, a downloaded official Annex case, and a generated Annex case.
 
 The package also exposes a native diagnostic helper:
 

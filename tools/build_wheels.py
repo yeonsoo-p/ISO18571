@@ -21,7 +21,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_PYTHONS = ("3.12", "3.13", "3.14")
 WINDOWS_ARCH = "win_amd64"
 LINUX_WHEEL_PLATFORM_TAG = "manylinux_2_34_x86_64"
-FORBIDDEN_ARCHIVE_PREFIXES = ("reference", "tests", "ref")
+FORBIDDEN_ARCHIVE_PREFIXES = ("reference", "tests", "tools", "ref")
 PRODUCTION_PACKAGE_FILES = frozenset(
     {
         "iso18571/__init__.py",
