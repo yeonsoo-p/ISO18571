@@ -40,8 +40,13 @@ SDIST_REQUIRED_FILES = frozenset(
         "python/iso18571/_core.cpp",
         "python/iso18571/_core.pyi",
         "python/iso18571/py.typed",
+        "src/dispatch.cpp",
         "src/engine.cpp",
+        "src/engine.h",
         "src/float16.h",
+        "src/numeric.h",
+        "src/types.h",
+        "src/validation.h",
     }
 )
 NATIVE_EXTENSION_SUFFIXES = (".so", ".pyd")

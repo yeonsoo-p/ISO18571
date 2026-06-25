@@ -157,6 +157,66 @@ def test_non_native_byte_order_is_rejected() -> None:
         ISO18571(curve, curve)
 
 
+@pytest.mark.parametrize(
+    "weights",
+    [
+        (1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0, 0.0),
+        (0.3333334, 0.3333333, 0.3333333, 0.0),
+    ],
+)
+def test_almost_equal_weight_sums_are_accepted(
+    weights: tuple[float, float, float, float],
+) -> None:
+    curve = _curve(np.arange(16, dtype=np.float64))
+
+    scorer = _score_with_weights(curve, weights)
+
+    assert scorer.scores["R"] == pytest.approx(sum(weights))
+
+
+def test_accepted_weights_are_not_normalized() -> None:
+    curve = _curve(np.arange(16, dtype=np.float64))
+    weights = (0.4, 0.2, 0.2, 0.2000000005)
+
+    scorer = _score_with_weights(curve, weights)
+
+    assert scorer.scores["R"] == pytest.approx(sum(weights))
+    assert scorer.scores["R"] > 1.0
+
+
+@pytest.mark.parametrize(
+    "weights",
+    [
+        (0.4, 0.2, 0.2, 0.20001),
+        (0.4, 0.2, 0.2, 0.19999),
+    ],
+)
+def test_materially_invalid_weight_sums_are_rejected(
+    weights: tuple[float, float, float, float],
+) -> None:
+    curve = _curve(np.arange(16, dtype=np.float64))
+
+    with pytest.raises(ValueError, match="weighting factors"):
+        _score_with_weights(curve, weights)
+
+
+@pytest.mark.parametrize(
+    ("weights", "message"),
+    [
+        ((-0.1, 0.5, 0.3, 0.3), "non-negative"),
+        ((math.nan, 0.2, 0.2, 0.6), "finite"),
+        ((math.inf, 0.0, 0.0, 0.0), "finite"),
+    ],
+)
+def test_invalid_weight_values_are_rejected(
+    weights: tuple[float, float, float, float], message: str
+) -> None:
+    curve = _curve(np.arange(16, dtype=np.float64))
+
+    with pytest.raises(ValueError, match=message):
+        _score_with_weights(curve, weights)
+
+
 def test_strided_arrays_are_accepted_and_match_materialized_arrays() -> None:
     values = np.array([0.0, 2.0, 1.0, 4.0, 3.0, 6.0, 2.0, 5.0, 4.0, 7.0, 5.0, 8.0])
     base_reference = _curve(np.repeat(values, 2))
@@ -331,6 +391,19 @@ def _score_with_warnings(
         assert issubclass(warning.category, RuntimeWarning)
         messages.append(str(warning.message))
     return scorer, messages
+
+
+def _score_with_weights(
+    curve: FloatCurve, weights: tuple[float, float, float, float]
+) -> ISO18571:
+    return ISO18571(
+        curve,
+        curve,
+        w_z=weights[0],
+        w_p=weights[1],
+        w_m=weights[2],
+        w_s=weights[3],
+    )
 
 
 def _assert_scores_match(

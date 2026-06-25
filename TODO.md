@@ -101,23 +101,7 @@
 
 - Investigate edge cases
   - Integer overflow during time validation for signed integers
-  - test_nonconstant_offset_expectations_are_score_specific
   - I have serious doubts about type conversion. Need to figure out what exactly is tested and how it is evaluated
-
-- Near-threshold / nonfinite score follow-up from temp characterization
-  - Implementation narrowing needed:
-    - Decide and enforce the finite accepted-input score contract:
-      scores `Z`, `EP`, `EM`, `ES`, and `R` should either be finite and
-      inside `[0.0, 1.0]`, or the scorer should reject the input before
-      returning scores with a clear error.
-    - Near-`1.0` raw scores such as `0.999999999` are expected formula
-      behavior, not necessarily bugs. Document that default rating methods
-      round these to `1.0`, and any grade/classification logic must use raw
-      `R`, not rounded `overall_rating()`.
-  - New tests needed to confirm the decisions:
-    - Near-one raw score examples for `Z`, `EM`, `ES`, and `R` should confirm
-      raw `.scores` preserve values below `1.0` while `*_rating()` rounds as
-      documented.
 
 - Reinforce f16 implementation
   - Align with C++23 stl implementation
@@ -134,3 +118,9 @@
 - Test helper functions are all over the place
 - Study proper shifted n < 9 path; maybe the throw is unnecessary
 - Need to find magic numbers
+
+Medium: Valid uniform int64 time axes can be rejected because time deltas are computed in the original signed integer type before widening. In [python/iso18571/_core.cpp (line 247)](/home/user/workspace/ISO/ISO18571/python/iso18571/_core.cpp:247), last - first and in [python/iso18571/_core.cpp (line 259)](/home/user/workspace/ISO/ISO18571/python/iso18571/_core.cpp:259), next - current can overflow for legal strictly increasing np.int64 times. I reproduced this with 9 samples from int64.min to near int64.max; exact math has a constant interval, but ISO18571 raises reference_curve time values must have a constant interval. The same typed subtraction is used again when materializing dt in [python/iso18571/_core.cpp (line 380)](/home/user/workspace/ISO/ISO18571/python/iso18571/_core.cpp:380).
+
+Medium: safe_extract_tar checks path traversal but still allows unsafe tar member types such as symlinks/hardlinks before extractall. See [tools/build_wheels.py (line 432)](/home/user/workspace/ISO/ISO18571/tools/build_wheels.py:432). Because this extracts downloaded Python artifacts, prefer tar.extractall(..., filter="data") or explicit rejection of links/devices.
+
+Low: Native wheel build succeeds but emits a warning: control reaches end of non-void function for [src/validation.h (line 94)](/home/user/workspace/ISO/ISO18571/src/validation.h:94). Add an unreachable/default fallback after the enum switch so warning-clean native builds stay clean.

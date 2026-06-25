@@ -19,7 +19,7 @@ from typing import Any
 
 import numpy as np
 
-from iso18571 import ISO18571, backend_info
+from iso18571 import ISO18571, ScoreComponents, ScoreTimings, backend_info
 
 REFERENCE_CSV = Path("examples/reference.csv")
 COMPARISON_CSV = Path("examples/comparison.csv")
@@ -50,6 +50,48 @@ def json_score_value(value: float | int) -> float | int:
     return float(value)
 
 
+def score_values(scores: ScoreComponents) -> dict[str, float | int]:
+    """Return JSON-ready raw component scores and diagnostic fields."""
+    return {
+        "R": json_score_value(scores["R"]),
+        "Z": json_score_value(scores["Z"]),
+        "EP": json_score_value(scores["EP"]),
+        "EM": json_score_value(scores["EM"]),
+        "ES": json_score_value(scores["ES"]),
+        "dt": json_score_value(scores["dt"]),
+        "corridor_t_norm": json_score_value(scores["corridor_t_norm"]),
+        "corridor_inner_half_width": json_score_value(
+            scores["corridor_inner_half_width"]
+        ),
+        "corridor_outer_half_width": json_score_value(
+            scores["corridor_outer_half_width"]
+        ),
+        "phase_n_eps": json_score_value(scores["phase_n_eps"]),
+        "phase_rho_e": json_score_value(scores["phase_rho_e"]),
+        "phase_reference_start": json_score_value(scores["phase_reference_start"]),
+        "phase_comparison_start": json_score_value(scores["phase_comparison_start"]),
+        "phase_shift_length": json_score_value(scores["phase_shift_length"]),
+        "phase_max_shift": json_score_value(scores["phase_max_shift"]),
+        "magnitude_numerator": json_score_value(scores["magnitude_numerator"]),
+        "magnitude_denominator": json_score_value(scores["magnitude_denominator"]),
+        "magnitude_error": json_score_value(scores["magnitude_error"]),
+        "slope_numerator": json_score_value(scores["slope_numerator"]),
+        "slope_denominator": json_score_value(scores["slope_denominator"]),
+        "slope_error": json_score_value(scores["slope_error"]),
+    }
+
+
+def timing_values(timings: ScoreTimings) -> dict[str, float]:
+    """Return native scorer timing values in milliseconds."""
+    return {
+        "corridor": float(timings["corridor_ms"]),
+        "phase": float(timings["phase_ms"]),
+        "magnitude": float(timings["magnitude_ms"]),
+        "slope": float(timings["slope_ms"]),
+        "total": float(timings["total_ms"]),
+    }
+
+
 def score_report(reference: np.ndarray, comparison: np.ndarray) -> dict[str, Any]:
     """Score two curves and return the values a new user usually inspects."""
     iso = ISO18571(reference, comparison)
@@ -59,8 +101,9 @@ def score_report(reference: np.ndarray, comparison: np.ndarray) -> dict[str, Any
             "samples": int(reference.shape[0]),
             "sample_interval": float(reference[1, 0] - reference[0, 0]),
         },
-        "scores": {key: json_score_value(value) for key, value in iso.scores.items()},
+        "scores": score_values(iso.scores),
         "rounded_scores": rounded_scores(iso),
+        "timings_ms": timing_values(iso.timings),
     }
 
 

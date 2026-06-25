@@ -7,10 +7,11 @@
 #include <string_view>
 
 #include "engine.h"
+#include "numeric.h"
 
 namespace validation {
 
-namespace detail {
+namespace {
 
 inline constexpr int kScoreExponentMinimum = 1;
 inline constexpr int kScoreExponentMaximum = 3;
@@ -24,9 +25,7 @@ inline constexpr f64 kA0Maximum = 1.0;
 inline constexpr f64 kB0Minimum = 0.0;
 inline constexpr f64 kB0Maximum = 1.0;
 
-inline constexpr f64 kWeightMinimum        = 0.0;
-inline constexpr f64 kWeightMicroUnitScale = 1.0e6;
-inline constexpr i64 kExpectedWeightUnits  = 1'000'000;
+inline constexpr f64 kWeightMinimum = 0.0;
 
 [[noreturn]] inline void throw_score_exponent_error (std::string_view name) {
     throw std::invalid_argument(std::string(name) + " has to be 1, 2, or 3");
@@ -79,17 +78,7 @@ inline void require_closed_interval (f64 value, std::string_view name, f64 minim
     }
 }
 
-inline i64 snapped_weight_units (f64 value) {
-    const f64 units = std::round(value * kWeightMicroUnitScale);
-    if (!std::isfinite(units) || units < 0.0 || units > static_cast<f64>(kExpectedWeightUnits)) {
-        throw_weight_sum_error();
-    }
-    return static_cast<i64>(units);
-}
-
-inline f64 weight_from_units (i64 units) { return static_cast<f64>(units) / kWeightMicroUnitScale; }
-
-} // namespace detail
+} // namespace
 
 inline const char* warning_message_for_code (engine::DiagnosticCode code) {
     switch (code) {
@@ -110,7 +99,7 @@ inline const char* warning_message_for_code (engine::DiagnosticCode code) {
 
 inline int score_exponent_from_double (f64 value, std::string_view name) {
     if (!std::isfinite(value)) {
-        detail::throw_score_exponent_error(name);
+        throw_score_exponent_error(name);
     }
     if (value == 1.0) {
         return 1;
@@ -121,53 +110,45 @@ inline int score_exponent_from_double (f64 value, std::string_view name) {
     if (value == 3.0) {
         return 3;
     }
-    detail::throw_score_exponent_error(name);
+    throw_score_exponent_error(name);
 }
 
 inline int positive_integer_from_double (f64 value, std::string_view name) {
     if (!std::isfinite(value) || value < 1.0 || value > static_cast<f64>(std::numeric_limits<int>::max()) ||
         std::floor(value) != value) {
-        detail::throw_positive_integer_error(name);
+        throw_positive_integer_error(name);
     }
     return static_cast<int>(value);
 }
 
 inline void validate_score_params (engine::ScoreParams& params) {
-    detail::require_positive_integer(params.k_z, "k_z");
-    detail::require_score_exponent(params.k_p, "k_p");
-    detail::require_score_exponent(params.k_m, "k_m");
-    detail::require_score_exponent(params.k_s, "k_s");
+    require_positive_integer(params.k_z, "k_z");
+    require_score_exponent(params.k_p, "k_p");
+    require_score_exponent(params.k_m, "k_m");
+    require_score_exponent(params.k_s, "k_s");
 
-    detail::require_positive(params.eps_m, "eps_m");
-    detail::require_positive(params.e_s, "e_s");
-    detail::require_finite(params.init_min, "init_min");
-    if (params.init_min < detail::kInitMinMinimum || params.init_min >= detail::kInitMinExclusiveMaximum) {
+    require_positive(params.eps_m, "eps_m");
+    require_positive(params.e_s, "e_s");
+    require_finite(params.init_min, "init_min");
+    if (params.init_min < kInitMinMinimum || params.init_min >= kInitMinExclusiveMaximum) {
         throw std::invalid_argument("init_min must be finite and satisfy 0 <= init_min < 1");
     }
 
-    detail::require_closed_interval(params.a_0, "a_0", detail::kA0Minimum, detail::kA0Maximum);
-    detail::require_closed_interval(params.b_0, "b_0", detail::kB0Minimum, detail::kB0Maximum);
+    require_closed_interval(params.a_0, "a_0", kA0Minimum, kA0Maximum);
+    require_closed_interval(params.b_0, "b_0", kB0Minimum, kB0Maximum);
     if (params.b_0 <= params.a_0) {
         throw std::invalid_argument("b_0 must be greater than a_0");
     }
 
-    detail::require_non_negative(params.w_z, "w_z");
-    detail::require_non_negative(params.w_p, "w_p");
-    detail::require_non_negative(params.w_m, "w_m");
-    detail::require_non_negative(params.w_s, "w_s");
+    require_non_negative(params.w_z, "w_z");
+    require_non_negative(params.w_p, "w_p");
+    require_non_negative(params.w_m, "w_m");
+    require_non_negative(params.w_s, "w_s");
 
-    const i64 w_z_units = detail::snapped_weight_units(params.w_z);
-    const i64 w_p_units = detail::snapped_weight_units(params.w_p);
-    const i64 w_m_units = detail::snapped_weight_units(params.w_m);
-    const i64 w_s_units = detail::snapped_weight_units(params.w_s);
-    if (w_z_units + w_p_units + w_m_units + w_s_units != detail::kExpectedWeightUnits) {
-        detail::throw_weight_sum_error();
+    const f64 weight_sum = params.w_z + params.w_p + params.w_m + params.w_s;
+    if (!numeric::almost_equal(weight_sum, 1.0)) {
+        throw_weight_sum_error();
     }
-
-    params.w_z = detail::weight_from_units(w_z_units);
-    params.w_p = detail::weight_from_units(w_p_units);
-    params.w_m = detail::weight_from_units(w_m_units);
-    params.w_s = detail::weight_from_units(w_s_units);
 }
 
 } // namespace validation
