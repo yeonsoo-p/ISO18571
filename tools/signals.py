@@ -5,10 +5,19 @@ from __future__ import annotations
 import inspect
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol, TypeAlias
 
 import numpy as np
-from numpy.typing import NDArray
+from numpy.typing import DTypeLike, NDArray
+
+
+TimeCase: TypeAlias = Literal[
+    "affine",
+    "signed_endpoint_overflow",
+    "long_signed",
+    "wrapped_integer",
+    "float_endpoint_span_overflow",
+]
 
 
 class SignalFunction(Protocol):
@@ -40,6 +49,9 @@ class SignalGenerator:
     start: float = 0.0
     seed: int = 0
     components: list[SignalComponent] = field(default_factory=list)
+    _time_axis: NDArray[Any] | None = field(default=None, init=False, repr=False)
+    _time_dtype: np.dtype[Any] | None = field(default=None, init=False, repr=False)
+    _curve_dtype: np.dtype[Any] | None = field(default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
         if self.n < 1:
@@ -50,8 +62,14 @@ class SignalGenerator:
             raise ValueError("start must be finite")
 
     @property
-    def time(self) -> NDArray[np.float64]:
-        return self.start + np.arange(self.n, dtype=np.float64) * self.dt
+    def time(self) -> NDArray[Any]:
+        if self._time_axis is not None:
+            return self._time_axis.copy()
+
+        time = self.start + np.arange(self.n, dtype=np.float64) * self.dt
+        if self._time_dtype is not None:
+            return time.astype(self._time_dtype, copy=False)
+        return time
 
     def add(
         self,
@@ -80,8 +98,137 @@ class SignalGenerator:
         )
         return self
 
+    def with_time_axis(
+        self,
+        time: NDArray[Any] | Sequence[float | int | complex],
+        *,
+        allow_invalid: bool = False,
+    ) -> SignalGenerator:
+        axis = np.asarray(time)
+        if axis.shape != (self.n,):
+            raise ValueError(f"time axis must have shape ({self.n},)")
+        _require_supported_time_dtype(axis.dtype)
+        if not allow_invalid:
+            _require_valid_time_axis(axis)
+
+        self._time_axis = axis.copy()
+        self._time_dtype = axis.dtype
+        self._curve_dtype = axis.dtype
+        return self
+
+    def with_time_dtype(self, dtype: DTypeLike) -> SignalGenerator:
+        time_dtype = _normalize_dtype(dtype)
+        _require_supported_time_dtype(time_dtype)
+        self._time_dtype = time_dtype
+        self._curve_dtype = time_dtype
+        if self._time_axis is not None:
+            self._time_axis = self._time_axis.astype(time_dtype, copy=False)
+            _require_valid_time_axis(self._time_axis)
+        return self
+
+    def with_curve_dtype(self, dtype: DTypeLike) -> SignalGenerator:
+        curve_dtype = _normalize_dtype(dtype)
+        _require_supported_time_dtype(curve_dtype)
+        self._curve_dtype = curve_dtype
+        return self
+
+    def with_time_case(
+        self,
+        case: TimeCase,
+        dtype: DTypeLike | None = None,
+        *,
+        allow_invalid: bool = False,
+    ) -> SignalGenerator:
+        if case == "affine":
+            if dtype is None:
+                self._time_axis = None
+                self._time_dtype = None
+                self._curve_dtype = None
+                return self
+            return self.with_time_dtype(dtype)
+
+        time_dtype = _normalize_dtype(
+            dtype if dtype is not None else _default_time_case_dtype(case)
+        )
+        if case == "signed_endpoint_overflow":
+            if not np.issubdtype(time_dtype, np.signedinteger):
+                raise ValueError(
+                    "signed_endpoint_overflow requires a signed integer dtype"
+                )
+            if self.n < 2:
+                raise ValueError("signed_endpoint_overflow requires at least 2 samples")
+            info = np.iinfo(time_dtype)
+            denominator = self.n - 1
+            step = int(abs(info.min)) // denominator
+            if int(abs(info.min)) % denominator != 0:
+                step += 1
+            last = int(info.min) + step * denominator
+            if last > int(info.max):
+                raise ValueError(
+                    "signed_endpoint_overflow does not fit in the requested dtype"
+                )
+            time = np.array(
+                [int(info.min) + step * idx for idx in range(self.n)], dtype=time_dtype
+            )
+            return self.with_time_axis(time)
+
+        if case == "long_signed":
+            if not np.issubdtype(time_dtype, np.signedinteger):
+                raise ValueError("long_signed requires a signed integer dtype")
+            info = np.iinfo(time_dtype)
+            last = int(info.min) + self.n - 1
+            if last > int(info.max):
+                raise ValueError("long_signed does not fit in the requested dtype")
+            time = np.arange(int(info.min), last + 1, dtype=time_dtype)
+            return self.with_time_axis(time)
+
+        if case == "wrapped_integer":
+            if not np.issubdtype(time_dtype, np.integer):
+                raise ValueError("wrapped_integer requires an integer dtype")
+            if not allow_invalid:
+                raise ValueError("wrapped_integer requires allow_invalid=True")
+            time = np.arange(self.n, dtype=np.int64).astype(time_dtype, copy=False)
+            return self.with_time_axis(time, allow_invalid=True)
+
+        if case == "float_endpoint_span_overflow":
+            if time_dtype not in (np.dtype(np.float32), np.dtype(np.float64)):
+                raise ValueError(
+                    "float_endpoint_span_overflow requires float32 or float64"
+                )
+            if self.n < 3:
+                raise ValueError(
+                    "float_endpoint_span_overflow requires at least 3 samples"
+                )
+            scale = 0.9 * float(np.finfo(time_dtype).max)
+            positions = np.linspace(-1.0, 1.0, self.n, dtype=np.float64)
+            time = np.asarray(positions * scale, dtype=time_dtype)
+            if not np.all(np.isfinite(np.diff(time))):
+                raise ValueError(
+                    "float_endpoint_span_overflow needs more samples for finite adjacent steps"
+                )
+            return self.with_time_axis(time)
+
+        raise ValueError(f"Unsupported time case: {case}")
+
+    def with_random_time_case(
+        self, seed: int | None = None, *, include_invalid: bool = True
+    ) -> SignalGenerator:
+        rng = np.random.default_rng(self.seed if seed is None else seed)
+        choices: list[tuple[TimeCase, DTypeLike, bool]] = [
+            ("affine", np.float64, False),
+            ("signed_endpoint_overflow", np.int32, False),
+            ("signed_endpoint_overflow", np.int64, False),
+            ("long_signed", np.int16, False),
+            ("float_endpoint_span_overflow", np.float32, False),
+            ("float_endpoint_span_overflow", np.float64, False),
+        ]
+        if include_invalid:
+            choices.append(("wrapped_integer", np.int8, True))
+        case, dtype, allow_invalid = choices[int(rng.integers(len(choices)))]
+        return self.with_time_case(case, dtype, allow_invalid=allow_invalid)
+
     def values(self) -> NDArray[np.float64]:
-        time = self.time
+        time = self.time.astype(np.float64, copy=False)
         total = np.zeros(self.n, dtype=np.float64)
         rng = np.random.default_rng(self.seed)
         for component in self.components:
@@ -96,10 +243,11 @@ class SignalGenerator:
             total += component.scale * values + component.offset
         return total
 
-    def curve(self) -> NDArray[np.float64]:
-        return np.column_stack((self.time, self.values())).astype(
-            np.float64, copy=False
-        )
+    def curve(self) -> NDArray[Any]:
+        curve = np.column_stack((self.time, self.values()))
+        if self._curve_dtype is not None:
+            return curve.astype(self._curve_dtype, copy=False)
+        return curve.astype(np.float64, copy=False)
 
 
 def zero(
@@ -109,6 +257,15 @@ def zero(
 ) -> NDArray[np.float64]:
     del rng
     return np.zeros_like(time, dtype=np.float64)
+
+
+def sample_index(
+    time: NDArray[np.float64],
+    *,
+    rng: np.random.Generator | None = None,
+) -> NDArray[np.float64]:
+    del rng
+    return np.arange(time.shape[0], dtype=np.float64)
 
 
 def constant(
@@ -354,3 +511,50 @@ def _as_values(
         name = getattr(function, "__name__", repr(function))
         raise ValueError(f"{name} returned shape {array.shape}, expected ({n},)")
     return array.astype(np.float64, copy=False)
+
+
+def _normalize_dtype(dtype: DTypeLike) -> np.dtype[Any]:
+    return np.dtype(dtype)
+
+
+def _default_time_case_dtype(case: TimeCase) -> DTypeLike:
+    if case == "affine":
+        return np.float64
+    if case == "signed_endpoint_overflow":
+        return np.int64
+    if case == "long_signed":
+        return np.int16
+    if case == "wrapped_integer":
+        return np.int8
+    if case == "float_endpoint_span_overflow":
+        return np.float64
+    raise ValueError(f"Unsupported time case: {case}")
+
+
+def _require_supported_time_dtype(dtype: np.dtype[Any]) -> None:
+    if not (
+        np.issubdtype(dtype, np.integer)
+        or np.issubdtype(dtype, np.floating)
+        or np.issubdtype(dtype, np.complexfloating)
+    ):
+        raise ValueError("time axis dtype must be numeric")
+    if np.issubdtype(dtype, np.bool_):
+        raise ValueError("time axis dtype must be numeric")
+
+
+def _require_valid_time_axis(time: NDArray[Any]) -> None:
+    if np.issubdtype(time.dtype, np.complexfloating):
+        if np.any(np.imag(time) != 0):
+            raise ValueError("time axis must have zero imaginary components")
+        real_time = np.real(time)
+    else:
+        real_time = time
+
+    if not np.all(np.isfinite(real_time)):
+        raise ValueError("time axis must be finite")
+    previous = real_time[0].item()
+    for value in real_time[1:]:
+        current = value.item()
+        if current <= previous:
+            raise ValueError("time axis must be strictly increasing")
+        previous = current

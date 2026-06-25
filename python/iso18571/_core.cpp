@@ -224,8 +224,69 @@ auto real_component (const T& value) {
 }
 
 template<typename T>
-void require_typed_time (const py::buffer_info& info, const char* curve_name, std::ptrdiff_t n) {
+auto materialize_typed_dt (const py::buffer_info& info, const char* curve_name, std::ptrdiff_t n) {
     using Time            = decltype(real_component(std::declval<T>()));
+    const auto item_size  = static_cast<py::ssize_t>(sizeof(T));
+    const auto row_stride = static_cast<std::ptrdiff_t>(info.strides[0] / item_size);
+    const T*   data       = static_cast<const T*>(info.ptr);
+
+    Time current = real_component(data[0]);
+    Time next    = real_component(data[row_stride]);
+    if (next <= current) {
+        throw std::invalid_argument(std::string(curve_name) + " time values must be strictly increasing");
+    }
+
+    if constexpr (std::is_integral_v<Time>) {
+        using Step    = std::make_unsigned_t<Time>;
+        const Step dt = static_cast<Step>(next) - static_cast<Step>(current);
+
+        current = next;
+        for (std::ptrdiff_t idx = 2; idx < n; ++idx) {
+            next = real_component(data[idx * row_stride]);
+
+            if (next <= current) {
+                throw std::invalid_argument(std::string(curve_name) + " time values must be strictly increasing");
+            }
+
+            const Step step = static_cast<Step>(next) - static_cast<Step>(current);
+            if (step != dt) {
+                throw std::invalid_argument(std::string(curve_name) + " time values must have a constant interval");
+            }
+
+            current = next;
+        }
+
+        return dt;
+    } else {
+        const Time dt = next - current;
+        if (!std::isfinite(dt) || dt <= Time {0}) {
+            throw std::invalid_argument(std::string(curve_name) + " time values must have a constant interval");
+        }
+
+        f128 mean = static_cast<f128>(dt);
+        current   = next;
+        for (std::ptrdiff_t idx = 2; idx < n; ++idx) {
+            next = real_component(data[idx * row_stride]);
+
+            if (next <= current) {
+                throw std::invalid_argument(std::string(curve_name) + " time values must be strictly increasing");
+            }
+
+            const Time step = next - current;
+            if (!std::isfinite(step) || step <= Time {0} || !numeric::almost_equal(step, dt)) {
+                throw std::invalid_argument(std::string(curve_name) + " time values must have a constant interval");
+            }
+
+            mean += (static_cast<f128>(step) - mean) / static_cast<f128>(idx);
+            current = next;
+        }
+
+        return static_cast<Time>(mean);
+    }
+}
+
+template<typename T>
+void require_typed_time (const py::buffer_info& info, const char* curve_name, std::ptrdiff_t n) {
     const auto item_size  = static_cast<py::ssize_t>(sizeof(T));
     const auto row_stride = static_cast<std::ptrdiff_t>(info.strides[0] / item_size);
     const T*   data       = static_cast<const T*>(info.ptr);
@@ -244,25 +305,7 @@ void require_typed_time (const py::buffer_info& info, const char* curve_name, st
         }
     }
 
-    const Time first = real_component(data[0]);
-    const Time last  = real_component(data[(n - 1) * row_stride]);
-    const Time dt    = (last - first) / Time(n - 1);
-
-    Time current = first;
-    for (std::ptrdiff_t idx = 1; idx < n; ++idx) {
-        const Time next = real_component(data[idx * row_stride]);
-
-        if (next <= current) {
-            throw std::invalid_argument(std::string(curve_name) + " time values must be strictly increasing");
-        }
-
-        const Time step = next - current;
-        if (!numeric::almost_equal(step, dt)) {
-            throw std::invalid_argument(std::string(curve_name) + " time values must have a constant interval");
-        }
-
-        current = next;
-    }
+    materialize_typed_dt<T>(info, curve_name, n);
 }
 
 template<typename T>
@@ -371,17 +414,6 @@ void require_curve_input (CurveInputDtype dtype, const py::buffer_info& info, co
     });
 }
 
-template<typename T>
-auto materialize_typed_dt (const py::buffer_info& info, std::ptrdiff_t n) {
-    const auto item_size  = static_cast<py::ssize_t>(sizeof(T));
-    const auto row_stride = static_cast<std::ptrdiff_t>(info.strides[0] / item_size);
-    const T*   data       = static_cast<const T*>(info.ptr);
-
-    const auto first = real_component(data[0]);
-    const auto last  = real_component(data[(n - 1) * row_stride]);
-    return (last - first) / decltype(first)(n - 1);
-}
-
 void require_materialized_dt (f64 dt, const char* curve_name) {
     if (!std::isfinite(dt) || dt <= 0.0 || dt < std::numeric_limits<f64>::min()) {
         throw std::invalid_argument(std::string(curve_name) + " time interval is too small");
@@ -390,7 +422,7 @@ void require_materialized_dt (f64 dt, const char* curve_name) {
 
 template<typename T>
 f64 materialize_dt (const py::buffer_info& info, const char* curve_name, std::ptrdiff_t n) {
-    const f64 dt = static_cast<f64>(materialize_typed_dt<T>(info, n));
+    const f64 dt = static_cast<f64>(materialize_typed_dt<T>(info, curve_name, n));
     require_materialized_dt(dt, curve_name);
     return dt;
 }
@@ -400,14 +432,13 @@ f64 materialize_matching_dt (CurveInputDtype reference_dtype, const py::buffer_i
                              std::ptrdiff_t n) {
     f64 reference_dt = 0.0;
     visit_curve_dtype(reference_dtype, [&] (auto reference_tag) {
-        using ReferenceT                       = typename decltype(reference_tag)::type;
-        using ReferenceTime                    = decltype(real_component(std::declval<ReferenceT>()));
-        const ReferenceTime typed_reference_dt = materialize_typed_dt<ReferenceT>(reference_info, n);
-        reference_dt                           = static_cast<f64>(typed_reference_dt);
+        using ReferenceT              = typename decltype(reference_tag)::type;
+        const auto typed_reference_dt = materialize_typed_dt<ReferenceT>(reference_info, "reference_curve", n);
+        reference_dt                  = static_cast<f64>(typed_reference_dt);
         require_materialized_dt(reference_dt, "reference_curve");
         visit_curve_dtype(comparison_dtype, [&] (auto comparison_tag) {
             using ComparisonT              = typename decltype(comparison_tag)::type;
-            const auto typed_comparison_dt = materialize_typed_dt<ComparisonT>(comparison_info, n);
+            const auto typed_comparison_dt = materialize_typed_dt<ComparisonT>(comparison_info, "comparison_curve", n);
             const f64  comparison_dt       = static_cast<f64>(typed_comparison_dt);
             require_materialized_dt(comparison_dt, "comparison_curve");
             if (!numeric::almost_equal(typed_reference_dt, typed_comparison_dt)) {

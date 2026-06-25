@@ -9,6 +9,9 @@ import numpy as np
 import pytest
 
 from iso18571 import ISO18571, ScoreComponents
+from iso18571._core import _score_components
+from tools import signals
+from tools.signals import SignalGenerator, TimeCase
 
 
 ScoreValue = float | int
@@ -78,6 +81,54 @@ def test_integer_time_values_require_exact_constant_interval() -> None:
         ISO18571(curve, curve)
 
 
+@pytest.mark.parametrize(
+    "dtype",
+    [
+        np.int32,
+        np.int64,
+    ],
+)
+def test_wide_signed_integer_time_axes_avoid_delta_overflow(dtype: Any) -> None:
+    curve = (
+        SignalGenerator(9, 1.0)
+        .with_time_case("signed_endpoint_overflow", dtype)
+        .add(signals.sample_index)
+        .curve()
+    )
+    expected_dt = int(curve[1, 0]) - int(curve[0, 0])
+
+    scorer = ISO18571(curve, curve)
+
+    assert scorer.dt == float(expected_dt)
+
+
+@pytest.mark.parametrize(
+    ("dtype", "n"),
+    [
+        (np.int8, 129),
+        (np.int16, 32769),
+    ],
+)
+def test_long_signed_integer_time_axes_avoid_sample_count_narrowing(
+    dtype: Any, n: int
+) -> None:
+    curve = SignalGenerator(n, 1.0).with_time_case("long_signed", dtype).curve()
+
+    with pytest.raises(ValueError, match="Missing required score parameter"):
+        _score_components(curve, curve, {})
+
+
+def test_wrapped_small_integer_time_axis_is_rejected() -> None:
+    curve = (
+        SignalGenerator(257, 1.0)
+        .with_time_case("wrapped_integer", np.int8, allow_invalid=True)
+        .curve()
+    )
+
+    with pytest.raises(ValueError, match="strictly increasing"):
+        _score_components(curve, curve, {})
+
+
 @pytest.mark.parametrize("dtype", [np.float16, np.float32, np.float64])
 def test_float_time_uniformity_uses_dtype_tolerance(dtype: Any) -> None:
     accepted = _curve_from_time(_perturbed_time(dtype, inside=True), dtype=dtype)
@@ -114,6 +165,60 @@ def test_float_curve_dt_matching_uses_dtype_tolerance(
     ISO18571(reference, accepted)
     with pytest.raises(ValueError, match="matching time intervals"):
         ISO18571(reference, rejected)
+
+
+@pytest.mark.parametrize(
+    "dtype",
+    [
+        np.float32,
+        np.float64,
+    ],
+)
+def test_huge_float_time_axes_avoid_endpoint_span_overflow(dtype: Any) -> None:
+    curve = (
+        SignalGenerator(9, 1.0)
+        .with_time_case("float_endpoint_span_overflow", dtype)
+        .add(signals.sample_index)
+        .curve()
+    )
+    time = curve[:, 0]
+    steps = np.diff(time)
+
+    with np.errstate(over="ignore"):
+        endpoint_span = dtype(time[-1] - time[0])
+
+    scorer = ISO18571(curve, curve)
+
+    assert not np.isfinite(endpoint_span)
+    assert np.all(np.isfinite(steps))
+    assert scorer.dt == pytest.approx(
+        float(np.mean(steps.astype(np.longdouble))), rel=1.0e-6
+    )
+
+
+@pytest.mark.parametrize("reverse_order", [False, True])
+@pytest.mark.parametrize(
+    ("case", "dtype", "n"),
+    [
+        ("long_signed", np.int8, 256),
+        ("signed_endpoint_overflow", np.int64, 9),
+    ],
+)
+def test_mixed_integer_and_float_time_interval_matching_is_order_independent(
+    case: TimeCase, dtype: Any, n: int, reverse_order: bool
+) -> None:
+    integer_curve = SignalGenerator(n, 1.0).with_time_case(case, dtype).curve()
+    float_curve = (
+        SignalGenerator(n, 1.0)
+        .with_time_axis(integer_curve[:, 0].astype(np.float64))
+        .with_curve_dtype(np.float64)
+        .curve()
+    )
+    reference = float_curve if reverse_order else integer_curve
+    comparison = integer_curve if reverse_order else float_curve
+
+    with pytest.raises(ValueError, match="Missing required score parameter"):
+        _score_components(reference, comparison, {})
 
 
 @pytest.mark.parametrize(
