@@ -238,6 +238,7 @@ void pass8 (std::size_t ido, std::size_t l1, std::span<const c128> cc, std::span
     }
 }
 
+// Shift candidates must beat the current correlation by more than this; ties prefer the smaller shift already selected.
 constexpr f64 CORRELATION_TIE_TOLERANCE = 1.0e-12;
 
 std::size_t offset (std::ptrdiff_t index) { return static_cast<std::size_t>(index); }
@@ -293,188 +294,6 @@ std::ptrdiff_t window_radius (std::ptrdiff_t n, f64 window_size) {
     }
     const std::ptrdiff_t raw = static_cast<std::ptrdiff_t>(std::ceil(window_size * static_cast<f64>(n)));
     return std::min<std::ptrdiff_t>(n, std::max<std::ptrdiff_t>(1, raw));
-}
-
-std::pair<f64, f64> magnitude_error_from_dtw (std::span<const f64> x, std::span<const f64> y, f64 window_size) {
-    const std::ptrdiff_t n      = span_size(x);
-    const std::ptrdiff_t radius = window_radius(n, window_size);
-    const f64            inf    = std::numeric_limits<f64>::infinity();
-
-    std::vector<f64> previous_cost(static_cast<std::size_t>(n), inf);
-    std::vector<f64> current_cost(static_cast<std::size_t>(n), inf);
-    std::vector<f64> previous_numerator(static_cast<std::size_t>(n), 0.0);
-    std::vector<f64> current_numerator(static_cast<std::size_t>(n), 0.0);
-    std::vector<f64> previous_denominator(static_cast<std::size_t>(n), 0.0);
-    std::vector<f64> current_denominator(static_cast<std::size_t>(n), 0.0);
-    std::vector<f64> abs_y(static_cast<std::size_t>(n), 0.0);
-
-    for (std::ptrdiff_t idx = 0; idx < n; ++idx) {
-        abs_y[offset(idx)] = std::abs(value_at(y, idx));
-    }
-
-    for (std::ptrdiff_t i = 0; i < n; ++i) {
-        const std::ptrdiff_t previous_start = i > 0 ? std::max<std::ptrdiff_t>(0, i - radius) : 0;
-        const std::ptrdiff_t previous_stop  = i > 0 ? std::min<std::ptrdiff_t>(n, i + radius - 1) : 0;
-        const std::ptrdiff_t j_start        = std::max<std::ptrdiff_t>(0, i - radius + 1);
-        const std::ptrdiff_t j_stop         = std::min<std::ptrdiff_t>(n, i + radius);
-        const f64            x_i            = value_at(x, i);
-        std::ptrdiff_t       interior_start = j_stop;
-        std::ptrdiff_t       interior_stop  = j_stop;
-
-        if (i > 0) {
-            interior_start = std::max<std::ptrdiff_t>(j_start + 1, previous_start + 1);
-            interior_stop  = std::min<std::ptrdiff_t>(j_stop, previous_stop);
-            if (interior_start >= interior_stop) {
-                interior_start = j_stop;
-                interior_stop  = j_stop;
-            }
-        }
-
-        for (std::ptrdiff_t j = j_start; j < interior_start; ++j) {
-            const std::size_t index             = static_cast<std::size_t>(j);
-            const f64         delta             = x_i - value_at(y, j);
-            const f64         local_cost        = delta * delta;
-            const f64         local_numerator   = std::abs(delta);
-            const f64         local_denominator = abs_y[index];
-            f64               accumulated       = inf;
-            f64               numerator         = 0.0;
-            f64               denominator       = 0.0;
-
-            if (i == 0 && j == 0) {
-                accumulated = local_cost;
-                numerator   = local_numerator;
-                denominator = local_denominator;
-            } else {
-                f64 best_previous    = inf;
-                f64 best_numerator   = 0.0;
-                f64 best_denominator = 0.0;
-
-                if (i > 0 && j >= previous_start && j < previous_stop) {
-                    select_dtw_predecessor(previous_cost[index], previous_numerator[index], previous_denominator[index],
-                                           best_previous, best_numerator, best_denominator);
-                }
-                if (j > j_start) {
-                    const std::size_t previous_index = static_cast<std::size_t>(j - 1);
-                    const f64         candidate      = current_cost[previous_index];
-                    if (candidate < best_previous) {
-                        select_dtw_predecessor(candidate, current_numerator[previous_index],
-                                               current_denominator[previous_index], best_previous, best_numerator,
-                                               best_denominator);
-                    }
-                }
-                if (i > 0 && j > 0 && j - 1 >= previous_start && j - 1 < previous_stop) {
-                    const std::size_t previous_index = static_cast<std::size_t>(j - 1);
-                    const f64         candidate      = previous_cost[previous_index];
-                    if (candidate < best_previous) {
-                        select_dtw_predecessor(candidate, previous_numerator[previous_index],
-                                               previous_denominator[previous_index], best_previous, best_numerator,
-                                               best_denominator);
-                    }
-                }
-
-                if (best_previous < inf) {
-                    accumulated = local_cost + best_previous;
-                    numerator   = local_numerator + best_numerator;
-                    denominator = local_denominator + best_denominator;
-                }
-            }
-
-            current_cost[index]        = accumulated;
-            current_numerator[index]   = numerator;
-            current_denominator[index] = denominator;
-        }
-
-        for (std::ptrdiff_t j = interior_start; j < interior_stop; ++j) {
-            const std::size_t index             = static_cast<std::size_t>(j);
-            const std::size_t previous_index    = static_cast<std::size_t>(j - 1);
-            const f64         delta             = x_i - value_at(y, j);
-            const f64         local_cost        = delta * delta;
-            const f64         local_numerator   = std::abs(delta);
-            const f64         local_denominator = abs_y[index];
-            f64               best_previous     = previous_cost[index];
-            f64               best_numerator    = previous_numerator[index];
-            f64               best_denominator  = previous_denominator[index];
-            const f64         horizontal        = current_cost[previous_index];
-            if (horizontal < best_previous) {
-                best_previous    = horizontal;
-                best_numerator   = current_numerator[previous_index];
-                best_denominator = current_denominator[previous_index];
-            }
-            const f64 diagonal = previous_cost[previous_index];
-            if (diagonal < best_previous) {
-                best_previous    = diagonal;
-                best_numerator   = previous_numerator[previous_index];
-                best_denominator = previous_denominator[previous_index];
-            }
-            current_cost[index]        = local_cost + best_previous;
-            current_numerator[index]   = local_numerator + best_numerator;
-            current_denominator[index] = local_denominator + best_denominator;
-        }
-
-        for (std::ptrdiff_t j = interior_stop; j < j_stop; ++j) {
-            const std::size_t index             = static_cast<std::size_t>(j);
-            const f64         delta             = x_i - value_at(y, j);
-            const f64         local_cost        = delta * delta;
-            const f64         local_numerator   = std::abs(delta);
-            const f64         local_denominator = abs_y[index];
-            f64               accumulated       = inf;
-            f64               numerator         = 0.0;
-            f64               denominator       = 0.0;
-
-            if (i == 0 && j == 0) {
-                accumulated = local_cost;
-                numerator   = local_numerator;
-                denominator = local_denominator;
-            } else {
-                f64 best_previous    = inf;
-                f64 best_numerator   = 0.0;
-                f64 best_denominator = 0.0;
-
-                if (i > 0 && j >= previous_start && j < previous_stop) {
-                    select_dtw_predecessor(previous_cost[index], previous_numerator[index], previous_denominator[index],
-                                           best_previous, best_numerator, best_denominator);
-                }
-                if (j > j_start) {
-                    const std::size_t previous_index = static_cast<std::size_t>(j - 1);
-                    const f64         candidate      = current_cost[previous_index];
-                    if (candidate < best_previous) {
-                        select_dtw_predecessor(candidate, current_numerator[previous_index],
-                                               current_denominator[previous_index], best_previous, best_numerator,
-                                               best_denominator);
-                    }
-                }
-                if (i > 0 && j > 0 && j - 1 >= previous_start && j - 1 < previous_stop) {
-                    const std::size_t previous_index = static_cast<std::size_t>(j - 1);
-                    const f64         candidate      = previous_cost[previous_index];
-                    if (candidate < best_previous) {
-                        select_dtw_predecessor(candidate, previous_numerator[previous_index],
-                                               previous_denominator[previous_index], best_previous, best_numerator,
-                                               best_denominator);
-                    }
-                }
-
-                if (best_previous < inf) {
-                    accumulated = local_cost + best_previous;
-                    numerator   = local_numerator + best_numerator;
-                    denominator = local_denominator + best_denominator;
-                }
-            }
-
-            current_cost[index]        = accumulated;
-            current_numerator[index]   = numerator;
-            current_denominator[index] = denominator;
-        }
-
-        std::swap(previous_cost, current_cost);
-        std::swap(previous_numerator, current_numerator);
-        std::swap(previous_denominator, current_denominator);
-    }
-
-    const std::size_t final_index = static_cast<std::size_t>(n - 1);
-    if (!std::isfinite(previous_cost[final_index])) {
-        throw std::runtime_error("No valid ISO DTW path found");
-    }
-    return {previous_numerator[final_index], previous_denominator[final_index]};
 }
 
 bool values_equal_for_shift (std::span<const f64> reference, std::span<const f64> comparison,
@@ -910,21 +729,213 @@ void corridor_score (CorridorResult& result, std::span<const f64> reference, std
 void magnitude_score (MagnitudeResult& result, std::span<const f64> reference_values,
                       std::span<const f64> comparison_values, const ScoreParams& params,
                       std::vector<Diagnostic>& diagnostics) {
-    const std::pair<f64, f64> magnitude_error = magnitude_error_from_dtw(comparison_values, reference_values, 0.1);
-    const f64                 numerator       = magnitude_error.first;
-    const f64                 denominator     = magnitude_error.second;
+    const std::ptrdiff_t n           = span_size(comparison_values);
+    const std::ptrdiff_t radius      = window_radius(n, 0.1);
+    const f64            inf         = std::numeric_limits<f64>::infinity();
+    f64                  value_scale = 0.0;
+
+    for (std::ptrdiff_t idx = 0; idx < n; ++idx) {
+        value_scale = std::max(value_scale, std::abs(value_at(reference_values, idx)));
+        value_scale = std::max(value_scale, std::abs(value_at(comparison_values, idx)));
+    }
+    const f64 path_length_bound = 2.0 * static_cast<f64>(n) - 1.0;
+    const f64 raw_cost_limit    = std::sqrt(std::numeric_limits<f64>::max() / (4.0 * path_length_bound));
+    const f64 cost_scale        = value_scale > raw_cost_limit ? value_scale : 1.0;
+
+    std::vector<f64> previous_cost(static_cast<std::size_t>(n), inf);
+    std::vector<f64> current_cost(static_cast<std::size_t>(n), inf);
+    std::vector<f64> previous_numerator(static_cast<std::size_t>(n), 0.0);
+    std::vector<f64> current_numerator(static_cast<std::size_t>(n), 0.0);
+    std::vector<f64> previous_denominator(static_cast<std::size_t>(n), 0.0);
+    std::vector<f64> current_denominator(static_cast<std::size_t>(n), 0.0);
+    std::vector<f64> abs_reference_scaled(static_cast<std::size_t>(n), 0.0);
+
+    for (std::ptrdiff_t idx = 0; idx < n; ++idx) {
+        abs_reference_scaled[offset(idx)] = std::abs(value_at(reference_values, idx) / cost_scale);
+    }
+
+    for (std::ptrdiff_t i = 0; i < n; ++i) {
+        const std::ptrdiff_t previous_start = i > 0 ? std::max<std::ptrdiff_t>(0, i - radius) : 0;
+        const std::ptrdiff_t previous_stop  = i > 0 ? std::min<std::ptrdiff_t>(n, i + radius - 1) : 0;
+        const std::ptrdiff_t j_start        = std::max<std::ptrdiff_t>(0, i - radius + 1);
+        const std::ptrdiff_t j_stop         = std::min<std::ptrdiff_t>(n, i + radius);
+        const f64            comparison_i   = value_at(comparison_values, i) / cost_scale;
+        std::ptrdiff_t       interior_start = j_stop;
+        std::ptrdiff_t       interior_stop  = j_stop;
+
+        if (i > 0) {
+            interior_start = std::max<std::ptrdiff_t>(j_start + 1, previous_start + 1);
+            interior_stop  = std::min<std::ptrdiff_t>(j_stop, previous_stop);
+            if (interior_start >= interior_stop) {
+                interior_start = j_stop;
+                interior_stop  = j_stop;
+            }
+        }
+
+        for (std::ptrdiff_t j = j_start; j < interior_start; ++j) {
+            const std::size_t index             = static_cast<std::size_t>(j);
+            const f64         reference_j       = value_at(reference_values, j) / cost_scale;
+            const f64         delta             = comparison_i - reference_j;
+            const f64         local_cost        = delta * delta;
+            const f64         local_numerator   = std::abs(delta);
+            const f64         local_denominator = abs_reference_scaled[index];
+            f64               accumulated       = inf;
+            f64               numerator         = 0.0;
+            f64               denominator       = 0.0;
+
+            if (i == 0 && j == 0) {
+                accumulated = local_cost;
+                numerator   = local_numerator;
+                denominator = local_denominator;
+            } else {
+                f64 best_previous    = inf;
+                f64 best_numerator   = 0.0;
+                f64 best_denominator = 0.0;
+
+                if (i > 0 && j >= previous_start && j < previous_stop) {
+                    select_dtw_predecessor(previous_cost[index], previous_numerator[index], previous_denominator[index],
+                                           best_previous, best_numerator, best_denominator);
+                }
+                if (j > j_start) {
+                    const std::size_t previous_index = static_cast<std::size_t>(j - 1);
+                    const f64         candidate      = current_cost[previous_index];
+                    if (candidate < best_previous) {
+                        select_dtw_predecessor(candidate, current_numerator[previous_index],
+                                               current_denominator[previous_index], best_previous, best_numerator,
+                                               best_denominator);
+                    }
+                }
+                if (i > 0 && j > 0 && j - 1 >= previous_start && j - 1 < previous_stop) {
+                    const std::size_t previous_index = static_cast<std::size_t>(j - 1);
+                    const f64         candidate      = previous_cost[previous_index];
+                    if (candidate < best_previous) {
+                        select_dtw_predecessor(candidate, previous_numerator[previous_index],
+                                               previous_denominator[previous_index], best_previous, best_numerator,
+                                               best_denominator);
+                    }
+                }
+
+                if (best_previous < inf) {
+                    accumulated = local_cost + best_previous;
+                    numerator   = local_numerator + best_numerator;
+                    denominator = local_denominator + best_denominator;
+                }
+            }
+
+            current_cost[index]        = accumulated;
+            current_numerator[index]   = numerator;
+            current_denominator[index] = denominator;
+        }
+
+        for (std::ptrdiff_t j = interior_start; j < interior_stop; ++j) {
+            const std::size_t index             = static_cast<std::size_t>(j);
+            const std::size_t previous_index    = static_cast<std::size_t>(j - 1);
+            const f64         reference_j       = value_at(reference_values, j) / cost_scale;
+            const f64         delta             = comparison_i - reference_j;
+            const f64         local_cost        = delta * delta;
+            const f64         local_numerator   = std::abs(delta);
+            const f64         local_denominator = abs_reference_scaled[index];
+            f64               best_previous     = previous_cost[index];
+            f64               best_numerator    = previous_numerator[index];
+            f64               best_denominator  = previous_denominator[index];
+            const f64         horizontal        = current_cost[previous_index];
+            if (horizontal < best_previous) {
+                best_previous    = horizontal;
+                best_numerator   = current_numerator[previous_index];
+                best_denominator = current_denominator[previous_index];
+            }
+            const f64 diagonal = previous_cost[previous_index];
+            if (diagonal < best_previous) {
+                best_previous    = diagonal;
+                best_numerator   = previous_numerator[previous_index];
+                best_denominator = previous_denominator[previous_index];
+            }
+            current_cost[index]        = local_cost + best_previous;
+            current_numerator[index]   = local_numerator + best_numerator;
+            current_denominator[index] = local_denominator + best_denominator;
+        }
+
+        for (std::ptrdiff_t j = interior_stop; j < j_stop; ++j) {
+            const std::size_t index             = static_cast<std::size_t>(j);
+            const f64         reference_j       = value_at(reference_values, j) / cost_scale;
+            const f64         delta             = comparison_i - reference_j;
+            const f64         local_cost        = delta * delta;
+            const f64         local_numerator   = std::abs(delta);
+            const f64         local_denominator = abs_reference_scaled[index];
+            f64               accumulated       = inf;
+            f64               numerator         = 0.0;
+            f64               denominator       = 0.0;
+
+            if (i == 0 && j == 0) {
+                accumulated = local_cost;
+                numerator   = local_numerator;
+                denominator = local_denominator;
+            } else {
+                f64 best_previous    = inf;
+                f64 best_numerator   = 0.0;
+                f64 best_denominator = 0.0;
+
+                if (i > 0 && j >= previous_start && j < previous_stop) {
+                    select_dtw_predecessor(previous_cost[index], previous_numerator[index], previous_denominator[index],
+                                           best_previous, best_numerator, best_denominator);
+                }
+                if (j > j_start) {
+                    const std::size_t previous_index = static_cast<std::size_t>(j - 1);
+                    const f64         candidate      = current_cost[previous_index];
+                    if (candidate < best_previous) {
+                        select_dtw_predecessor(candidate, current_numerator[previous_index],
+                                               current_denominator[previous_index], best_previous, best_numerator,
+                                               best_denominator);
+                    }
+                }
+                if (i > 0 && j > 0 && j - 1 >= previous_start && j - 1 < previous_stop) {
+                    const std::size_t previous_index = static_cast<std::size_t>(j - 1);
+                    const f64         candidate      = previous_cost[previous_index];
+                    if (candidate < best_previous) {
+                        select_dtw_predecessor(candidate, previous_numerator[previous_index],
+                                               previous_denominator[previous_index], best_previous, best_numerator,
+                                               best_denominator);
+                    }
+                }
+
+                if (best_previous < inf) {
+                    accumulated = local_cost + best_previous;
+                    numerator   = local_numerator + best_numerator;
+                    denominator = local_denominator + best_denominator;
+                }
+            }
+
+            current_cost[index]        = accumulated;
+            current_numerator[index]   = numerator;
+            current_denominator[index] = denominator;
+        }
+
+        std::swap(previous_cost, current_cost);
+        std::swap(previous_numerator, current_numerator);
+        std::swap(previous_denominator, current_denominator);
+    }
+
+    const std::size_t final_index = static_cast<std::size_t>(n - 1);
+    if (!std::isfinite(previous_cost[final_index])) {
+        throw std::runtime_error("No valid ISO DTW path found");
+    }
+
+    const f64 normalized_numerator   = previous_numerator[final_index];
+    const f64 normalized_denominator = previous_denominator[final_index];
+    const f64 numerator              = normalized_numerator * cost_scale;
+    const f64 denominator            = normalized_denominator * cost_scale;
 
     result.denominator = denominator;
     result.numerator   = numerator;
-    if (denominator == 0.0) {
-        result.score = numerator == 0.0 ? 1.0 : 0.0;
+    if (normalized_denominator == 0.0) {
+        result.score = normalized_numerator == 0.0 ? 1.0 : 0.0;
         result.error = std::numeric_limits<f64>::quiet_NaN();
         diagnostics.push_back({DiagnosticSeverity::Warning, DiagnosticComponent::Magnitude,
                                DiagnosticCode::MagnitudeZeroReferenceDenominator});
         return;
     }
 
-    const f64 e_mag = numerator / denominator;
+    const f64 e_mag = normalized_numerator / normalized_denominator;
     result.error    = e_mag;
     if (e_mag == 0.0) {
         result.score = 1.0;

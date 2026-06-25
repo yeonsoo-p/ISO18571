@@ -108,19 +108,47 @@ def test_generated_signal_classes_score_with_finite_outputs(
         assert np.isfinite(scorer.scores[key])
 
 
-@pytest.mark.parametrize("amplitude", [1.0e-150, 1.0e150])
-def test_finite_small_and_large_amplitudes_do_not_overflow(amplitude: float) -> None:
-    reference_values = (
-        SignalGenerator(32, 1.0)
-        .add(signals.sine, amplitude=amplitude, frequency=0.05)
-        .values()
-    )
-    comparison_values = reference_values * 0.99
+@pytest.mark.parametrize(
+    ("case", "scale", "expected_magnitude_error", "expected_em"),
+    [
+        ("sine", 1.0e-150, None, None),
+        ("sine", 1.0e150, None, None),
+        ("huge_ratio", 0.99, 0.01, 0.98),
+        ("huge_zero", 0.0, 1.0, 0.0),
+    ],
+)
+def test_finite_small_and_large_amplitudes_do_not_overflow(
+    case: str,
+    scale: float,
+    expected_magnitude_error: float | None,
+    expected_em: float | None,
+) -> None:
+    if case == "sine":
+        reference_values = (
+            SignalGenerator(32, 1.0)
+            .add(signals.sine, amplitude=scale, frequency=0.05)
+            .values()
+        )
+        comparison_values = reference_values * 0.99
+    elif case == "huge_ratio":
+        reference_values = np.full(16, np.finfo(np.float64).max, dtype=np.float64)
+        comparison_values = reference_values * scale
+    else:
+        reference_values = np.full(16, np.finfo(np.float64).max, dtype=np.float64)
+        comparison_values = np.zeros(16, dtype=np.float64)
 
-    scorer = ISO18571(_curve(reference_values), _curve(comparison_values))
+    scorer, _messages = _score_with_warnings(
+        _curve(reference_values), _curve(comparison_values)
+    )
 
     for key in ("R", "Z", "EP", "EM", "ES"):
         assert np.isfinite(scorer.scores[key])
+    if expected_magnitude_error is not None:
+        assert scorer.scores["magnitude_error"] == pytest.approx(
+            expected_magnitude_error
+        )
+    if expected_em is not None:
+        assert scorer.scores["EM"] == pytest.approx(expected_em)
 
 
 def test_tiny_dt_identical_ramp_has_finite_slope_score() -> None:
@@ -182,6 +210,44 @@ def test_huge_alternating_shifted_signal_selects_finite_phase_alignment() -> Non
     assert scorer.scores["phase_shift_length"] == 15
     assert np.isfinite(scorer.scores["phase_rho_e"])
     assert np.isfinite(scorer.scores["R"])
+
+    reference_values = np.arange(64, dtype=np.float64)
+    comparison_values = reference_values.copy()
+    comparison_values[0] += 2.0e-4
+    reference_centered = reference_values - np.mean(reference_values)
+    comparison_centered = comparison_values - np.mean(comparison_values)
+    unshifted_correlation = float(
+        np.dot(reference_centered, comparison_centered)
+        / np.sqrt(
+            np.dot(reference_centered, reference_centered)
+            * np.dot(comparison_centered, comparison_centered)
+        )
+    )
+    shifted_reference_values = reference_values[:-1]
+    shifted_comparison_values = comparison_values[1:]
+    shifted_reference_centered = shifted_reference_values - np.mean(
+        shifted_reference_values
+    )
+    shifted_comparison_centered = shifted_comparison_values - np.mean(
+        shifted_comparison_values
+    )
+    shifted_correlation = float(
+        np.dot(shifted_reference_centered, shifted_comparison_centered)
+        / np.sqrt(
+            np.dot(shifted_reference_centered, shifted_reference_centered)
+            * np.dot(shifted_comparison_centered, shifted_comparison_centered)
+        )
+    )
+
+    assert shifted_correlation > unshifted_correlation
+    assert shifted_correlation - unshifted_correlation < 1.0e-12
+
+    scorer = ISO18571(_curve(reference_values), _curve(comparison_values))
+
+    assert scorer.scores["phase_n_eps"] == 0
+    assert scorer.scores["phase_reference_start"] == 0
+    assert scorer.scores["phase_comparison_start"] == 0
+    assert scorer.scores["phase_shift_length"] == 64
 
 
 def test_infinite_slope_error_scores_zero_without_nan() -> None:
