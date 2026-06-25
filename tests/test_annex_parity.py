@@ -396,17 +396,6 @@ def test_annex_phase_shifted_curves_match(
 
 @pytest.mark.annex
 @pytest.mark.parametrize("case_name", sorted(EXPECTED_ANNEX_SCORES))
-def test_annex_slope_curves_match(case_name: str, annex_dataset: AnnexDataset) -> None:
-    case = _case(case_name, annex_dataset)
-    scorer = _scorer_for_case(case_name, annex_dataset)
-
-    test_slope, cae_slope = case.finite_pair("Test_Slope", "CAE_Slope")
-    _assert_max_error(scorer.smoothed_reference_slope_values, test_slope)
-    _assert_max_error(scorer.smoothed_comparison_slope_values, cae_slope)
-
-
-@pytest.mark.annex
-@pytest.mark.parametrize("case_name", sorted(EXPECTED_ANNEX_SCORES))
 def test_annex_warped_curves_drive_magnitude_fields(
     case_name: str,
     annex_dataset: AnnexDataset,

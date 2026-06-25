@@ -18,10 +18,8 @@
 namespace {
 
 using engine::CorridorResult;
-using engine::Diagnostic;
 using engine::DiagnosticCode;
 using engine::DiagnosticComponent;
-using engine::DiagnosticSeverity;
 using engine::DoubleSpan;
 using engine::Index;
 using engine::MagnitudeResult;
@@ -448,17 +446,6 @@ f64 integer_power (f64 value, int exponent) {
     return result;
 }
 
-struct PhaseCache {
-    std::vector<f64> reference_sum;
-    std::vector<f64> comparison_sum;
-    std::vector<f64> reference_square_sum;
-    std::vector<f64> comparison_square_sum;
-};
-
-struct PhaseProductSums {
-    std::vector<f64> products;
-};
-
 void select_dtw_predecessor (f64 cost, f64 candidate_numerator, f64 candidate_denominator, f64& best_previous,
                              f64& best_numerator, f64& best_denominator) {
     best_previous    = cost;
@@ -668,32 +655,6 @@ std::pair<f64, f64> magnitude_error_from_dtw (MagnitudeResult& result, DoubleSpa
     return {previous_numerator[final_index], previous_denominator[final_index]};
 }
 
-PhaseCache build_phase_cache (DoubleSpan reference, DoubleSpan comparison) {
-    PhaseCache        cache;
-    const Index       n    = span_size(reference);
-    const std::size_t size = static_cast<std::size_t>(n + 1);
-    cache.reference_sum.assign(size, 0.0);
-    cache.comparison_sum.assign(size, 0.0);
-    cache.reference_square_sum.assign(size, 0.0);
-    cache.comparison_square_sum.assign(size, 0.0);
-
-    for (Index idx = 0; idx < n; ++idx) {
-        const std::size_t current            = static_cast<std::size_t>(idx + 1);
-        const std::size_t previous           = static_cast<std::size_t>(idx);
-        const f64         x                  = value_at(reference, idx);
-        const f64         y                  = value_at(comparison, idx);
-        cache.reference_sum[current]         = cache.reference_sum[previous] + x;
-        cache.comparison_sum[current]        = cache.comparison_sum[previous] + y;
-        cache.reference_square_sum[current]  = cache.reference_square_sum[previous] + x * x;
-        cache.comparison_square_sum[current] = cache.comparison_square_sum[previous] + y * y;
-    }
-    return cache;
-}
-
-f64 prefix_range (const std::vector<f64>& values, Index start, Index length) {
-    return values[static_cast<std::size_t>(start + length)] - values[static_cast<std::size_t>(start)];
-}
-
 bool values_equal_for_shift (DoubleSpan reference, DoubleSpan comparison, Index reference_start, Index comparison_start,
                              Index length) {
     for (Index idx = 0; idx < length; ++idx) {
@@ -704,54 +665,6 @@ bool values_equal_for_shift (DoubleSpan reference, DoubleSpan comparison, Index 
     return true;
 }
 
-f64 correlation_for_shift (DoubleSpan reference, DoubleSpan comparison, Index reference_start, Index comparison_start,
-                           Index length, std::vector<Diagnostic>& diagnostics) {
-    f64 reference_sum  = 0.0;
-    f64 comparison_sum = 0.0;
-    for (Index idx = 0; idx < length; ++idx) {
-        reference_sum += value_at(reference, reference_start + idx);
-        comparison_sum += value_at(comparison, comparison_start + idx);
-    }
-
-    if (length < 2) {
-        append_warning(diagnostics, DiagnosticComponent::Phase, DiagnosticCode::PhaseUndefinedCorrelation);
-        return values_equal_for_shift(reference, comparison, reference_start, comparison_start, length) ? 1.0 : 0.0;
-    }
-
-    const f64 n               = static_cast<f64>(length);
-    const f64 reference_mean  = reference_sum / n;
-    const f64 comparison_mean = comparison_sum / n;
-    f64       reference_cov   = 0.0;
-    f64       comparison_cov  = 0.0;
-    f64       cross_cov       = 0.0;
-    for (Index idx = 0; idx < length; ++idx) {
-        const f64 x = value_at(reference, reference_start + idx) - reference_mean;
-        const f64 y = value_at(comparison, comparison_start + idx) - comparison_mean;
-        reference_cov += x * x;
-        comparison_cov += y * y;
-        cross_cov += x * y;
-    }
-
-    const f64 fact = n - 1.0;
-    reference_cov /= fact;
-    comparison_cov /= fact;
-    cross_cov /= fact;
-
-    if (reference_cov <= 0.0 || comparison_cov <= 0.0) {
-        append_warning(diagnostics, DiagnosticComponent::Phase, DiagnosticCode::PhaseUndefinedCorrelation);
-        return values_equal_for_shift(reference, comparison, reference_start, comparison_start, length) ? 1.0 : 0.0;
-    }
-
-    f64 correlation = cross_cov / std::sqrt(reference_cov);
-    correlation /= std::sqrt(comparison_cov);
-    if (correlation > 1.0) {
-        correlation = 1.0;
-    } else if (correlation < -1.0) {
-        correlation = -1.0;
-    }
-    return correlation;
-}
-
 std::size_t next_power_of_two (std::size_t value) {
     std::size_t out = 1;
     while (out < value) {
@@ -759,194 +672,455 @@ std::size_t next_power_of_two (std::size_t value) {
     }
     return out;
 }
-
-PhaseProductSums fft_product_sums (DoubleSpan reference, DoubleSpan comparison) {
-    const std::size_t n         = static_cast<std::size_t>(span_size(reference));
-    const std::size_t conv_size = 2U * n - 1U;
-    const std::size_t fft_size  = next_power_of_two(conv_size);
-    const FftPlan     fft_plan  = fft_plan_init(fft_size);
-
-    std::vector<Complex> reference_fft(fft_size);
-    std::vector<Complex> comparison_fft(fft_size);
-    for (std::size_t idx = 0; idx < n; ++idx) {
-        reference_fft[idx]  = {value_at(reference, static_cast<Index>(idx)), 0.0};
-        comparison_fft[idx] = {value_at(comparison, static_cast<Index>(n - idx - 1U)), 0.0};
-    }
-
-    fft_plan_exec<fft::kForward>(fft_plan, reference_fft.data(), 1.0);
-    fft_plan_exec<fft::kForward>(fft_plan, comparison_fft.data(), 1.0);
-    for (std::size_t idx = 0; idx < fft_size; ++idx) {
-        reference_fft[idx] *= comparison_fft[idx];
-    }
-    fft_plan_exec<fft::kBackward>(fft_plan, reference_fft.data(), 1.0 / static_cast<f64>(fft_size));
-
-    PhaseProductSums sums;
-    sums.products.assign(conv_size, 0.0);
-    for (std::size_t idx = 0; idx < conv_size; ++idx) {
-        sums.products[idx] = reference_fft[idx].real();
-    }
-    return sums;
-}
-
-f64 product_sum_from_fft (const PhaseProductSums& sums, Index n, Index reference_start, Index comparison_start) {
-    const Index lag = reference_start - comparison_start;
-    return sums.products[static_cast<std::size_t>(n - 1 + lag)];
-}
-
-f64 correlation_from_cached_product (const PhaseCache& cache, Index reference_start, Index comparison_start,
-                                     Index length, f64 product_sum) {
-    const f64 n                     = static_cast<f64>(length);
-    const f64 reference_sum         = prefix_range(cache.reference_sum, reference_start, length);
-    const f64 comparison_sum        = prefix_range(cache.comparison_sum, comparison_start, length);
-    const f64 reference_square_sum  = prefix_range(cache.reference_square_sum, reference_start, length);
-    const f64 comparison_square_sum = prefix_range(cache.comparison_square_sum, comparison_start, length);
-
-    const f64 numerator        = product_sum - (reference_sum * comparison_sum / n);
-    const f64 reference_var    = reference_square_sum - (reference_sum * reference_sum / n);
-    const f64 comparison_var   = comparison_square_sum - (comparison_sum * comparison_sum / n);
-    const f64 reference_scale  = std::max(reference_square_sum, std::abs(reference_sum * reference_sum / n));
-    const f64 comparison_scale = std::max(comparison_square_sum, std::abs(comparison_sum * comparison_sum / n));
-    const f64 reference_tol    = std::numeric_limits<f64>::epsilon() * std::max(1.0, reference_scale) * 64.0;
-    const f64 comparison_tol   = std::numeric_limits<f64>::epsilon() * std::max(1.0, comparison_scale) * 64.0;
-    if (reference_var <= reference_tol || comparison_var <= comparison_tol) {
-        return std::numeric_limits<f64>::quiet_NaN();
-    }
-
-    f64 correlation = numerator / std::sqrt(reference_var * comparison_var);
-    if (correlation > 1.0) {
-        correlation = 1.0;
-    } else if (correlation < -1.0) {
-        correlation = -1.0;
-    }
-    return correlation;
-}
-
-PhaseResult phase_candidate_for_shift (DoubleSpan reference, DoubleSpan comparison, Index reference_start,
-                                       Index comparison_start, Index length, Index n_eps, f64 max_shift) {
-    PhaseResult result;
-    result.reference_start  = reference_start;
-    result.comparison_start = comparison_start;
-    result.length           = length;
-    result.n_eps            = n_eps;
-    result.max_shift        = max_shift;
-    result.rho_e =
-        correlation_for_shift(reference, comparison, reference_start, comparison_start, length, result.diagnostics);
-    return result;
-}
-
-PhaseResult phase_candidate_from_correlation (Index reference_start, Index comparison_start, Index length, Index n_eps,
-                                              f64 max_shift, f64 rho_e) {
-    PhaseResult result;
-    result.reference_start  = reference_start;
-    result.comparison_start = comparison_start;
-    result.length           = length;
-    result.n_eps            = n_eps;
-    result.max_shift        = max_shift;
-    result.rho_e            = rho_e;
-    return result;
-}
-
-PhaseResult phase_candidate_from_fft_product (DoubleSpan reference, DoubleSpan comparison, const PhaseCache& cache,
-                                              const PhaseProductSums& sums, Index n, Index reference_start,
-                                              Index comparison_start, Index length, Index n_eps, f64 max_shift,
-                                              f64& cached_rho) {
-    cached_rho = std::numeric_limits<f64>::quiet_NaN();
-    if (length < 32) {
-        return phase_candidate_for_shift(reference, comparison, reference_start, comparison_start, length, n_eps,
-                                         max_shift);
-    }
-    const f64 product_sum = product_sum_from_fft(sums, n, reference_start, comparison_start);
-    const f64 rho_e = correlation_from_cached_product(cache, reference_start, comparison_start, length, product_sum);
-    cached_rho      = rho_e;
-    if (std::isnan(rho_e)) {
-        PhaseResult direct = phase_candidate_for_shift(reference, comparison, reference_start, comparison_start, length,
-                                                       n_eps, max_shift);
-        cached_rho         = direct.rho_e;
-        return direct;
-    }
-    return phase_candidate_from_correlation(reference_start, comparison_start, length, n_eps, max_shift, rho_e);
-}
-
-void select_phase_candidate (PhaseResult& result, f64& ccr_max, const PhaseResult& candidate) {
-    if (candidate.rho_e > ccr_max + CORRELATION_TIE_TOLERANCE) {
-        ccr_max = candidate.rho_e;
-        result  = candidate;
-    }
-}
-
-PhaseResult refine_fft_phase_result (DoubleSpan reference, DoubleSpan comparison, Index bounded_window_size,
-                                     f64 max_shift, f64 fft_ccr_max, const std::vector<f64>& left_cached_rho,
-                                     const std::vector<f64>& right_cached_rho) {
-    PhaseResult refined = phase_candidate_for_shift(reference, comparison, 0, 0, span_size(reference), 0, max_shift);
-    f64         refined_ccr = refined.rho_e;
-
-    for (Index idx = 1; idx < bounded_window_size; ++idx) {
-        const Index length = span_size(reference) - idx;
-        if (length < 32) {
-            select_phase_candidate(refined, refined_ccr,
-                                   phase_candidate_for_shift(reference, comparison, 0, idx, length, idx, max_shift));
-            select_phase_candidate(refined, refined_ccr,
-                                   phase_candidate_for_shift(reference, comparison, idx, 0, length, idx, max_shift));
-            continue;
-        }
-
-        const f64 left = left_cached_rho[offset(idx)];
-        if (left >= fft_ccr_max - CORRELATION_REFINE_MARGIN) {
-            select_phase_candidate(refined, refined_ccr,
-                                   phase_candidate_for_shift(reference, comparison, 0, idx, length, idx, max_shift));
-        }
-
-        const f64 right = right_cached_rho[offset(idx)];
-        if (right >= fft_ccr_max - CORRELATION_REFINE_MARGIN) {
-            select_phase_candidate(refined, refined_ccr,
-                                   phase_candidate_for_shift(reference, comparison, idx, 0, length, idx, max_shift));
-        }
-    }
-
-    return refined;
-}
-
-PhaseResult compute_phase_alignment (DoubleSpan reference, DoubleSpan comparison, const ScoreParams& params) {
+void phase_score (PhaseResult& result, DoubleSpan reference, DoubleSpan comparison, const ScoreParams& params) {
     const Index reference_n  = span_size(reference);
     const Index comparison_n = span_size(comparison);
     const f64   max_shift    = std::round((1.0 - params.init_min) * 100.0) / 100.0;
-    PhaseResult result       = phase_candidate_for_shift(reference, comparison, 0, 0, reference_n, 0, max_shift);
+
+    result.reference_start  = 0;
+    result.comparison_start = 0;
+    result.length           = reference_n;
+    result.n_eps            = 0;
+    result.max_shift        = max_shift;
+    result.diagnostics.clear();
+
+    f64 baseline_reference_sum  = 0.0;
+    f64 baseline_comparison_sum = 0.0;
+    for (Index value_idx = 0; value_idx < result.length; ++value_idx) {
+        baseline_reference_sum += value_at(reference, result.reference_start + value_idx);
+        baseline_comparison_sum += value_at(comparison, result.comparison_start + value_idx);
+    }
+
+    if (result.length < 2) {
+        append_warning(result.diagnostics, DiagnosticComponent::Phase, DiagnosticCode::PhaseUndefinedCorrelation);
+        result.rho_e = values_equal_for_shift(reference, comparison, result.reference_start, result.comparison_start,
+                                              result.length)
+                         ? 1.0
+                         : 0.0;
+    } else {
+        const f64 baseline_n              = static_cast<f64>(result.length);
+        const f64 baseline_reference_avg  = baseline_reference_sum / baseline_n;
+        const f64 baseline_comparison_avg = baseline_comparison_sum / baseline_n;
+        f64       baseline_reference_cov  = 0.0;
+        f64       baseline_comparison_cov = 0.0;
+        f64       baseline_cross_cov      = 0.0;
+        for (Index value_idx = 0; value_idx < result.length; ++value_idx) {
+            const f64 x = value_at(reference, result.reference_start + value_idx) - baseline_reference_avg;
+            const f64 y = value_at(comparison, result.comparison_start + value_idx) - baseline_comparison_avg;
+            baseline_reference_cov += x * x;
+            baseline_comparison_cov += y * y;
+            baseline_cross_cov += x * y;
+        }
+
+        const f64 baseline_fact = baseline_n - 1.0;
+        baseline_reference_cov /= baseline_fact;
+        baseline_comparison_cov /= baseline_fact;
+        baseline_cross_cov /= baseline_fact;
+
+        if (baseline_reference_cov <= 0.0 || baseline_comparison_cov <= 0.0) {
+            append_warning(result.diagnostics, DiagnosticComponent::Phase, DiagnosticCode::PhaseUndefinedCorrelation);
+            result.rho_e = values_equal_for_shift(reference, comparison, result.reference_start,
+                                                  result.comparison_start, result.length)
+                             ? 1.0
+                             : 0.0;
+        } else {
+            f64 baseline_correlation = baseline_cross_cov / std::sqrt(baseline_reference_cov);
+            baseline_correlation /= std::sqrt(baseline_comparison_cov);
+            if (baseline_correlation > 1.0) {
+                baseline_correlation = 1.0;
+            } else if (baseline_correlation < -1.0) {
+                baseline_correlation = -1.0;
+            }
+            result.rho_e = baseline_correlation;
+        }
+    }
     if (result.rho_e == 1.0) {
-        return result;
+        result.score = 1.0;
+        return;
     }
 
-    const Index      window_size = static_cast<Index>(std::floor(static_cast<f64>(comparison_n) * max_shift) + 1.0);
-    const Index      bounded_window_size = std::min(window_size, reference_n);
-    const PhaseCache cache               = build_phase_cache(reference, comparison);
-    f64              ccr_max             = result.rho_e;
+    const Index       window_size = static_cast<Index>(std::floor(static_cast<f64>(comparison_n) * max_shift) + 1.0);
+    const Index       bounded_window_size = std::min(window_size, reference_n);
+    f64               ccr_max             = result.rho_e;
+    const std::size_t prefix_size         = static_cast<std::size_t>(reference_n + 1);
+    std::vector<f64>  reference_prefix_sum(prefix_size, 0.0);
+    std::vector<f64>  comparison_prefix_sum(prefix_size, 0.0);
+    std::vector<f64>  reference_square_prefix_sum(prefix_size, 0.0);
+    std::vector<f64>  comparison_square_prefix_sum(prefix_size, 0.0);
 
-    const PhaseProductSums sums = fft_product_sums(reference, comparison);
-    std::vector<f64>       left_cached_rho(static_cast<std::size_t>(bounded_window_size),
-                                           std::numeric_limits<f64>::quiet_NaN());
-    std::vector<f64>       right_cached_rho(static_cast<std::size_t>(bounded_window_size),
-                                            std::numeric_limits<f64>::quiet_NaN());
+    for (Index idx = 0; idx < reference_n; ++idx) {
+        const std::size_t current             = static_cast<std::size_t>(idx + 1);
+        const std::size_t previous            = static_cast<std::size_t>(idx);
+        const f64         x                   = value_at(reference, idx);
+        const f64         y                   = value_at(comparison, idx);
+        reference_prefix_sum[current]         = reference_prefix_sum[previous] + x;
+        comparison_prefix_sum[current]        = comparison_prefix_sum[previous] + y;
+        reference_square_prefix_sum[current]  = reference_square_prefix_sum[previous] + x * x;
+        comparison_square_prefix_sum[current] = comparison_square_prefix_sum[previous] + y * y;
+    }
+
+    const std::size_t phase_n         = static_cast<std::size_t>(reference_n);
+    const std::size_t phase_conv_size = 2U * phase_n - 1U;
+    const std::size_t phase_fft_size  = next_power_of_two(phase_conv_size);
+    const FftPlan     phase_fft_plan  = fft_plan_init(phase_fft_size);
+
+    std::vector<Complex> reference_fft(phase_fft_size);
+    std::vector<Complex> comparison_fft(phase_fft_size);
+    for (std::size_t idx = 0; idx < phase_n; ++idx) {
+        reference_fft[idx]  = {value_at(reference, static_cast<Index>(idx)), 0.0};
+        comparison_fft[idx] = {value_at(comparison, static_cast<Index>(phase_n - idx - 1U)), 0.0};
+    }
+
+    fft_plan_exec<fft::kForward>(phase_fft_plan, reference_fft.data(), 1.0);
+    fft_plan_exec<fft::kForward>(phase_fft_plan, comparison_fft.data(), 1.0);
+    for (std::size_t idx = 0; idx < phase_fft_size; ++idx) {
+        reference_fft[idx] *= comparison_fft[idx];
+    }
+    fft_plan_exec<fft::kBackward>(phase_fft_plan, reference_fft.data(), 1.0 / static_cast<f64>(phase_fft_size));
+
+    std::vector<f64> phase_products(phase_conv_size, 0.0);
+    for (std::size_t idx = 0; idx < phase_conv_size; ++idx) {
+        phase_products[idx] = reference_fft[idx].real();
+    }
+
+    std::vector<f64> left_cached_rho(static_cast<std::size_t>(bounded_window_size),
+                                     std::numeric_limits<f64>::quiet_NaN());
+    std::vector<f64> right_cached_rho(static_cast<std::size_t>(bounded_window_size),
+                                      std::numeric_limits<f64>::quiet_NaN());
     for (Index idx = 1; idx < bounded_window_size; ++idx) {
-        const Index       length = reference_n - idx;
-        const PhaseResult left_candidate =
-            phase_candidate_from_fft_product(reference, comparison, cache, sums, reference_n, 0, idx, length, idx,
-                                             max_shift, left_cached_rho[offset(idx)]);
-        select_phase_candidate(result, ccr_max, left_candidate);
+        const Index length = reference_n - idx;
 
-        const PhaseResult right_candidate =
-            phase_candidate_from_fft_product(reference, comparison, cache, sums, reference_n, idx, 0, length, idx,
-                                             max_shift, right_cached_rho[offset(idx)]);
-        select_phase_candidate(result, ccr_max, right_candidate);
+        for (int side = 0; side < 2; ++side) {
+            const bool  left_side = side == 0;
+            PhaseResult candidate;
+            candidate.reference_start  = left_side ? 0 : idx;
+            candidate.comparison_start = left_side ? idx : 0;
+            candidate.length           = length;
+            candidate.n_eps            = idx;
+            candidate.max_shift        = max_shift;
+            f64& cached_rho            = left_side ? left_cached_rho[offset(idx)] : right_cached_rho[offset(idx)];
+            cached_rho                 = std::numeric_limits<f64>::quiet_NaN();
+
+            const bool can_use_cached = length >= 32;
+            bool       use_direct     = !can_use_cached;
+            if (can_use_cached) {
+                const Index lag         = candidate.reference_start - candidate.comparison_start;
+                const f64   product_sum = phase_products[static_cast<std::size_t>(reference_n - 1 + lag)];
+                const f64   n           = static_cast<f64>(candidate.length);
+                const f64   reference_sum =
+                    reference_prefix_sum[static_cast<std::size_t>(candidate.reference_start + candidate.length)] -
+                    reference_prefix_sum[static_cast<std::size_t>(candidate.reference_start)];
+                const f64 comparison_sum =
+                    comparison_prefix_sum[static_cast<std::size_t>(candidate.comparison_start + candidate.length)] -
+                    comparison_prefix_sum[static_cast<std::size_t>(candidate.comparison_start)];
+                const f64 reference_square_sum =
+                    reference_square_prefix_sum[static_cast<std::size_t>(candidate.reference_start +
+                                                                         candidate.length)] -
+                    reference_square_prefix_sum[static_cast<std::size_t>(candidate.reference_start)];
+                const f64 comparison_square_sum =
+                    comparison_square_prefix_sum[static_cast<std::size_t>(candidate.comparison_start +
+                                                                          candidate.length)] -
+                    comparison_square_prefix_sum[static_cast<std::size_t>(candidate.comparison_start)];
+                const f64 numerator       = product_sum - (reference_sum * comparison_sum / n);
+                const f64 reference_var   = reference_square_sum - (reference_sum * reference_sum / n);
+                const f64 comparison_var  = comparison_square_sum - (comparison_sum * comparison_sum / n);
+                const f64 reference_scale = std::max(reference_square_sum, std::abs(reference_sum * reference_sum / n));
+                const f64 comparison_scale =
+                    std::max(comparison_square_sum, std::abs(comparison_sum * comparison_sum / n));
+                const f64 reference_tol  = std::numeric_limits<f64>::epsilon() * std::max(1.0, reference_scale) * 64.0;
+                const f64 comparison_tol = std::numeric_limits<f64>::epsilon() * std::max(1.0, comparison_scale) * 64.0;
+                f64       rho_e          = std::numeric_limits<f64>::quiet_NaN();
+                if (reference_var > reference_tol && comparison_var > comparison_tol) {
+                    rho_e = numerator / std::sqrt(reference_var * comparison_var);
+                    if (rho_e > 1.0) {
+                        rho_e = 1.0;
+                    } else if (rho_e < -1.0) {
+                        rho_e = -1.0;
+                    }
+                }
+                cached_rho = rho_e;
+                if (std::isnan(rho_e)) {
+                    use_direct = true;
+                } else {
+                    candidate.rho_e = rho_e;
+                }
+            }
+
+            if (use_direct) {
+                f64 direct_reference_sum  = 0.0;
+                f64 direct_comparison_sum = 0.0;
+                for (Index value_idx = 0; value_idx < candidate.length; ++value_idx) {
+                    direct_reference_sum += value_at(reference, candidate.reference_start + value_idx);
+                    direct_comparison_sum += value_at(comparison, candidate.comparison_start + value_idx);
+                }
+
+                if (candidate.length < 2) {
+                    append_warning(candidate.diagnostics, DiagnosticComponent::Phase,
+                                   DiagnosticCode::PhaseUndefinedCorrelation);
+                    candidate.rho_e = values_equal_for_shift(reference, comparison, candidate.reference_start,
+                                                             candidate.comparison_start, candidate.length)
+                                        ? 1.0
+                                        : 0.0;
+                } else {
+                    const f64 n                     = static_cast<f64>(candidate.length);
+                    const f64 direct_reference_avg  = direct_reference_sum / n;
+                    const f64 direct_comparison_avg = direct_comparison_sum / n;
+                    f64       reference_cov         = 0.0;
+                    f64       comparison_cov        = 0.0;
+                    f64       cross_cov             = 0.0;
+                    for (Index value_idx = 0; value_idx < candidate.length; ++value_idx) {
+                        const f64 x = value_at(reference, candidate.reference_start + value_idx) - direct_reference_avg;
+                        const f64 y =
+                            value_at(comparison, candidate.comparison_start + value_idx) - direct_comparison_avg;
+                        reference_cov += x * x;
+                        comparison_cov += y * y;
+                        cross_cov += x * y;
+                    }
+
+                    const f64 fact = n - 1.0;
+                    reference_cov /= fact;
+                    comparison_cov /= fact;
+                    cross_cov /= fact;
+
+                    if (reference_cov <= 0.0 || comparison_cov <= 0.0) {
+                        append_warning(candidate.diagnostics, DiagnosticComponent::Phase,
+                                       DiagnosticCode::PhaseUndefinedCorrelation);
+                        candidate.rho_e = values_equal_for_shift(reference, comparison, candidate.reference_start,
+                                                                 candidate.comparison_start, candidate.length)
+                                            ? 1.0
+                                            : 0.0;
+                    } else {
+                        f64 correlation = cross_cov / std::sqrt(reference_cov);
+                        correlation /= std::sqrt(comparison_cov);
+                        if (correlation > 1.0) {
+                            correlation = 1.0;
+                        } else if (correlation < -1.0) {
+                            correlation = -1.0;
+                        }
+                        candidate.rho_e = correlation;
+                    }
+                }
+                if (can_use_cached) {
+                    cached_rho = candidate.rho_e;
+                }
+            }
+
+            if (candidate.rho_e > ccr_max + CORRELATION_TIE_TOLERANCE) {
+                ccr_max = candidate.rho_e;
+                result  = candidate;
+            }
+        }
     }
 
-    result = refine_fft_phase_result(reference, comparison, bounded_window_size, max_shift, ccr_max, left_cached_rho,
-                                     right_cached_rho);
+    const f64 fft_ccr_max   = ccr_max;
+    result.reference_start  = 0;
+    result.comparison_start = 0;
+    result.length           = reference_n;
+    result.n_eps            = 0;
+    result.max_shift        = max_shift;
+    result.diagnostics.clear();
+    f64 refined_reference_sum  = 0.0;
+    f64 refined_comparison_sum = 0.0;
+    for (Index value_idx = 0; value_idx < result.length; ++value_idx) {
+        refined_reference_sum += value_at(reference, result.reference_start + value_idx);
+        refined_comparison_sum += value_at(comparison, result.comparison_start + value_idx);
+    }
+
+    if (result.length < 2) {
+        append_warning(result.diagnostics, DiagnosticComponent::Phase, DiagnosticCode::PhaseUndefinedCorrelation);
+        result.rho_e = values_equal_for_shift(reference, comparison, result.reference_start, result.comparison_start,
+                                              result.length)
+                         ? 1.0
+                         : 0.0;
+    } else {
+        const f64 refined_n              = static_cast<f64>(result.length);
+        const f64 refined_reference_avg  = refined_reference_sum / refined_n;
+        const f64 refined_comparison_avg = refined_comparison_sum / refined_n;
+        f64       refined_reference_cov  = 0.0;
+        f64       refined_comparison_cov = 0.0;
+        f64       refined_cross_cov      = 0.0;
+        for (Index value_idx = 0; value_idx < result.length; ++value_idx) {
+            const f64 x = value_at(reference, result.reference_start + value_idx) - refined_reference_avg;
+            const f64 y = value_at(comparison, result.comparison_start + value_idx) - refined_comparison_avg;
+            refined_reference_cov += x * x;
+            refined_comparison_cov += y * y;
+            refined_cross_cov += x * y;
+        }
+
+        const f64 refined_fact = refined_n - 1.0;
+        refined_reference_cov /= refined_fact;
+        refined_comparison_cov /= refined_fact;
+        refined_cross_cov /= refined_fact;
+
+        if (refined_reference_cov <= 0.0 || refined_comparison_cov <= 0.0) {
+            append_warning(result.diagnostics, DiagnosticComponent::Phase, DiagnosticCode::PhaseUndefinedCorrelation);
+            result.rho_e = values_equal_for_shift(reference, comparison, result.reference_start,
+                                                  result.comparison_start, result.length)
+                             ? 1.0
+                             : 0.0;
+        } else {
+            f64 refined_correlation = refined_cross_cov / std::sqrt(refined_reference_cov);
+            refined_correlation /= std::sqrt(refined_comparison_cov);
+            if (refined_correlation > 1.0) {
+                refined_correlation = 1.0;
+            } else if (refined_correlation < -1.0) {
+                refined_correlation = -1.0;
+            }
+            result.rho_e = refined_correlation;
+        }
+    }
+    f64 refined_ccr = result.rho_e;
+
+    for (Index idx = 1; idx < bounded_window_size; ++idx) {
+        const Index length = reference_n - idx;
+        for (int side = 0; side < 2; ++side) {
+            const bool left_side = side == 0;
+            if (length >= 32) {
+                const f64 cached_rho = left_side ? left_cached_rho[offset(idx)] : right_cached_rho[offset(idx)];
+                if (!(cached_rho >= fft_ccr_max - CORRELATION_REFINE_MARGIN)) {
+                    continue;
+                }
+            }
+
+            PhaseResult candidate;
+            candidate.reference_start  = left_side ? 0 : idx;
+            candidate.comparison_start = left_side ? idx : 0;
+            candidate.length           = length;
+            candidate.n_eps            = idx;
+            candidate.max_shift        = max_shift;
+            f64 direct_reference_sum   = 0.0;
+            f64 direct_comparison_sum  = 0.0;
+            for (Index value_idx = 0; value_idx < candidate.length; ++value_idx) {
+                direct_reference_sum += value_at(reference, candidate.reference_start + value_idx);
+                direct_comparison_sum += value_at(comparison, candidate.comparison_start + value_idx);
+            }
+
+            if (candidate.length < 2) {
+                append_warning(candidate.diagnostics, DiagnosticComponent::Phase,
+                               DiagnosticCode::PhaseUndefinedCorrelation);
+                candidate.rho_e = values_equal_for_shift(reference, comparison, candidate.reference_start,
+                                                         candidate.comparison_start, candidate.length)
+                                    ? 1.0
+                                    : 0.0;
+            } else {
+                const f64 n                     = static_cast<f64>(candidate.length);
+                const f64 direct_reference_avg  = direct_reference_sum / n;
+                const f64 direct_comparison_avg = direct_comparison_sum / n;
+                f64       reference_cov         = 0.0;
+                f64       comparison_cov        = 0.0;
+                f64       cross_cov             = 0.0;
+                for (Index value_idx = 0; value_idx < candidate.length; ++value_idx) {
+                    const f64 x = value_at(reference, candidate.reference_start + value_idx) - direct_reference_avg;
+                    const f64 y = value_at(comparison, candidate.comparison_start + value_idx) - direct_comparison_avg;
+                    reference_cov += x * x;
+                    comparison_cov += y * y;
+                    cross_cov += x * y;
+                }
+
+                const f64 fact = n - 1.0;
+                reference_cov /= fact;
+                comparison_cov /= fact;
+                cross_cov /= fact;
+
+                if (reference_cov <= 0.0 || comparison_cov <= 0.0) {
+                    append_warning(candidate.diagnostics, DiagnosticComponent::Phase,
+                                   DiagnosticCode::PhaseUndefinedCorrelation);
+                    candidate.rho_e = values_equal_for_shift(reference, comparison, candidate.reference_start,
+                                                             candidate.comparison_start, candidate.length)
+                                        ? 1.0
+                                        : 0.0;
+                } else {
+                    f64 correlation = cross_cov / std::sqrt(reference_cov);
+                    correlation /= std::sqrt(comparison_cov);
+                    if (correlation > 1.0) {
+                        correlation = 1.0;
+                    } else if (correlation < -1.0) {
+                        correlation = -1.0;
+                    }
+                    candidate.rho_e = correlation;
+                }
+            }
+
+            if (candidate.rho_e > refined_ccr + CORRELATION_TIE_TOLERANCE) {
+                refined_ccr = candidate.rho_e;
+                result      = candidate;
+            }
+        }
+    }
 
     if (result.length < 9) {
-        result = phase_candidate_for_shift(reference, comparison, 0, 0, reference_n, 0, max_shift);
+        result.reference_start  = 0;
+        result.comparison_start = 0;
+        result.length           = reference_n;
+        result.n_eps            = 0;
+        result.max_shift        = max_shift;
+        result.diagnostics.clear();
+        f64 clamped_reference_sum  = 0.0;
+        f64 clamped_comparison_sum = 0.0;
+        for (Index value_idx = 0; value_idx < result.length; ++value_idx) {
+            clamped_reference_sum += value_at(reference, result.reference_start + value_idx);
+            clamped_comparison_sum += value_at(comparison, result.comparison_start + value_idx);
+        }
+
+        if (result.length < 2) {
+            append_warning(result.diagnostics, DiagnosticComponent::Phase, DiagnosticCode::PhaseUndefinedCorrelation);
+            result.rho_e = values_equal_for_shift(reference, comparison, result.reference_start,
+                                                  result.comparison_start, result.length)
+                             ? 1.0
+                             : 0.0;
+        } else {
+            const f64 clamped_n              = static_cast<f64>(result.length);
+            const f64 clamped_reference_avg  = clamped_reference_sum / clamped_n;
+            const f64 clamped_comparison_avg = clamped_comparison_sum / clamped_n;
+            f64       clamped_reference_cov  = 0.0;
+            f64       clamped_comparison_cov = 0.0;
+            f64       clamped_cross_cov      = 0.0;
+            for (Index value_idx = 0; value_idx < result.length; ++value_idx) {
+                const f64 x = value_at(reference, result.reference_start + value_idx) - clamped_reference_avg;
+                const f64 y = value_at(comparison, result.comparison_start + value_idx) - clamped_comparison_avg;
+                clamped_reference_cov += x * x;
+                clamped_comparison_cov += y * y;
+                clamped_cross_cov += x * y;
+            }
+
+            const f64 clamped_fact = clamped_n - 1.0;
+            clamped_reference_cov /= clamped_fact;
+            clamped_comparison_cov /= clamped_fact;
+            clamped_cross_cov /= clamped_fact;
+
+            if (clamped_reference_cov <= 0.0 || clamped_comparison_cov <= 0.0) {
+                append_warning(result.diagnostics, DiagnosticComponent::Phase,
+                               DiagnosticCode::PhaseUndefinedCorrelation);
+                result.rho_e = values_equal_for_shift(reference, comparison, result.reference_start,
+                                                      result.comparison_start, result.length)
+                                 ? 1.0
+                                 : 0.0;
+            } else {
+                f64 clamped_correlation = clamped_cross_cov / std::sqrt(clamped_reference_cov);
+                clamped_correlation /= std::sqrt(clamped_comparison_cov);
+                if (clamped_correlation > 1.0) {
+                    clamped_correlation = 1.0;
+                } else if (clamped_correlation < -1.0) {
+                    clamped_correlation = -1.0;
+                }
+                result.rho_e = clamped_correlation;
+            }
+        }
         append_warning(result.diagnostics, DiagnosticComponent::Phase, DiagnosticCode::PhaseShiftClampedToUnshifted);
     }
 
-    return result;
+    const f64 max_allowable_time_shift_threshold = static_cast<f64>(reference_n) * result.max_shift;
+    if (result.n_eps == 0) {
+        result.score = 1.0;
+        return;
+    }
+    if (std::abs(static_cast<f64>(result.n_eps)) >= max_allowable_time_shift_threshold) {
+        result.score = 0.0;
+        return;
+    }
+    result.score = integer_power((max_allowable_time_shift_threshold - std::abs(static_cast<f64>(result.n_eps))) /
+                                     max_allowable_time_shift_threshold,
+                                 params.k_p);
 }
 
 void corridor_score (CorridorResult& result, DoubleSpan reference, DoubleSpan comparison, const ScoreParams& params) {
@@ -989,29 +1163,6 @@ void corridor_score (CorridorResult& result, DoubleSpan reference, DoubleSpan co
     result.score = sum / static_cast<f64>(n);
 }
 
-void phase_score (PhaseResult& result, DoubleSpan reference, DoubleSpan comparison, const ScoreParams& params) {
-    PhaseResult phase                            = compute_phase_alignment(reference, comparison, params);
-    result.reference_start                       = phase.reference_start;
-    result.comparison_start                      = phase.comparison_start;
-    result.length                                = phase.length;
-    result.n_eps                                 = phase.n_eps;
-    result.rho_e                                 = phase.rho_e;
-    result.max_shift                             = phase.max_shift;
-    result.diagnostics                           = std::move(phase.diagnostics);
-    const f64 max_allowable_time_shift_threshold = static_cast<f64>(span_size(reference)) * phase.max_shift;
-    if (phase.n_eps == 0) {
-        result.score = 1.0;
-        return;
-    }
-    if (std::abs(static_cast<f64>(phase.n_eps)) >= max_allowable_time_shift_threshold) {
-        result.score = 0.0;
-        return;
-    }
-    result.score = integer_power((max_allowable_time_shift_threshold - std::abs(static_cast<f64>(phase.n_eps))) /
-                                     max_allowable_time_shift_threshold,
-                                 params.k_p);
-}
-
 void magnitude_score (MagnitudeResult& result, DoubleSpan reference_values, DoubleSpan comparison_values,
                       const ScoreParams& params) {
     const std::pair<f64, f64> magnitude_error =
@@ -1042,7 +1193,7 @@ void magnitude_score (MagnitudeResult& result, DoubleSpan reference_values, Doub
     result.score = integer_power((params.eps_m - e_mag) / params.eps_m, params.k_m);
 }
 
-void gradient_values (DoubleSpan values, f64 dt, std::vector<f64>& gradient) {
+void gradient_values (std::vector<f64>& gradient, DoubleSpan values, f64 dt) {
     const Index n = span_size(values);
     gradient.assign(static_cast<std::size_t>(n), 0.0);
     gradient[0] = (value_at(values, 1) - value_at(values, 0)) / dt;
@@ -1090,8 +1241,8 @@ void slope_score (SlopeResult& result, DoubleSpan reference_values, DoubleSpan c
 
     std::vector<f64> comparison_gradient;
     std::vector<f64> reference_gradient;
-    gradient_values(comparison_values, dt, comparison_gradient);
-    gradient_values(reference_values, dt, reference_gradient);
+    gradient_values(comparison_gradient, comparison_values, dt);
+    gradient_values(reference_gradient, reference_values, dt);
 
     f64 numerator   = 0.0;
     f64 denominator = 0.0;
@@ -1123,6 +1274,7 @@ void slope_score (SlopeResult& result, DoubleSpan reference_values, DoubleSpan c
         result.score = 0.0;
         return;
     }
+    // result.score = integer_power((params.e_s - e_slope) / params.e_s, params.k_s);
     result.score = (params.e_s - e_slope) / params.e_s;
 }
 

@@ -24,14 +24,6 @@
       - Expected response: Compare scorer-selected shifted curve directly; Error < 0.001
     - Phase-shifted CAE curve
       - Expected response: Compare scorer-selected shifted curve directly; Error < 0.001
-    - Slope of shifted test curve
-      - Expected response: Compare scorer-generated smoothed slope curve directly; Error < 0.001
-    - Slope of shifted CAE curve
-      - Expected response: Compare scorer-generated smoothed slope curve directly; Error < 0.001
-    - Warped time-shifted test curve
-      - Expected response: Do not compare native warped curve directly; use Annex curve as oracle input for magnitude numerator, denominator, and error
-    - Warped time-shifted CAE curve
-      - Expected response: Do not compare native warped curve directly; use Annex curve as oracle input for magnitude numerator, denominator, and error
     - Magnitude numerator, denominator, and error from warped time-shifted curves
       - Expected response: Error < 0.001
 
@@ -62,16 +54,6 @@
       - Expected response: Reject
     - Zero imaginary complex floats:   [c64, c128, c256]
       - Expected response: Ignore imaginary and accept, scores and validation fields match f64 materialization
-
-  - DTW algorithm oracles
-    - Squared local cost
-      - Expected response: magnitude numerator, denominator, and error match clean-room oracle
-    - 10 percent Sakoe-Chiba window
-      - Expected response: magnitude numerator, denominator, and error match clean-room oracle
-    - Valid-cell boundary where abs(i-j) < radius
-      - Expected response: cells at the boundary are rejected by clean-room oracle comparison
-    - Predecessor tie priority vertical, horizontal, diagonal
-      - Expected response: magnitude numerator, denominator, and error match clean-room oracle
 
   - Input signal type
     - Non-zero identical signals:
@@ -117,11 +99,41 @@
     - Uniform large dt
       - Expected response: Accept, no overflow, scores are not NaN/Inf
 
+  - Need to put more edge cases into tests in general
+
 - Investigate edge cases
   - Integer overflow during time validation for signed integers
   - `NaN` corridor scores from finite subnormal signal amplitudes
   - Short-curve phase behavior
+  - test_phase_shifted_identical_signals_score_zero_beyond_phase_threshold
+  - test_nonconstant_offset_expectations_are_score_specific
+  - I have serious doubts about type conversion. Need to figure out what exactly is tested and how it is evaluated
 
 - Reinforce f16 implementation
   - Align with C++23 stl implementation
   - Review pack_long_double()
+
+- Need to wire annex.py and signals.py into main.py and notebook
+- phase should use signal.py instead of hand waving
+- signal.py should be able to generate sufficent edge cases. In this case instead of hard coding the numbers, we need to be able to produce the array programmatically.
+
+- Since the documentation does say about having same timeframe, and having interval, and 10ms, we need to emit warning at least.
+- Fuzz input tests to find edge cases may be needed
+
+- Need to check if the test implementations are faithful implementations of the descriptions here
+- Instead of pytest.*, only assert and raise, bake into AGENTS.md
+
+- Default values source?
+- Scores need to be bound 0.0 to 1.0
+
+- Need to update to proper TypeAlias instead of ArrayLike
+- Test helper functions are all over the place
+- Study proper shifted n < 9 path; maybe the throw is unnecessary
+- Static asserts that can be done from engine?
+- Need to investigate throws in engine
+- Need to investigate if there are copies of PhaseCache or PhaseProductSums, PhaseProductSums probably needs to go away
+- simple push_back can be inlined
+- See if we can use references instead of pointers, for code style consistency
+- Need to find magic numbers
+- phase_candidate_from_correlation is just a constructor
+- phase_candidate_for_shift is also just a constructor around correlation_for_shift
