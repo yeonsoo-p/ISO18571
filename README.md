@@ -219,7 +219,7 @@ To collect only warmed runtime rows:
 
 ```bash
 mkdir -p .benchmarks/iso18571-native
-uv run --extra test python -m pytest -q tests/test_iso18571_benchmarks.py -m benchmark -k runtime --benchmark-json .benchmarks/iso18571-native/runtime.json
+uv run --extra test python -m pytest -q tests/test_benchmarks.py -m benchmark -k runtime --benchmark-json .benchmarks/iso18571-native/runtime.json
 ```
 
 To collect more warmed runtime samples, set `ISO18571_BENCHMARK_RUNTIME_ROUNDS`.
@@ -227,7 +227,7 @@ The default is `3`.
 
 ```bash
 ISO18571_BENCHMARK_RUNTIME_ROUNDS=10 \
-uv run --extra test python -m pytest -q tests/test_iso18571_benchmarks.py -m benchmark -k runtime --benchmark-json .benchmarks/iso18571-native/runtime-10.json
+uv run --extra test python -m pytest -q tests/test_benchmarks.py -m benchmark -k runtime --benchmark-json .benchmarks/iso18571-native/runtime-10.json
 ```
 
 To collect more cold setup/load samples, set `ISO18571_BENCHMARK_LOAD_ROUNDS`.
@@ -235,5 +235,5 @@ The default is `1`.
 
 ```bash
 ISO18571_BENCHMARK_LOAD_ROUNDS=3 \
-uv run --extra test python -m pytest -q tests/test_iso18571_benchmarks.py -m benchmark -k load_memory --benchmark-json .benchmarks/iso18571-native/load-3.json
+uv run --extra test python -m pytest -q tests/test_benchmarks.py -m benchmark -k load_memory --benchmark-json .benchmarks/iso18571-native/load-3.json
 ```

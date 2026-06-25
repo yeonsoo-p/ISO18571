@@ -58,7 +58,7 @@
   - `uv run --extra test ruff format --check .`
   - `uv run --extra test mypy python/iso18571 reference tests`
   - `git diff --check --cached`
-- Benchmarks live in `tests/test_iso18571_benchmarks.py` and are deselected by
+- Benchmarks live in `tests/test_benchmarks.py` and are deselected by
   default through the `benchmark` marker. They use pytest-benchmark plus spawned
   Python workers to measure setup/load time, warm runtime, and peak process
   memory on Linux and Windows. Benchmark rows record peak swap/pagefile usage;

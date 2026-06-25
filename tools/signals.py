@@ -8,25 +8,25 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 import numpy as np
-from numpy.typing import ArrayLike, NDArray
-
-
-FloatArray = NDArray[np.float64]
+from numpy.typing import NDArray
 
 
 class SignalFunction(Protocol):
     def __call__(
         self,
-        time: FloatArray,
+        time: NDArray[np.float64],
         *,
         rng: np.random.Generator | None = None,
         **params: Any,
-    ) -> ArrayLike: ...
+    ) -> NDArray[np.float64] | Sequence[float | int] | float | int: ...
 
 
 @dataclass(frozen=True)
 class SignalComponent:
-    function: Callable[..., ArrayLike]
+    function: Callable[
+        ...,
+        NDArray[np.float64] | Sequence[float | int] | float | int,
+    ]
     scale: float
     offset: float
     sample_shift: int
@@ -50,12 +50,15 @@ class SignalGenerator:
             raise ValueError("start must be finite")
 
     @property
-    def time(self) -> FloatArray:
+    def time(self) -> NDArray[np.float64]:
         return self.start + np.arange(self.n, dtype=np.float64) * self.dt
 
     def add(
         self,
-        function: Callable[..., ArrayLike],
+        function: Callable[
+            ...,
+            NDArray[np.float64] | Sequence[float | int] | float | int,
+        ],
         *,
         scale: float = 1.0,
         offset: float = 0.0,
@@ -77,7 +80,7 @@ class SignalGenerator:
         )
         return self
 
-    def values(self) -> FloatArray:
+    def values(self) -> NDArray[np.float64]:
         time = self.time
         total = np.zeros(self.n, dtype=np.float64)
         rng = np.random.default_rng(self.seed)
@@ -93,46 +96,50 @@ class SignalGenerator:
             total += component.scale * values + component.offset
         return total
 
-    def curve(self) -> FloatArray:
+    def curve(self) -> NDArray[np.float64]:
         return np.column_stack((self.time, self.values())).astype(
             np.float64, copy=False
         )
 
 
-def zero(time: FloatArray, *, rng: np.random.Generator | None = None) -> FloatArray:
+def zero(
+    time: NDArray[np.float64],
+    *,
+    rng: np.random.Generator | None = None,
+) -> NDArray[np.float64]:
     del rng
     return np.zeros_like(time, dtype=np.float64)
 
 
 def constant(
-    time: FloatArray,
+    time: NDArray[np.float64],
     *,
     value: float = 1.0,
     rng: np.random.Generator | None = None,
-) -> FloatArray:
+) -> NDArray[np.float64]:
     del rng
     return np.full_like(time, value, dtype=np.float64)
 
 
 def ramp(
-    time: FloatArray,
+    time: NDArray[np.float64],
     *,
     slope: float = 1.0,
     intercept: float = 0.0,
     rng: np.random.Generator | None = None,
-) -> FloatArray:
+) -> NDArray[np.float64]:
     del rng
     return intercept + slope * time
 
 
 def piecewise_ramp(
-    time: FloatArray,
+    time: NDArray[np.float64],
     *,
     breakpoints: Sequence[float] = (),
     slopes: Sequence[float] = (1.0,),
     start_value: float = 0.0,
     rng: np.random.Generator | None = None,
-) -> FloatArray:
+) -> NDArray[np.float64]:
     del rng
     if len(slopes) != len(breakpoints) + 1:
         raise ValueError("slopes must have one more entry than breakpoints")
@@ -165,13 +172,13 @@ def piecewise_ramp(
 
 
 def impulse(
-    time: FloatArray,
+    time: NDArray[np.float64],
     *,
     at: float = 0.0,
     amplitude: float = 1.0,
     width: float = 0.0,
     rng: np.random.Generator | None = None,
-) -> FloatArray:
+) -> NDArray[np.float64]:
     del rng
     values = np.zeros_like(time, dtype=np.float64)
     if time.size == 0:
@@ -184,13 +191,13 @@ def impulse(
 
 
 def sparse_spikes(
-    time: FloatArray,
+    time: NDArray[np.float64],
     *,
     count: int = 3,
     amplitude: float = 1.0,
     positions: Sequence[float] | None = None,
     rng: np.random.Generator | None = None,
-) -> FloatArray:
+) -> NDArray[np.float64]:
     values = np.zeros_like(time, dtype=np.float64)
     if positions is not None:
         for position in positions:
@@ -207,27 +214,27 @@ def sparse_spikes(
 
 
 def sine(
-    time: FloatArray,
+    time: NDArray[np.float64],
     *,
     frequency: float = 1.0,
     amplitude: float = 1.0,
     phase: float = 0.0,
     offset: float = 0.0,
     rng: np.random.Generator | None = None,
-) -> FloatArray:
+) -> NDArray[np.float64]:
     del rng
     return offset + amplitude * np.sin(2.0 * np.pi * frequency * time + phase)
 
 
 def chirp(
-    time: FloatArray,
+    time: NDArray[np.float64],
     *,
     start_frequency: float = 1.0,
     end_frequency: float = 10.0,
     amplitude: float = 1.0,
     phase: float = 0.0,
     rng: np.random.Generator | None = None,
-) -> FloatArray:
+) -> NDArray[np.float64]:
     del rng
     duration = max(float(time[-1] - time[0]), np.finfo(np.float64).eps)
     tau = time - time[0]
@@ -237,24 +244,24 @@ def chirp(
 
 
 def square_step(
-    time: FloatArray,
+    time: NDArray[np.float64],
     *,
     at: float = 0.0,
     low: float = 0.0,
     high: float = 1.0,
     rng: np.random.Generator | None = None,
-) -> FloatArray:
+) -> NDArray[np.float64]:
     del rng
     return np.where(time < at, low, high).astype(np.float64, copy=False)
 
 
 def gaussian_noise(
-    time: FloatArray,
+    time: NDArray[np.float64],
     *,
     mean: float = 0.0,
     std: float = 1.0,
     rng: np.random.Generator | None = None,
-) -> FloatArray:
+) -> NDArray[np.float64]:
     if rng is None:
         rng = np.random.default_rng(0)
     return rng.normal(loc=mean, scale=std, size=time.shape).astype(
@@ -263,14 +270,14 @@ def gaussian_noise(
 
 
 def ramp_impulses(
-    time: FloatArray,
+    time: NDArray[np.float64],
     *,
     slope: float = 1.0,
     intercept: float = 0.0,
     impulse_times: Sequence[float] = (),
     impulse_amplitude: float = 1.0,
     rng: np.random.Generator | None = None,
-) -> FloatArray:
+) -> NDArray[np.float64]:
     values = ramp(time, slope=slope, intercept=intercept, rng=rng)
     for impulse_time in impulse_times:
         values += impulse(
@@ -280,12 +287,12 @@ def ramp_impulses(
 
 
 def piecewise_discontinuous(
-    time: FloatArray,
+    time: NDArray[np.float64],
     *,
     breakpoints: Sequence[float] = (),
     values: Sequence[float] = (0.0,),
     rng: np.random.Generator | None = None,
-) -> FloatArray:
+) -> NDArray[np.float64]:
     del rng
     if len(values) != len(breakpoints) + 1:
         raise ValueError("values must have one more entry than breakpoints")
@@ -296,14 +303,14 @@ def piecewise_discontinuous(
 
 
 def sine_noise(
-    time: FloatArray,
+    time: NDArray[np.float64],
     *,
     frequency: float = 1.0,
     amplitude: float = 1.0,
     noise_std: float = 0.1,
     phase: float = 0.0,
     rng: np.random.Generator | None = None,
-) -> FloatArray:
+) -> NDArray[np.float64]:
     return sine(
         time, frequency=frequency, amplitude=amplitude, phase=phase
     ) + gaussian_noise(
@@ -314,11 +321,14 @@ def sine_noise(
 
 
 def _call_signal_function(
-    function: Callable[..., ArrayLike],
-    time: FloatArray,
+    function: Callable[
+        ...,
+        NDArray[np.float64] | Sequence[float | int] | float | int,
+    ],
+    time: NDArray[np.float64],
     rng: np.random.Generator,
     params: dict[str, Any],
-) -> ArrayLike:
+) -> NDArray[np.float64] | Sequence[float | int] | float | int:
     signature = inspect.signature(function)
     accepts_rng = "rng" in signature.parameters or any(
         parameter.kind == inspect.Parameter.VAR_KEYWORD
@@ -330,8 +340,13 @@ def _call_signal_function(
 
 
 def _as_values(
-    values: ArrayLike, n: int, function: Callable[..., ArrayLike]
-) -> FloatArray:
+    values: NDArray[np.float64] | Sequence[float | int] | float | int,
+    n: int,
+    function: Callable[
+        ...,
+        NDArray[np.float64] | Sequence[float | int] | float | int,
+    ],
+) -> NDArray[np.float64]:
     array = np.asarray(values, dtype=np.float64)
     if array.ndim == 0:
         return np.full(n, float(array), dtype=np.float64)

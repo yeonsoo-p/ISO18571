@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import Any
 
 import numpy as np
-from numpy.typing import ArrayLike, NDArray
+from numpy.typing import NDArray
 
 from tools import signals
 from tools.signals import SignalGenerator
@@ -68,7 +68,15 @@ def test_signal_generator_noise_is_seeded_and_repeatable() -> None:
 
 def test_all_named_signal_functions_return_finite_values() -> None:
     generator = SignalGenerator(64, 0.01, seed=3)
-    functions: list[tuple[Callable[..., ArrayLike], dict[str, Any]]] = [
+    functions: list[
+        tuple[
+            Callable[
+                ...,
+                NDArray[np.float64] | Sequence[float | int] | float | int,
+            ],
+            dict[str, Any],
+        ]
+    ] = [
         (signals.zero, {}),
         (signals.constant, {"value": 2.0}),
         (signals.ramp, {"slope": 1.5}),

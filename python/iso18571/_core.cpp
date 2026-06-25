@@ -92,6 +92,7 @@ ScoreParams score_params_from_dict (const py::dict& params) {
     out.k_z      = get_required_positive_integer_param(params, "k_z");
     out.k_p      = get_required_score_exponent(params, "k_p");
     out.k_m      = get_required_score_exponent(params, "k_m");
+    out.k_s      = get_required_score_exponent(params, "k_s");
     out.eps_m    = get_required_double_param(params, "eps_m");
     out.e_s      = get_required_double_param(params, "e_s");
     out.init_min = get_required_double_param(params, "init_min");
@@ -587,7 +588,15 @@ void add_score_fields (py::dict& out, const ScoreResult& result, const Validated
     out["slope_error"]       = result.slope.error;
 }
 
-py::dict score_components (py::array reference_curve, py::array comparison_curve, py::dict params) {
+void add_timing_fields (py::dict& out, const ScoreResult& result) {
+    out["corridor_ms"]  = result.timings.corridor_ms;
+    out["phase_ms"]     = result.timings.phase_ms;
+    out["magnitude_ms"] = result.timings.magnitude_ms;
+    out["slope_ms"]     = result.timings.slope_ms;
+    out["total_ms"]     = result.timings.total_ms;
+}
+
+py::tuple score_components (py::array reference_curve, py::array comparison_curve, py::dict params) {
     const ValidatedCurves curves       = validate_curves(reference_curve, comparison_curve);
     ScoreParams           score_params = score_params_from_dict(params);
     validation::validate_score_params(score_params);
@@ -604,9 +613,11 @@ py::dict score_components (py::array reference_curve, py::array comparison_curve
     emit_component_warnings(curves.diagnostics);
     emit_score_warnings(result);
 
-    py::dict out;
-    add_score_fields(out, result, curves);
-    return out;
+    py::dict scores;
+    add_score_fields(scores, result, curves);
+    py::dict timings;
+    add_timing_fields(timings, result);
+    return py::make_tuple(scores, timings);
 }
 
 py::dict backend_info () {

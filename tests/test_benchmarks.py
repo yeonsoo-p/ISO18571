@@ -9,11 +9,12 @@ import sys
 import threading
 import time
 import traceback
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from multiprocessing.connection import Connection
 from multiprocessing.process import BaseProcess
 from pathlib import Path
-from typing import Any, Final
+from typing import Any, Final, Protocol, TypeAlias
 
 import numpy as np
 import pytest
@@ -28,27 +29,47 @@ except ImportError:  # pragma: no cover - Windows
     resource = None  # type: ignore[assignment]
 
 
-FloatArray = NDArray[np.float64]
-
 BENCHMARK_BACKEND: Final = "native"
 BENCHMARK_LENGTHS: Final = (512, 2048, 8192, 32768)
 LOAD_BENCHMARK_ROUNDS_ENV: Final = "ISO18571_BENCHMARK_LOAD_ROUNDS"
 RUNTIME_BENCHMARK_ROUNDS_ENV: Final = "ISO18571_BENCHMARK_RUNTIME_ROUNDS"
 POSITIVE_SPIKE_POSITIONS: Final[tuple[float, ...]] = (0.08, 0.21, 0.47, 0.63, 0.82)
 NEGATIVE_SPIKE_POSITIONS: Final[tuple[float, ...]] = (0.14, 0.36, 0.57, 0.74, 0.93)
+TIMING_KEYS: Final = (
+    "corridor_ms",
+    "phase_ms",
+    "magnitude_ms",
+    "slope_ms",
+    "total_ms",
+)
+NativeTimings: TypeAlias = dict[str, float]
+
+
+class NativeScorer(Protocol):
+    @property
+    def timings(self) -> Mapping[str, float]: ...
+
+    def overall_rating(self, ndigits: int = 3) -> float: ...
 
 
 @dataclass(frozen=True)
 class BenchmarkCase:
-    reference_curve: FloatArray
-    comparison_curve: FloatArray
+    reference_curve: NDArray[np.float64]
+    comparison_curve: NDArray[np.float64]
     dt: float
+
+
+@dataclass(frozen=True)
+class ScoreRun:
+    score: float
+    timings: NativeTimings
 
 
 @dataclass(frozen=True)
 class WorkerResult:
     status: str
     score: float | None
+    timings: NativeTimings | None
     child_elapsed_ms: float | None
     peak_rss_mib: float | None
     peak_swap_mib: float | None
@@ -75,10 +96,12 @@ class LoadProbe:
     def __call__(self) -> float:
         result = run_load_child(self.length)
         self.results.append(result)
-        assert result.status == "ok" and result.score is not None, (
-            result.error or f"{BENCHMARK_BACKEND} n={self.length} load probe failed"
-        )
-        return result.score
+        assert (
+            result.status == "ok"
+            and result.score is not None
+            and result.timings is not None
+        ), result.error or f"{BENCHMARK_BACKEND} n={self.length} load probe failed"
+        return result.timings["total_ms"]
 
     @property
     def peak_rss_mib(self) -> float | None:
@@ -104,6 +127,13 @@ class LoadProbe:
             result.child_elapsed_ms
             for result in self.results
             if result.child_elapsed_ms is not None
+        ]
+        return values[-1] if values else None
+
+    @property
+    def timings(self) -> NativeTimings | None:
+        values = [
+            result.timings for result in self.results if result.timings is not None
         ]
         return values[-1] if values else None
 
@@ -167,6 +197,15 @@ def max_optional(left: float | None, right: float | None) -> float | None:
     if right is None:
         return left
     return max(left, right)
+
+
+def record_native_timing_extra_info(
+    benchmark: Any, timings: NativeTimings | None
+) -> None:
+    for key in TIMING_KEYS:
+        benchmark.extra_info[f"native_{key}"] = (
+            None if timings is None else timings[key]
+        )
 
 
 def positive_env_int(name: str, default: int) -> int:
@@ -243,11 +282,14 @@ def make_benchmark_case(length: int) -> BenchmarkCase:
     return BenchmarkCase(reference_curve=reference, comparison_curve=comparison, dt=dt)
 
 
-def score_native_case(case: BenchmarkCase) -> float:
+def score_native_case(case: BenchmarkCase) -> ScoreRun:
     module = importlib.import_module("iso18571")
     scorer_class = getattr(module, "ISO18571")
-    scorer = scorer_class(case.reference_curve, case.comparison_curve)
-    return float(scorer.overall_rating(ndigits=-1))
+    scorer: NativeScorer = scorer_class(case.reference_curve, case.comparison_curve)
+    return ScoreRun(
+        score=float(scorer.overall_rating(ndigits=-1)),
+        timings=dict(scorer.timings),
+    )
 
 
 def linux_process_memory_snapshot(pid: int) -> MemorySnapshot:
@@ -347,6 +389,7 @@ def current_memory_snapshot() -> MemorySnapshot:
 def worker_result(
     status: str,
     score: float | None,
+    timings: NativeTimings | None,
     child_elapsed_ms: float | None,
     error: str | None,
 ) -> WorkerResult:
@@ -354,6 +397,7 @@ def worker_result(
     return WorkerResult(
         status=status,
         score=score,
+        timings=timings,
         child_elapsed_ms=child_elapsed_ms,
         peak_rss_mib=memory.peak_rss_mib,
         peak_swap_mib=memory.peak_swap_mib,
@@ -367,6 +411,7 @@ def apply_monitor_snapshot(
     return WorkerResult(
         status=result.status,
         score=result.score,
+        timings=result.timings,
         child_elapsed_ms=result.child_elapsed_ms,
         peak_rss_mib=max_optional(result.peak_rss_mib, snapshot.peak_rss_mib),
         peak_swap_mib=max_optional(result.peak_swap_mib, snapshot.peak_swap_mib),
@@ -378,11 +423,17 @@ def load_worker(length: int, connection: Connection) -> None:
     try:
         start = time.perf_counter()
         case = make_benchmark_case(length)
-        score = score_native_case(case)
+        score_run = score_native_case(case)
         child_elapsed_ms = (time.perf_counter() - start) * 1000.0
-        connection.send(worker_result("ok", score, child_elapsed_ms, None))
+        connection.send(
+            worker_result(
+                "ok", score_run.score, score_run.timings, child_elapsed_ms, None
+            )
+        )
     except BaseException:
-        connection.send(worker_result("failed", None, None, traceback.format_exc()))
+        connection.send(
+            worker_result("failed", None, None, None, traceback.format_exc())
+        )
     finally:
         connection.close()
 
@@ -391,7 +442,7 @@ def runtime_worker(length: int, connection: Connection) -> None:
     try:
         case = make_benchmark_case(length)
         _ = score_native_case(case)
-        connection.send(worker_result("ready", None, None, None))
+        connection.send(worker_result("ready", None, None, None, None))
         while True:
             message = connection.recv()
             if message == "score":
@@ -403,7 +454,9 @@ def runtime_worker(length: int, connection: Connection) -> None:
             else:
                 assert False, f"unknown runtime worker message {message!r}"
     except BaseException:
-        connection.send(worker_result("failed", None, None, traceback.format_exc()))
+        connection.send(
+            worker_result("failed", None, None, None, traceback.format_exc())
+        )
     finally:
         connection.close()
 
@@ -422,6 +475,7 @@ def receive_worker_result(
         return WorkerResult(
             status="failed",
             score=None,
+            timings=None,
             child_elapsed_ms=None,
             peak_rss_mib=None,
             peak_swap_mib=None,
@@ -434,6 +488,7 @@ def receive_worker_result(
         return WorkerResult(
             status="failed",
             score=None,
+            timings=None,
             child_elapsed_ms=None,
             peak_rss_mib=None,
             peak_swap_mib=None,
@@ -443,6 +498,7 @@ def receive_worker_result(
     return WorkerResult(
         status="failed",
         score=None,
+        timings=None,
         child_elapsed_ms=None,
         peak_rss_mib=None,
         peak_swap_mib=None,
@@ -469,6 +525,7 @@ def run_load_child(length: int) -> WorkerResult:
             result = WorkerResult(
                 status="failed",
                 score=None,
+                timings=None,
                 child_elapsed_ms=None,
                 peak_rss_mib=None,
                 peak_swap_mib=None,
@@ -478,6 +535,7 @@ def run_load_child(length: int) -> WorkerResult:
         result = WorkerResult(
             status="failed",
             score=None,
+            timings=None,
             child_elapsed_ms=None,
             peak_rss_mib=None,
             peak_swap_mib=None,
@@ -531,6 +589,7 @@ def test_native_mixed_signal_load_memory_benchmark(benchmark: Any, length: int) 
     benchmark.extra_info["peak_swap_mib"] = probe.peak_swap_mib
     benchmark.extra_info["swap_invalidated"] = (probe.peak_swap_mib or 0.0) > 0.0
     benchmark.extra_info["child_elapsed_ms"] = probe.child_elapsed_ms
+    record_native_timing_extra_info(benchmark, probe.timings)
     assert isinstance(result, float)
 
 
@@ -542,14 +601,16 @@ def test_native_mixed_signal_runtime_benchmark(benchmark: Any, length: int) -> N
     assert pid is not None, "runtime child process has no pid"
     monitor = ProcessMemoryMonitor(pid)
     worker_memory: MemorySnapshot | None = None
+    runtime_timings: list[NativeTimings] = []
 
     def score_in_worker() -> float:
         connection.send("score")
-        score = connection.recv()
-        assert isinstance(score, float), (
-            f"{BENCHMARK_BACKEND} n={length} runtime child returned {type(score)!r}"
+        score_run = connection.recv()
+        assert isinstance(score_run, ScoreRun), (
+            f"{BENCHMARK_BACKEND} n={length} runtime child returned {type(score_run)!r}"
         )
-        return score
+        runtime_timings.append(score_run.timings)
+        return score_run.timings["total_ms"]
 
     rounds = positive_env_int(RUNTIME_BENCHMARK_ROUNDS_ENV, 3)
     try:
@@ -577,4 +638,7 @@ def test_native_mixed_signal_runtime_benchmark(benchmark: Any, length: int) -> N
     benchmark.extra_info["peak_rss_mib"] = peak_rss_mib
     benchmark.extra_info["peak_swap_mib"] = peak_swap_mib
     benchmark.extra_info["swap_invalidated"] = (peak_swap_mib or 0.0) > 0.0
+    record_native_timing_extra_info(
+        benchmark, runtime_timings[-1] if runtime_timings else None
+    )
     assert isinstance(result, float)

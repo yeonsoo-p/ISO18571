@@ -3,9 +3,9 @@
 from importlib.metadata import PackageNotFoundError, version
 
 from ._core import backend_info as _native_backend_info
-from .rating import ISO18571, ScoreComponents
+from .rating import ISO18571, ScoreComponents, ScoreTimings
 
-__all__ = ["ISO18571", "backend_info", "ScoreComponents"]
+__all__ = ["ISO18571", "backend_info", "ScoreComponents", "ScoreTimings"]
 
 
 def backend_info() -> dict[str, str]:

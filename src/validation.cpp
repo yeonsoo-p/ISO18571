@@ -135,6 +135,7 @@ void validate_score_params (engine::ScoreParams& params) {
     require_positive_integer(params.k_z, "k_z");
     require_score_exponent(params.k_p, "k_p");
     require_score_exponent(params.k_m, "k_m");
+    require_score_exponent(params.k_s, "k_s");
 
     require_positive(params.eps_m, "eps_m");
     require_positive(params.e_s, "e_s");

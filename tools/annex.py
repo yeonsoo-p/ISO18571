@@ -18,8 +18,6 @@ import numpy as np
 from numpy.typing import NDArray
 
 
-FloatArray = NDArray[np.float64]
-
 OFFICIAL_ANNEX_URL: Final = (
     "https://standards.iso.org/iso/ts/18571/ed-2/en/"
     "ISO_TS%2018571%20ed.2%20-%20Annex_data_csv_files.zip"
@@ -74,7 +72,7 @@ class MagnitudeFields(TypedDict):
 class AnnexColumn:
     name: str
     unit: str
-    values: FloatArray
+    values: NDArray[np.float64]
 
 
 @dataclass(frozen=True)
@@ -142,17 +140,17 @@ class AnnexCase:
             raise ValueError(f"{self.name} has mismatched column lengths")
         return int(counts.pop())
 
-    def values(self, name: str) -> FloatArray:
+    def values(self, name: str) -> NDArray[np.float64]:
         return self.columns[name].values.copy()
 
-    def finite_values(self, name: str) -> FloatArray:
+    def finite_values(self, name: str) -> NDArray[np.float64]:
         values = self.columns[name].values
         return values[np.isfinite(values)].copy()
 
-    def input_values(self, name: str) -> FloatArray:
+    def input_values(self, name: str) -> NDArray[np.float64]:
         return self.columns[name].values[self._input_mask()].copy()
 
-    def reference_curve(self) -> FloatArray:
+    def reference_curve(self) -> NDArray[np.float64]:
         mask = self._input_mask()
         return np.column_stack(
             (self.columns["Time"].values[mask], self.columns["Test"].values[mask])
@@ -161,7 +159,7 @@ class AnnexCase:
             copy=False,
         )
 
-    def comparison_curve(self) -> FloatArray:
+    def comparison_curve(self) -> NDArray[np.float64]:
         mask = self._input_mask()
         return np.column_stack(
             (self.columns["Time"].values[mask], self.columns["CAE"].values[mask])
@@ -170,7 +168,9 @@ class AnnexCase:
             copy=False,
         )
 
-    def finite_pair(self, left: str, right: str) -> tuple[FloatArray, FloatArray]:
+    def finite_pair(
+        self, left: str, right: str
+    ) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
         left_values = self.columns[left].values
         right_values = self.columns[right].values
         mask = np.isfinite(left_values) & np.isfinite(right_values)

@@ -679,10 +679,10 @@ from __future__ import annotations
 
 import dtw
 import numpy as np
+from numpy.typing import NDArray
 
 from reference._common import (
     BaseISO18571,
-    FloatArray,
     dtw_window_radius,
     iso_backtrack,
 )
@@ -691,8 +691,8 @@ from reference._common import (
 class ISO18571(BaseISO18571):
     @staticmethod
     def _compute_magnitude(
-        x: FloatArray, y: FloatArray, window_size: float
-    ) -> tuple[FloatArray, FloatArray]:
+        x: NDArray[np.float64], y: NDArray[np.float64], window_size: float
+    ) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
         radius = dtw_window_radius(x.shape[0], window_size)
         cost = np.square(x[:, np.newaxis] - y[np.newaxis, :])
         result = dtw.dtw(

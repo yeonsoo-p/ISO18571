@@ -4,17 +4,14 @@ import math
 from typing import cast
 
 import numpy as np
-import numpy.typing as npt
-
-FloatArray = npt.NDArray[np.float64]
-IntArray = npt.NDArray[np.int64]
+from numpy.typing import NDArray
 
 
 class BaseISO18571:
     def __init__(
         self,
-        reference_curve: npt.ArrayLike,
-        comparison_curve: npt.ArrayLike,
+        reference_curve: NDArray[np.float64],
+        comparison_curve: NDArray[np.float64],
         k_z: float = 2.0,
         k_p: int = 1,
         k_m: int = 1,
@@ -91,11 +88,11 @@ class BaseISO18571:
         return float(self._rho_e)
 
     @property
-    def shifted_reference_curve(self) -> FloatArray:
+    def shifted_reference_curve(self) -> NDArray[np.float64]:
         return self._t_ts.copy()
 
     @property
-    def shifted_comparison_curve(self) -> FloatArray:
+    def shifted_comparison_curve(self) -> NDArray[np.float64]:
         return self._cae_ts.copy()
 
     @property
@@ -112,7 +109,15 @@ class BaseISO18571:
 
     def _get_shifted_curve_and_pr(
         self,
-    ) -> tuple[FloatArray, FloatArray, int, float, int, int, int]:
+    ) -> tuple[
+        NDArray[np.float64],
+        NDArray[np.float64],
+        int,
+        float,
+        int,
+        int,
+        int,
+    ]:
         window_size = int(
             np.floor(len(self.comparison_curve[:, 1]) * self._max_shift) + 1
         )
@@ -162,13 +167,14 @@ class BaseISO18571:
 
     @staticmethod
     def _compute_magnitude(
-        x: FloatArray, y: FloatArray, window_size: float
-    ) -> tuple[FloatArray, FloatArray]:
+        x: NDArray[np.float64], y: NDArray[np.float64], window_size: float
+    ) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
         raise NotImplementedError
 
     @staticmethod
     def _phase_correlation(
-        reference_values: FloatArray, comparison_values: FloatArray
+        reference_values: NDArray[np.float64],
+        comparison_values: NDArray[np.float64],
     ) -> float:
         if reference_values.shape[0] < 2:
             return 1.0 if np.array_equal(reference_values, comparison_values) else 0.0
@@ -295,7 +301,7 @@ def dtw_window_radius(n: int, window_size: float) -> int:
     return min(n, max(1, int(np.ceil(window_size * n))))
 
 
-def iso_backtrack(accumulated: FloatArray) -> IntArray:
+def iso_backtrack(accumulated: NDArray[np.float64]) -> NDArray[np.int64]:
     accumulated = np.where(np.isnan(accumulated), np.inf, accumulated)
     i = accumulated.shape[0] - 1
     j = accumulated.shape[1] - 1
@@ -312,13 +318,15 @@ def iso_backtrack(accumulated: FloatArray) -> IntArray:
         _, i, j = candidates[int(np.argmin(costs))]
         path.append((i, j))
     path.reverse()
-    return cast(IntArray, np.asarray(path, dtype=np.int64))
+    return cast(NDArray[np.int64], np.asarray(path, dtype=np.int64))
 
 
-def local_cost_matrix(x: FloatArray, y: FloatArray, window_size: float) -> FloatArray:
+def local_cost_matrix(
+    x: NDArray[np.float64], y: NDArray[np.float64], window_size: float
+) -> NDArray[np.float64]:
     n = x.shape[0]
     radius = dtw_window_radius(n, window_size)
     cost = np.square(x[:, np.newaxis] - y[np.newaxis, :])
     idx = np.arange(n)
     cost[np.abs(idx[:, np.newaxis] - idx[np.newaxis, :]) >= radius] = np.inf
-    return cast(FloatArray, cost)
+    return cast(NDArray[np.float64], cost)

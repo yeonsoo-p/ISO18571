@@ -2,15 +2,16 @@ from __future__ import annotations
 
 import librosa
 import numpy as np
+from numpy.typing import NDArray
 
-from reference._common import BaseISO18571, FloatArray, local_cost_matrix
+from reference._common import BaseISO18571, local_cost_matrix
 
 
 class ISO18571(BaseISO18571):
     @staticmethod
     def _compute_magnitude(
-        x: FloatArray, y: FloatArray, window_size: float
-    ) -> tuple[FloatArray, FloatArray]:
+        x: NDArray[np.float64], y: NDArray[np.float64], window_size: float
+    ) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
         cost = local_cost_matrix(x, y, window_size)
         step_sizes = np.asarray([[1, 0], [0, 1], [1, 1]], dtype=np.uint32)
         weights = np.zeros(3, dtype=np.float64)

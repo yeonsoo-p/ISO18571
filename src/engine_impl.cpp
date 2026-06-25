@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <complex>
 #include <limits>
@@ -31,6 +32,7 @@ using engine::ScoreParams;
 using engine::ScoreResult;
 using engine::SlopeResult;
 using std::size_t;
+using std::chrono::steady_clock;
 
 inline void sum_difference (c128& a, c128& b, c128 c, c128 d) {
     a = c + d;
@@ -265,6 +267,10 @@ f64 integer_power (f64 value, int exponent) {
         power >>= 1;
     }
     return result;
+}
+
+f64 elapsed_milliseconds (std::chrono::steady_clock::time_point start, std::chrono::steady_clock::time_point end) {
+    return std::chrono::duration<f64, std::milli>(end - start).count();
 }
 
 void select_dtw_predecessor (f64 cost, f64 candidate_numerator, f64 candidate_denominator, f64& best_previous,
@@ -957,25 +963,43 @@ void slope_score (SlopeResult& result, std::span<const f64> reference_values, st
         result.score = 0.0;
         return;
     }
-    // result.score = integer_power((params.e_s - e_slope) / params.e_s, params.k_s);
-    result.score = (params.e_s - e_slope) / params.e_s;
+    result.score = integer_power((params.e_s - e_slope) / params.e_s, params.k_s);
 }
 
 ScoreResult score_components_impl (std::span<const f64> reference, std::span<const f64> comparison,
                                    const ScoreParams& params, f64 dt) {
     ScoreResult result;
+    const auto  total_start = steady_clock::now();
+
+    const auto corridor_start = steady_clock::now();
     corridor_score(result.corridor, reference, comparison, params);
+    const auto corridor_end    = steady_clock::now();
+    result.timings.corridor_ms = elapsed_milliseconds(corridor_start, corridor_end);
+
+    const auto phase_start = steady_clock::now();
     phase_score(result.phase, reference, comparison, params);
+    const auto phase_end    = steady_clock::now();
+    result.timings.phase_ms = elapsed_milliseconds(phase_start, phase_end);
 
     const std::span<const f64> aligned_comparison =
         comparison.subspan(offset(result.phase.comparison_start), offset(result.phase.length));
     const std::span<const f64> aligned_reference =
         reference.subspan(offset(result.phase.reference_start), offset(result.phase.length));
 
+    const auto magnitude_start = steady_clock::now();
     magnitude_score(result.magnitude, aligned_reference, aligned_comparison, params);
+    const auto magnitude_end    = steady_clock::now();
+    result.timings.magnitude_ms = elapsed_milliseconds(magnitude_start, magnitude_end);
+
+    const auto slope_start = steady_clock::now();
     slope_score(result.slope, aligned_reference, aligned_comparison, params, dt);
-    result.overall = params.w_z * result.corridor.score + params.w_p * result.phase.score +
-                     params.w_m * result.magnitude.score + params.w_s * result.slope.score;
+    const auto slope_end    = steady_clock::now();
+    result.timings.slope_ms = elapsed_milliseconds(slope_start, slope_end);
+
+    result.overall          = params.w_z * result.corridor.score + params.w_p * result.phase.score +
+                              params.w_m * result.magnitude.score + params.w_s * result.slope.score;
+    const auto total_end    = steady_clock::now();
+    result.timings.total_ms = elapsed_milliseconds(total_start, total_end);
 
     return result;
 }

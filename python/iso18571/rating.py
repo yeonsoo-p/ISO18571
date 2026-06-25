@@ -53,6 +53,14 @@ class ScoreComponents(TypedDict):
     slope_error: float
 
 
+class ScoreTimings(TypedDict):
+    corridor_ms: float
+    phase_ms: float
+    magnitude_ms: float
+    slope_ms: float
+    total_ms: float
+
+
 class ISO18571:
     def __init__(
         self,
@@ -61,6 +69,7 @@ class ISO18571:
         k_z: int | float = 2,
         k_p: int | float = 1,
         k_m: int | float = 1,
+        k_s: int | float = 1,
         eps_m: float = 0.50,
         e_s: float = 2.0,
         init_min: float = 0.8,
@@ -81,13 +90,15 @@ class ISO18571:
         self._k_z = int(k_z)
 
         self._scores: ScoreComponents
-        self._scores = _score_components(
+        self._timings: ScoreTimings
+        self._scores, self._timings = _score_components(
             self._reference_curve,
             self._comparison_curve,
             {
                 "k_z": k_z,
                 "k_p": k_p,
                 "k_m": k_m,
+                "k_s": k_s,
                 "eps_m": eps_m,
                 "e_s": e_s,
                 "init_min": init_min,
@@ -103,6 +114,10 @@ class ISO18571:
     @property
     def scores(self) -> ScoreComponents:
         return self._scores.copy()
+
+    @property
+    def timings(self) -> ScoreTimings:
+        return self._timings.copy()
 
     @property
     def dt(self) -> float:

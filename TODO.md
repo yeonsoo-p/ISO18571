@@ -123,7 +123,6 @@
 - Default values source?
 - Scores need to be bound 0.0 to 1.0
 
-- Need to update to proper TypeAlias instead of ArrayLike
 - Test helper functions are all over the place
 - Study proper shifted n < 9 path; maybe the throw is unnecessary
 - Static asserts that can be done from engine?

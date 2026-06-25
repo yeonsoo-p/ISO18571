@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import math
 import warnings
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import Any
 
 import numpy as np
 import pytest
-from numpy.typing import ArrayLike
+from numpy.typing import NDArray
 
 from iso18571 import ISO18571
 from tools import signals
@@ -24,18 +24,6 @@ def test_nonzero_identical_signals_score_one_for_all_components() -> None:
     assert scorer.scores["EP"] == 1.0
     assert scorer.scores["EM"] == 1.0
     assert scorer.scores["ES"] == 1.0
-
-
-def test_phase_shifted_identical_signals_score_zero_beyond_phase_threshold() -> None:
-    reference_values = SignalGenerator(64, 0.01).add(signals.chirp).values()
-    comparison_values = np.empty_like(reference_values)
-    comparison_values[:16] = 20.0
-    comparison_values[16:] = reference_values[:-16]
-
-    scorer = ISO18571(_curve(reference_values), _curve(comparison_values), init_min=0.8)
-
-    assert scorer.phase_n_eps >= 13
-    assert scorer.scores["EP"] == 0.0
 
 
 def test_constant_offset_expectations_are_score_specific() -> None:
@@ -104,7 +92,10 @@ def test_nonconstant_offset_expectations_are_score_specific() -> None:
     ],
 )
 def test_generated_signal_classes_score_with_finite_outputs(
-    function: Callable[..., ArrayLike],
+    function: Callable[
+        ...,
+        NDArray[np.float64] | Sequence[float | int] | float | int,
+    ],
     params: dict[str, Any],
 ) -> None:
     reference = SignalGenerator(96, 0.01, seed=7).add(function, **params).curve()

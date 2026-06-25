@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-from numpy.typing import ArrayLike
-
-from . import ScoreComponents
+from .rating import NumericArray, ScoreComponents, ScoreTimings
 
 def backend_info() -> dict[str, str]: ...
 def _score_components(
-    reference_curve: ArrayLike,
-    comparison_curve: ArrayLike,
+    reference_curve: NumericArray,
+    comparison_curve: NumericArray,
     params: dict[str, float | int],
-) -> ScoreComponents: ...
+) -> tuple[ScoreComponents, ScoreTimings]: ...

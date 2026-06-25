@@ -13,6 +13,7 @@ struct ScoreParams {
     int k_z;
     int k_p;
     int k_m;
+    int k_s;
     f64 eps_m;
     f64 e_s;
     f64 init_min;
@@ -106,11 +107,20 @@ struct SlopeResult {
     std::vector<Diagnostic> diagnostics;
 };
 
+struct ScoreTimings {
+    f64 corridor_ms  = 0.0;
+    f64 phase_ms     = 0.0;
+    f64 magnitude_ms = 0.0;
+    f64 slope_ms     = 0.0;
+    f64 total_ms     = 0.0;
+};
+
 struct ScoreResult {
     CorridorResult  corridor;
     PhaseResult     phase;
     MagnitudeResult magnitude;
     SlopeResult     slope;
+    ScoreTimings    timings;
     f64             overall = 0.0;
 };
 
