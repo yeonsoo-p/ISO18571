@@ -26,7 +26,6 @@ using engine::Diagnostic;
 using engine::DiagnosticCode;
 using engine::DiagnosticComponent;
 using engine::DiagnosticSeverity;
-using engine::Index;
 using engine::ScoreParams;
 using engine::ScoreResult;
 
@@ -208,7 +207,7 @@ bool require_safe_element_layout (const py::buffer_info& info) {
             return false;
         }
 
-        const auto index_stride = static_cast<Index>(element_stride);
+        const auto index_stride = static_cast<std::ptrdiff_t>(element_stride);
         return static_cast<py::ssize_t>(index_stride) == element_stride;
     };
 
@@ -238,13 +237,13 @@ constexpr auto typed_time_tolerance () {
 }
 
 template<typename T>
-void require_typed_time (const py::buffer_info& info, const char* curve_name, Index n) {
+void require_typed_time (const py::buffer_info& info, const char* curve_name, std::ptrdiff_t n) {
     using Time            = decltype(real_component(std::declval<T>()));
     const auto item_size  = static_cast<py::ssize_t>(sizeof(T));
-    const auto row_stride = static_cast<Index>(info.strides[0] / item_size);
+    const auto row_stride = static_cast<std::ptrdiff_t>(info.strides[0] / item_size);
     const T*   data       = static_cast<const T*>(info.ptr);
 
-    for (Index idx = 0; idx < n; ++idx) {
+    for (std::ptrdiff_t idx = 0; idx < n; ++idx) {
         const T value = data[idx * row_stride];
         if constexpr (IsStdComplex<T>::value) {
             const auto zero = decltype(value.imag()) {0};
@@ -263,7 +262,7 @@ void require_typed_time (const py::buffer_info& info, const char* curve_name, In
     const Time dt    = (last - first) / Time(n - 1);
 
     Time current = first;
-    for (Index idx = 1; idx < n; ++idx) {
+    for (std::ptrdiff_t idx = 1; idx < n; ++idx) {
         const Time next = real_component(data[idx * row_stride]);
 
         if (next <= current) {
@@ -289,13 +288,13 @@ void require_typed_time (const py::buffer_info& info, const char* curve_name, In
 }
 
 template<typename T>
-void require_typed_value (const py::buffer_info& info, const char* curve_name, Index n) {
+void require_typed_value (const py::buffer_info& info, const char* curve_name, std::ptrdiff_t n) {
     const auto item_size     = static_cast<py::ssize_t>(sizeof(T));
-    const auto row_stride    = static_cast<Index>(info.strides[0] / item_size);
-    const auto column_stride = static_cast<Index>(info.strides[1] / item_size);
+    const auto row_stride    = static_cast<std::ptrdiff_t>(info.strides[0] / item_size);
+    const auto column_stride = static_cast<std::ptrdiff_t>(info.strides[1] / item_size);
     const T*   data          = static_cast<const T*>(info.ptr);
 
-    for (Index idx = 0; idx < n; ++idx) {
+    for (std::ptrdiff_t idx = 0; idx < n; ++idx) {
         const T value = data[idx * row_stride + column_stride];
         if constexpr (IsStdComplex<T>::value) {
             const auto zero = decltype(value.imag()) {0};
@@ -385,7 +384,8 @@ bool require_curve_layout (CurveInputDtype dtype, const py::buffer_info& info) {
     return layout_is_safe;
 }
 
-void require_curve_input (CurveInputDtype dtype, const py::buffer_info& info, const char* curve_name, Index n) {
+void require_curve_input (CurveInputDtype dtype, const py::buffer_info& info, const char* curve_name,
+                          std::ptrdiff_t n) {
     visit_curve_dtype(dtype, [&] (auto tag) {
         using T = typename decltype(tag)::type;
         require_typed_time<T>(info, curve_name, n);
@@ -394,9 +394,9 @@ void require_curve_input (CurveInputDtype dtype, const py::buffer_info& info, co
 }
 
 template<typename T>
-f64 materialize_dt (const py::buffer_info& info, const char* curve_name, Index n) {
+f64 materialize_dt (const py::buffer_info& info, const char* curve_name, std::ptrdiff_t n) {
     const auto item_size  = static_cast<py::ssize_t>(sizeof(T));
-    const auto row_stride = static_cast<Index>(info.strides[0] / item_size);
+    const auto row_stride = static_cast<std::ptrdiff_t>(info.strides[0] / item_size);
     const T*   data       = static_cast<const T*>(info.ptr);
 
     const auto first = real_component(data[0]);
@@ -409,7 +409,8 @@ f64 materialize_dt (const py::buffer_info& info, const char* curve_name, Index n
 }
 
 f64 materialize_matching_dt (CurveInputDtype reference_dtype, const py::buffer_info& reference_info,
-                             CurveInputDtype comparison_dtype, const py::buffer_info& comparison_info, Index n) {
+                             CurveInputDtype comparison_dtype, const py::buffer_info& comparison_info,
+                             std::ptrdiff_t n) {
     f64 reference_dt = 0.0;
     visit_curve_dtype(reference_dtype, [&] (auto reference_tag) {
         using ReferenceT    = typename decltype(reference_tag)::type;
@@ -437,19 +438,19 @@ f64 materialize_matching_dt (CurveInputDtype reference_dtype, const py::buffer_i
 }
 
 template<typename T>
-void materialize_typed_curve_values (const py::buffer_info& info, Index n, std::span<f64> values) {
+void materialize_typed_curve_values (const py::buffer_info& info, std::ptrdiff_t n, std::span<f64> values) {
     const auto item_size     = static_cast<py::ssize_t>(sizeof(T));
-    const auto row_stride    = static_cast<Index>(info.strides[0] / item_size);
-    const auto column_stride = static_cast<Index>(info.strides[1] / item_size);
+    const auto row_stride    = static_cast<std::ptrdiff_t>(info.strides[0] / item_size);
+    const auto column_stride = static_cast<std::ptrdiff_t>(info.strides[1] / item_size);
     const T*   data          = static_cast<const T*>(info.ptr);
 
-    for (Index idx = 0; idx < n; ++idx) {
+    for (std::ptrdiff_t idx = 0; idx < n; ++idx) {
         values[static_cast<std::size_t>(idx)] =
             static_cast<f64>(real_component(data[idx * row_stride + column_stride]));
     }
 }
 
-std::vector<f64> materialize_curve_values (CurveInputDtype dtype, const py::buffer_info& info, Index n) {
+std::vector<f64> materialize_curve_values (CurveInputDtype dtype, const py::buffer_info& info, std::ptrdiff_t n) {
     std::vector<f64> values(static_cast<std::size_t>(n));
     visit_curve_dtype(dtype, [&] (auto tag) {
         using T = typename decltype(tag)::type;
@@ -500,8 +501,8 @@ ValidatedCurves validate_curves (py::array reference_curve, py::array comparison
     py::buffer_info reference_info  = require_curve_shape(reference_curve, "reference_curve");
     py::buffer_info comparison_info = require_curve_shape(comparison_curve, "comparison_curve");
 
-    const Index n = static_cast<Index>(reference_info.shape[0]);
-    if (n != static_cast<Index>(comparison_info.shape[0])) {
+    const std::ptrdiff_t n = static_cast<std::ptrdiff_t>(reference_info.shape[0]);
+    if (n != static_cast<std::ptrdiff_t>(comparison_info.shape[0])) {
         throw std::invalid_argument("Curves are not equal in size/dimension");
     }
     if (n < 2) {

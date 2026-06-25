@@ -7,7 +7,6 @@
 #include "types.h"
 
 namespace engine {
-using Index = std::ptrdiff_t;
 
 struct ScoreParams {
     int k_z;
@@ -70,12 +69,12 @@ struct PhaseResult {
     f64 score = 0.0;
 
     // Validation
-    Index reference_start  = 0;
-    Index comparison_start = 0;
-    Index length           = 0;
-    Index n_eps            = 0;
-    f64   max_shift        = 0.2;
-    f64   rho_e            = 0.0;
+    std::ptrdiff_t reference_start  = 0;
+    std::ptrdiff_t comparison_start = 0;
+    std::ptrdiff_t length           = 0;
+    std::ptrdiff_t n_eps            = 0;
+    f64            max_shift        = 0.2;
+    f64            rho_e            = 0.0;
 
     // Diagnostics
     std::vector<Diagnostic> diagnostics;
