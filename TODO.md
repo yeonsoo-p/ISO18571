@@ -1,7 +1,5 @@
 # TODO
 
-- Implement more robust floating point number equality
-  - ULP or rtol + atol
 - Implement warning messages for non f64 inputs
 
 - Revamp test suite including

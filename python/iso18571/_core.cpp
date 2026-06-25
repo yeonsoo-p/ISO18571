@@ -3,6 +3,7 @@
 
 #include "engine.h"
 #include "float16.h"
+#include "numeric.h"
 #include "validation.h"
 
 #include <algorithm>
@@ -223,19 +224,6 @@ auto real_component (const T& value) {
 }
 
 template<typename T>
-constexpr auto typed_time_tolerance () {
-    if constexpr (std::is_same_v<T, f16>) {
-        return T {1.0e-3};
-    }
-    if constexpr (std::is_same_v<T, f32>) {
-        return 1.0e-7F;
-    }
-    if constexpr (!std::is_same_v<T, f16> && !std::is_same_v<T, f32>) {
-        return T {1.0e-12};
-    }
-}
-
-template<typename T>
 void require_typed_time (const py::buffer_info& info, const char* curve_name, std::ptrdiff_t n) {
     using Time            = decltype(real_component(std::declval<T>()));
     const auto item_size  = static_cast<py::ssize_t>(sizeof(T));
@@ -269,17 +257,8 @@ void require_typed_time (const py::buffer_info& info, const char* curve_name, st
         }
 
         const Time step = next - current;
-        if constexpr (std::is_integral_v<Time>) {
-            if (step != dt) {
-                throw std::invalid_argument(std::string(curve_name) + " time values must have a constant interval");
-            }
-        }
-        if constexpr (std::is_floating_point_v<Time>) {
-            const Time tolerance  = typed_time_tolerance<Time>();
-            const Time difference = std::abs(step - dt);
-            if (!std::isfinite(difference) || difference > tolerance) {
-                throw std::invalid_argument(std::string(curve_name) + " time values must have a constant interval");
-            }
+        if (!numeric::almost_equal(step, dt)) {
+            throw std::invalid_argument(std::string(curve_name) + " time values must have a constant interval");
         }
 
         current = next;
@@ -393,17 +372,26 @@ void require_curve_input (CurveInputDtype dtype, const py::buffer_info& info, co
 }
 
 template<typename T>
-f64 materialize_dt (const py::buffer_info& info, const char* curve_name, std::ptrdiff_t n) {
+auto materialize_typed_dt (const py::buffer_info& info, std::ptrdiff_t n) {
     const auto item_size  = static_cast<py::ssize_t>(sizeof(T));
     const auto row_stride = static_cast<std::ptrdiff_t>(info.strides[0] / item_size);
     const T*   data       = static_cast<const T*>(info.ptr);
 
     const auto first = real_component(data[0]);
     const auto last  = real_component(data[(n - 1) * row_stride]);
-    const f64  dt    = static_cast<f64>((last - first) / decltype(first)(n - 1));
+    return (last - first) / decltype(first)(n - 1);
+}
+
+void require_materialized_dt (f64 dt, const char* curve_name) {
     if (!std::isfinite(dt) || dt <= 0.0 || dt < std::numeric_limits<f64>::min()) {
         throw std::invalid_argument(std::string(curve_name) + " time interval is too small");
     }
+}
+
+template<typename T>
+f64 materialize_dt (const py::buffer_info& info, const char* curve_name, std::ptrdiff_t n) {
+    const f64 dt = static_cast<f64>(materialize_typed_dt<T>(info, n));
+    require_materialized_dt(dt, curve_name);
     return dt;
 }
 
@@ -412,23 +400,18 @@ f64 materialize_matching_dt (CurveInputDtype reference_dtype, const py::buffer_i
                              std::ptrdiff_t n) {
     f64 reference_dt = 0.0;
     visit_curve_dtype(reference_dtype, [&] (auto reference_tag) {
-        using ReferenceT    = typename decltype(reference_tag)::type;
-        using ReferenceTime = decltype(real_component(std::declval<ReferenceT>()));
-        reference_dt        = materialize_dt<ReferenceT>(reference_info, "reference_curve", n);
+        using ReferenceT                       = typename decltype(reference_tag)::type;
+        using ReferenceTime                    = decltype(real_component(std::declval<ReferenceT>()));
+        const ReferenceTime typed_reference_dt = materialize_typed_dt<ReferenceT>(reference_info, n);
+        reference_dt                           = static_cast<f64>(typed_reference_dt);
+        require_materialized_dt(reference_dt, "reference_curve");
         visit_curve_dtype(comparison_dtype, [&] (auto comparison_tag) {
-            using ComparisonT       = typename decltype(comparison_tag)::type;
-            using ComparisonTime    = decltype(real_component(std::declval<ComparisonT>()));
-            const f64 comparison_dt = materialize_dt<ComparisonT>(comparison_info, "comparison_curve", n);
-            if constexpr (std::is_integral_v<ReferenceTime> || std::is_integral_v<ComparisonTime>) {
-                if (reference_dt != comparison_dt) {
-                    throw std::invalid_argument("Curves must have matching time intervals");
-                }
-            } else {
-                f64 reference_tolerance  = static_cast<f64>(typed_time_tolerance<ReferenceTime>());
-                f64 comparison_tolerance = static_cast<f64>(typed_time_tolerance<ComparisonTime>());
-                if (std::fabs(reference_dt - comparison_dt) > std::max(reference_tolerance, comparison_tolerance)) {
-                    throw std::invalid_argument("Curves must have matching time intervals");
-                }
+            using ComparisonT              = typename decltype(comparison_tag)::type;
+            const auto typed_comparison_dt = materialize_typed_dt<ComparisonT>(comparison_info, n);
+            const f64  comparison_dt       = static_cast<f64>(typed_comparison_dt);
+            require_materialized_dt(comparison_dt, "comparison_curve");
+            if (!numeric::almost_equal(typed_reference_dt, typed_comparison_dt)) {
+                throw std::invalid_argument("Curves must have matching time intervals");
             }
         });
     });
@@ -536,19 +519,15 @@ ValidatedCurves validate_curves (py::array reference_curve, py::array comparison
     };
 }
 
-void emit_runtime_warning (const char* message) {
-    if (PyErr_WarnEx(PyExc_RuntimeWarning, message, 1) != 0) {
-        throw py::error_already_set();
-    }
-}
-
 void emit_component_warnings (const std::vector<Diagnostic>& diagnostics) {
     for (const Diagnostic& diagnostic : diagnostics) {
         if (diagnostic.severity != DiagnosticSeverity::Warning) {
             throw std::runtime_error("Unsupported ISO18571 native diagnostic severity");
         }
         const char* message = validation::warning_message_for_code(diagnostic.code);
-        emit_runtime_warning(message);
+        if (PyErr_WarnEx(PyExc_RuntimeWarning, message, 1) != 0) {
+            throw py::error_already_set();
+        }
     }
 }
 

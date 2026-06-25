@@ -68,6 +68,73 @@ def test_non_uniform_time_values_are_rejected() -> None:
         ISO18571(reference, comparison)
 
 
+def test_integer_time_values_require_exact_constant_interval() -> None:
+    time = np.arange(10, dtype=np.int64)
+    time[5:] += 1
+    values = np.arange(10, dtype=np.int64)
+    curve = np.column_stack((time, values)).astype(np.int64, copy=False)
+
+    with pytest.raises(ValueError, match="constant interval"):
+        ISO18571(curve, curve)
+
+
+@pytest.mark.parametrize("dtype", [np.float16, np.float32, np.float64])
+def test_float_time_uniformity_uses_dtype_tolerance(dtype: Any) -> None:
+    accepted = _curve_from_time(_perturbed_time(dtype, inside=True), dtype=dtype)
+    rejected = _curve_from_time(_perturbed_time(dtype, inside=False), dtype=dtype)
+
+    ISO18571(accepted, accepted)
+    with pytest.raises(ValueError, match="constant interval"):
+        ISO18571(rejected, rejected)
+
+
+@pytest.mark.parametrize(
+    ("dtype", "inside_delta", "outside_delta"),
+    [
+        (np.float32, 5.0e-6, 2.0e-5),
+        (np.float64, 5.0e-10, 2.0e-9),
+    ],
+)
+def test_float_curve_dt_matching_uses_dtype_tolerance(
+    dtype: Any, inside_delta: float, outside_delta: float
+) -> None:
+    values = np.arange(10, dtype=np.float64)
+    reference = _curve_from_time(np.arange(10, dtype=np.float64), values, dtype=dtype)
+    accepted = _curve_from_time(
+        np.arange(10, dtype=np.float64) * (1.0 + inside_delta),
+        values,
+        dtype=dtype,
+    )
+    rejected = _curve_from_time(
+        np.arange(10, dtype=np.float64) * (1.0 + outside_delta),
+        values,
+        dtype=dtype,
+    )
+
+    ISO18571(reference, accepted)
+    with pytest.raises(ValueError, match="matching time intervals"):
+        ISO18571(reference, rejected)
+
+
+@pytest.mark.parametrize(
+    ("dtype", "real_dtype"),
+    [
+        (np.complex64, np.float32),
+        (np.complex128, np.float64),
+        (np.clongdouble, np.longdouble),
+    ],
+)
+def test_zero_imaginary_complex_time_uniformity_uses_real_dtype_tolerance(
+    dtype: Any, real_dtype: Any
+) -> None:
+    accepted = _curve_from_time(_perturbed_time(real_dtype, inside=True), dtype=dtype)
+    rejected = _curve_from_time(_perturbed_time(real_dtype, inside=False), dtype=dtype)
+
+    ISO18571(accepted, accepted)
+    with pytest.raises(ValueError, match="constant interval"):
+        ISO18571(rejected, rejected)
+
+
 @pytest.mark.parametrize("dt", [1.0e-6, 1.0e6])
 def test_uniform_small_and_large_dt_values_are_accepted(dt: float) -> None:
     values = np.array([1.0, 3.0, 2.0, 5.0, 4.0, 7.0, 3.0, 6.0, 5.0, 8.0])
@@ -149,11 +216,12 @@ def test_zero_imaginary_complex_dtypes_ignore_imaginary_and_match_float64(
     _assert_scores_match(actual, expected)
 
 
+@pytest.mark.parametrize("column", [0, 1])
 @pytest.mark.parametrize("dtype", [np.complex64, np.complex128, np.clongdouble])
-def test_nonzero_imaginary_complex_dtypes_are_rejected(dtype: Any) -> None:
+def test_nonzero_imaginary_complex_dtypes_are_rejected(dtype: Any, column: int) -> None:
     reference, comparison = _parity_curves(dtype)
     comparison = comparison.copy()
-    comparison[3, 1] += dtype(1j)
+    comparison[3, column] += dtype(1j)
 
     with pytest.raises(ValueError, match="zero imaginary"):
         ISO18571(reference, comparison)
@@ -208,6 +276,38 @@ def test_constant_identical_signals_emit_expected_fallback_warnings_and_fields()
 def _curve(values: np.ndarray) -> FloatCurve:
     time = np.arange(values.shape[0], dtype=np.float64)
     return np.column_stack((time, values)).astype(np.float64, copy=False)
+
+
+def _curve_from_time(
+    time: np.ndarray,
+    values: np.ndarray | None = None,
+    *,
+    dtype: Any,
+) -> np.ndarray:
+    curve_values = (
+        np.arange(time.shape[0], dtype=np.float64) if values is None else values
+    )
+    return np.column_stack((time, curve_values)).astype(dtype, copy=False)
+
+
+def _perturbed_time(dtype: Any, *, inside: bool) -> np.ndarray:
+    if dtype is np.float16:
+        float16_time = (np.arange(10, dtype=np.float64) * 0.25).astype(np.float16)
+        float16_time[5] = np.nextafter(
+            float16_time[5], np.float16(math.inf), dtype=np.float16
+        )
+        if not inside:
+            float16_time[5] = np.nextafter(
+                float16_time[5], np.float16(math.inf), dtype=np.float16
+            )
+        return float16_time
+
+    delta = 5.0e-6 if dtype is np.float32 else 5.0e-10
+    if not inside:
+        delta = 2.0e-5 if dtype is np.float32 else 2.0e-9
+    float_time = np.arange(10, dtype=np.float64)
+    float_time[5] += delta
+    return float_time.astype(dtype, copy=False)
 
 
 def _parity_curves(dtype: Any) -> tuple[np.ndarray, np.ndarray]:
