@@ -131,9 +131,5 @@
 - Study proper shifted n < 9 path; maybe the throw is unnecessary
 - Static asserts that can be done from engine?
 - Need to investigate throws in engine
-- Need to investigate if there are copies of PhaseCache or PhaseProductSums, PhaseProductSums probably needs to go away
 - simple push_back can be inlined
-- See if we can use references instead of pointers, for code style consistency
 - Need to find magic numbers
-- phase_candidate_from_correlation is just a constructor
-- phase_candidate_for_shift is also just a constructor around correlation_for_shift

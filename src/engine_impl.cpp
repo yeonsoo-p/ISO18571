@@ -3,8 +3,11 @@
 #include "validation.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <complex>
 #include <limits>
+#include <numbers>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -42,73 +45,38 @@ inline void sum_difference_in_place (c128& a, c128& b) {
 
 template<bool fwd>
 void special_mul (const c128& v1, const c128& v2, c128& res) {
-    res = fwd ? c128(v1.real() * v2.real() + v1.imag() * v2.imag(), v1.imag() * v2.real() - v1.real() * v2.imag())
-              : c128(v1.real() * v2.real() - v1.imag() * v2.imag(), v1.real() * v2.imag() + v1.imag() * v2.real());
+    if constexpr (fwd) {
+        res = v1 * std::conj(v2);
+    } else {
+        res = v1 * v2;
+    }
 }
 
 template<bool fwd>
 void rotate_x90 (c128& a) {
-    const f64 tmp_ = fwd ? -a.real() : a.real();
-    a.real(fwd ? a.imag() : -a.imag());
-    a.imag(tmp_);
+    if constexpr (fwd) {
+        const f64 tmp_ = -a.real();
+        a.real(a.imag());
+        a.imag(tmp_);
+    } else {
+        const f64 tmp_ = a.real();
+        a.real(-a.imag());
+        a.imag(tmp_);
+    }
 }
 
-struct Sincos2PiByN {
-    size_t            length;
-    size_t            mask;
-    size_t            shift;
-    std::vector<c128> v1, v2;
-};
-
-c128 sincos_2pi_by_n_calc (size_t x, size_t n, f64 ang) {
-    x <<= 3;
-    if (x < 4 * n) {
-        if (x < 2 * n) {
-            if (x < n) {
-                return {std::cos(static_cast<f64>(x) * ang), std::sin(static_cast<f64>(x) * ang)};
-            }
-            return {std::sin(static_cast<f64>(2 * n - x) * ang), std::cos(static_cast<f64>(2 * n - x) * ang)};
-        }
-        x -= 2 * n;
-        if (x < n) {
-            return {-std::sin(static_cast<f64>(x) * ang), std::cos(static_cast<f64>(x) * ang)};
-        }
-        return {-std::cos(static_cast<f64>(2 * n - x) * ang), std::sin(static_cast<f64>(2 * n - x) * ang)};
-    }
-    x = 8 * n - x;
-    if (x < 2 * n) {
-        if (x < n) {
-            return {std::cos(static_cast<f64>(x) * ang), -std::sin(static_cast<f64>(x) * ang)};
-        }
-        return {std::sin(static_cast<f64>(2 * n - x) * ang), -std::cos(static_cast<f64>(2 * n - x) * ang)};
-    }
-    x -= 2 * n;
-    if (x < n) {
-        return {-std::sin(static_cast<f64>(x) * ang), -std::cos(static_cast<f64>(x) * ang)};
-    }
-    return {-std::cos(static_cast<f64>(2 * n - x) * ang), -std::sin(static_cast<f64>(2 * n - x) * ang)};
+c128& ch_at (std::span<c128> ch, size_t ido, size_t l1, size_t a, size_t b, size_t c) {
+    return ch[a + ido * (b + l1 * c)];
 }
 
-c128 sincos_2pi_by_n_lookup (const Sincos2PiByN& table, size_t idx) {
-    if (2 * idx <= table.length) {
-        const c128 product = table.v1[idx & table.mask] * table.v2[idx >> table.shift];
-        return {product.real(), product.imag()};
-    }
-    idx                = table.length - idx;
-    const c128 product = table.v1[idx & table.mask] * table.v2[idx >> table.shift];
-    return {product.real(), -product.imag()};
-}
-
-c128& ch_at (c128* ch, size_t ido, size_t l1, size_t a, size_t b, size_t c) { return ch[a + ido * (b + l1 * c)]; }
-
-const c128& cc_at (const c128* cc, size_t ido, size_t radix, size_t a, size_t b, size_t c) {
+const c128& cc_at (std::span<const c128> cc, size_t ido, size_t radix, size_t a, size_t b, size_t c) {
     return cc[a + ido * (b + radix * c)];
 }
 
-const c128& wa_at (const c128* wa, size_t ido, size_t x, size_t i) { return wa[i - 1 + x * (ido - 1)]; }
+const c128& wa_at (std::span<const c128> wa, size_t ido, size_t x, size_t i) { return wa[i - 1 + x * (ido - 1)]; }
 
 template<bool fwd>
-void pass2 (size_t ido, size_t l1, const c128* cc, c128* ch, const c128* wa) {
+void pass2 (size_t ido, size_t l1, std::span<const c128> cc, std::span<c128> ch, std::span<const c128> wa) {
     if (ido == 1) {
         for (size_t k = 0; k < l1; ++k) {
             ch_at(ch, ido, l1, 0, k, 0) = cc_at(cc, ido, 2, 0, 0, k) + cc_at(cc, ido, 2, 0, 1, k);
@@ -128,7 +96,7 @@ void pass2 (size_t ido, size_t l1, const c128* cc, c128* ch, const c128* wa) {
 }
 
 template<bool fwd>
-void pass4 (size_t ido, size_t l1, const c128* cc, c128* ch, const c128* wa) {
+void pass4 (size_t ido, size_t l1, std::span<const c128> cc, std::span<c128> ch, std::span<const c128> wa) {
     if (ido == 1) {
         for (size_t k = 0; k < l1; ++k) {
             c128 t1, t2, t3, t4;
@@ -168,8 +136,8 @@ void pass4 (size_t ido, size_t l1, const c128* cc, c128* ch, const c128* wa) {
 
 template<bool fwd>
 void rotate_x45 (c128& a) {
-    constexpr f64 hsqt2 = 0.707106781186547524400844362104849;
-    if (fwd) {
+    constexpr f64 hsqt2 = 1.0 / std::numbers::sqrt2_v<f64>;
+    if constexpr (fwd) {
         const f64 tmp_ = a.real();
         a.real(hsqt2 * (a.real() + a.imag()));
         a.imag(hsqt2 * (a.imag() - tmp_));
@@ -182,8 +150,8 @@ void rotate_x45 (c128& a) {
 
 template<bool fwd>
 void rotate_x135 (c128& a) {
-    constexpr f64 hsqt2 = 0.707106781186547524400844362104849;
-    if (fwd) {
+    constexpr f64 hsqt2 = 1.0 / std::numbers::sqrt2_v<f64>;
+    if constexpr (fwd) {
         const f64 tmp_ = a.real();
         a.real(hsqt2 * (a.imag() - a.real()));
         a.imag(hsqt2 * (-tmp_ - a.imag()));
@@ -195,7 +163,7 @@ void rotate_x135 (c128& a) {
 }
 
 template<bool fwd>
-void pass8 (size_t ido, size_t l1, const c128* cc, c128* ch, const c128* wa) {
+void pass8 (size_t ido, size_t l1, std::span<const c128> cc, std::span<c128> ch, std::span<const c128> wa) {
     if (ido == 1) {
         for (size_t k = 0; k < l1; ++k) {
             c128 a0, a1, a2, a3, a4, a5, a6, a7;
@@ -648,34 +616,16 @@ void phase_score (PhaseResult& result, std::span<const f64> reference, std::span
     }
     phase_fft_twiddles.reserve(twiddle_size);
 
-    Sincos2PiByN   twiddle = {};
-    constexpr f128 pi      = 3.141592653589793238462643383279502884197L;
-    const f64      ang     = static_cast<f64>(0.25L * pi / static_cast<f128>(phase_fft_size));
-    const size_t   nval    = (phase_fft_size + 2) / 2;
-    twiddle.length         = phase_fft_size;
-    twiddle.shift          = 1;
-    while ((size_t(1) << twiddle.shift) * (size_t(1) << twiddle.shift) < nval) {
-        ++twiddle.shift;
-    }
-    twiddle.mask = (size_t(1) << twiddle.shift) - 1;
-    twiddle.v1.reserve(twiddle.mask + 1);
-    twiddle.v1.push_back({1.0, 0.0});
-    for (size_t i = 1; i < twiddle.mask + 1; ++i) {
-        twiddle.v1.push_back(sincos_2pi_by_n_calc(i, phase_fft_size, ang));
-    }
-    const size_t v2_size = (nval + twiddle.mask) / (twiddle.mask + 1);
-    twiddle.v2.reserve(v2_size);
-    twiddle.v2.push_back({1.0, 0.0});
-    for (size_t i = 1; i < v2_size; ++i) {
-        twiddle.v2.push_back(sincos_2pi_by_n_calc(i * (twiddle.mask + 1), phase_fft_size, ang));
-    }
-
-    l1 = 1;
+    constexpr f128 pi = std::numbers::pi_v<f128>;
+    l1                = 1;
     for (const size_t ip : phase_fft_factors) {
         const size_t ido = phase_fft_size / (l1 * ip);
         for (size_t j = 1; j < ip; ++j) {
             for (size_t i = 1; i < ido; ++i) {
-                phase_fft_twiddles.push_back(sincos_2pi_by_n_lookup(twiddle, j * l1 * i));
+                const size_t twiddle_idx = j * l1 * i;
+                const f64    angle =
+                    static_cast<f64>(2.0L * pi * static_cast<f128>(twiddle_idx) / static_cast<f128>(phase_fft_size));
+                phase_fft_twiddles.emplace_back(std::cos(angle), std::sin(angle));
             }
         }
         l1 *= ip;
@@ -691,12 +641,14 @@ void phase_score (PhaseResult& result, std::span<const f64> reference, std::span
     std::vector<c128> phase_fft_work(phase_fft_size);
     size_t            reference_fft_l1             = 1;
     size_t            reference_fft_twiddle_offset = 0;
-    c128*             reference_fft_p1             = reference_fft.data();
-    c128*             reference_fft_p2             = phase_fft_work.data();
+    std::span<c128>   reference_fft_p1(reference_fft);
+    std::span<c128>   reference_fft_p2(phase_fft_work);
     for (const size_t ip : phase_fft_factors) {
-        const size_t l2           = ip * reference_fft_l1;
-        const size_t ido          = phase_fft_size / l2;
-        const c128*  twiddle_data = ido == 1 ? nullptr : phase_fft_twiddles.data() + reference_fft_twiddle_offset;
+        const size_t                l2            = ip * reference_fft_l1;
+        const size_t                ido           = phase_fft_size / l2;
+        const size_t                twiddle_count = (ip - 1) * (ido - 1);
+        const std::span<const c128> twiddle_data =
+            std::span<const c128>(phase_fft_twiddles).subspan(reference_fft_twiddle_offset, twiddle_count);
         if (ip == 4) {
             pass4<fft::kForward>(ido, reference_fft_l1, reference_fft_p1, reference_fft_p2, twiddle_data);
         } else if (ip == 8) {
@@ -706,20 +658,22 @@ void phase_score (PhaseResult& result, std::span<const f64> reference, std::span
         }
         std::swap(reference_fft_p1, reference_fft_p2);
         reference_fft_l1 = l2;
-        reference_fft_twiddle_offset += (ip - 1) * (ido - 1);
+        reference_fft_twiddle_offset += twiddle_count;
     }
-    if (reference_fft_p1 != reference_fft.data()) {
+    if (reference_fft_p1.data() != reference_fft.data()) {
         std::swap(reference_fft, phase_fft_work);
     }
 
-    size_t comparison_fft_l1             = 1;
-    size_t comparison_fft_twiddle_offset = 0;
-    c128*  comparison_fft_p1             = comparison_fft.data();
-    c128*  comparison_fft_p2             = phase_fft_work.data();
+    size_t          comparison_fft_l1             = 1;
+    size_t          comparison_fft_twiddle_offset = 0;
+    std::span<c128> comparison_fft_p1(comparison_fft);
+    std::span<c128> comparison_fft_p2(phase_fft_work);
     for (const size_t ip : phase_fft_factors) {
-        const size_t l2           = ip * comparison_fft_l1;
-        const size_t ido          = phase_fft_size / l2;
-        const c128*  twiddle_data = ido == 1 ? nullptr : phase_fft_twiddles.data() + comparison_fft_twiddle_offset;
+        const size_t                l2            = ip * comparison_fft_l1;
+        const size_t                ido           = phase_fft_size / l2;
+        const size_t                twiddle_count = (ip - 1) * (ido - 1);
+        const std::span<const c128> twiddle_data =
+            std::span<const c128>(phase_fft_twiddles).subspan(comparison_fft_twiddle_offset, twiddle_count);
         if (ip == 4) {
             pass4<fft::kForward>(ido, comparison_fft_l1, comparison_fft_p1, comparison_fft_p2, twiddle_data);
         } else if (ip == 8) {
@@ -729,21 +683,23 @@ void phase_score (PhaseResult& result, std::span<const f64> reference, std::span
         }
         std::swap(comparison_fft_p1, comparison_fft_p2);
         comparison_fft_l1 = l2;
-        comparison_fft_twiddle_offset += (ip - 1) * (ido - 1);
+        comparison_fft_twiddle_offset += twiddle_count;
     }
     for (std::size_t idx = 0; idx < phase_fft_size; ++idx) {
         reference_fft[idx] *= comparison_fft_p1[idx];
     }
 
-    const f64 inverse_fft_scale          = 1.0 / static_cast<f64>(phase_fft_size);
-    size_t    inverse_fft_l1             = 1;
-    size_t    inverse_fft_twiddle_offset = 0;
-    c128*     inverse_fft_p1             = reference_fft.data();
-    c128*     inverse_fft_p2             = comparison_fft.data();
+    const f64       inverse_fft_scale          = 1.0 / static_cast<f64>(phase_fft_size);
+    size_t          inverse_fft_l1             = 1;
+    size_t          inverse_fft_twiddle_offset = 0;
+    std::span<c128> inverse_fft_p1(reference_fft);
+    std::span<c128> inverse_fft_p2(comparison_fft);
     for (const size_t ip : phase_fft_factors) {
-        const size_t l2           = ip * inverse_fft_l1;
-        const size_t ido          = phase_fft_size / l2;
-        const c128*  twiddle_data = ido == 1 ? nullptr : phase_fft_twiddles.data() + inverse_fft_twiddle_offset;
+        const size_t                l2            = ip * inverse_fft_l1;
+        const size_t                ido           = phase_fft_size / l2;
+        const size_t                twiddle_count = (ip - 1) * (ido - 1);
+        const std::span<const c128> twiddle_data =
+            std::span<const c128>(phase_fft_twiddles).subspan(inverse_fft_twiddle_offset, twiddle_count);
         if (ip == 4) {
             pass4<fft::kBackward>(ido, inverse_fft_l1, inverse_fft_p1, inverse_fft_p2, twiddle_data);
         } else if (ip == 8) {
@@ -753,9 +709,9 @@ void phase_score (PhaseResult& result, std::span<const f64> reference, std::span
         }
         std::swap(inverse_fft_p1, inverse_fft_p2);
         inverse_fft_l1 = l2;
-        inverse_fft_twiddle_offset += (ip - 1) * (ido - 1);
+        inverse_fft_twiddle_offset += twiddle_count;
     }
-    if (inverse_fft_p1 != reference_fft.data()) {
+    if (inverse_fft_p1.data() != reference_fft.data()) {
         for (size_t i = 0; i < phase_fft_size; ++i) {
             reference_fft[i] = inverse_fft_p1[i] * inverse_fft_scale;
         }
@@ -926,22 +882,22 @@ void gradient_values (std::vector<f64>& gradient, std::span<const f64> values, f
     gradient[static_cast<std::size_t>(n - 1)] = (value_at(values, n - 1) - value_at(values, n - 2)) / dt;
 }
 
-f64 smoothed_slope_at (const std::vector<f64>& gradient, Index idx) {
+f64 smoothed_slope_at (std::span<const f64> gradient, Index idx) {
     const Index n = static_cast<Index>(gradient.size());
+
+    static constexpr std::array<Index, 4> windows = {1, 3, 5, 7};
     if (idx < 4) {
-        const Index windows[4] = {1, 3, 5, 7};
-        const Index nr         = windows[idx];
-        f64         sum        = 0.0;
+        const Index nr  = windows[offset(idx)];
+        f64         sum = 0.0;
         for (Index j = 0; j < nr; ++j) {
             sum += gradient[static_cast<std::size_t>(j)];
         }
         return sum / static_cast<f64>(nr);
     }
     if (idx >= n - 4) {
-        const Index edge_idx   = n - idx - 1;
-        const Index windows[4] = {1, 3, 5, 7};
-        const Index nr         = windows[edge_idx];
-        f64         sum        = 0.0;
+        const Index edge_idx = n - idx - 1;
+        const Index nr       = windows[offset(edge_idx)];
+        f64         sum      = 0.0;
         for (Index j = 0; j < nr; ++j) {
             sum += gradient[static_cast<std::size_t>(n - nr + j)];
         }
@@ -971,8 +927,8 @@ void slope_score (SlopeResult& result, std::span<const f64> reference_values, st
     f64 denominator = 0.0;
 
     for (Index idx = 0; idx < n; ++idx) {
-        const f64 comparison_smoothed = smoothed_slope_at(comparison_gradient, idx);
-        const f64 reference_smoothed  = smoothed_slope_at(reference_gradient, idx);
+        const f64 comparison_smoothed = smoothed_slope_at(std::span<const f64>(comparison_gradient), idx);
+        const f64 reference_smoothed  = smoothed_slope_at(std::span<const f64>(reference_gradient), idx);
         numerator += std::abs(comparison_smoothed - reference_smoothed);
         denominator += std::abs(reference_smoothed);
     }

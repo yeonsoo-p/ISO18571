@@ -436,7 +436,7 @@ f64 materialize_matching_dt (CurveInputDtype reference_dtype, const py::buffer_i
 }
 
 template<typename T>
-void materialize_typed_curve_values (const py::buffer_info& info, Index n, std::vector<f64>& values) {
+void materialize_typed_curve_values (const py::buffer_info& info, Index n, std::span<f64> values) {
     const auto item_size     = static_cast<py::ssize_t>(sizeof(T));
     const auto row_stride    = static_cast<Index>(info.strides[0] / item_size);
     const auto column_stride = static_cast<Index>(info.strides[1] / item_size);
@@ -452,7 +452,7 @@ std::vector<f64> materialize_curve_values (CurveInputDtype dtype, const py::buff
     std::vector<f64> values(static_cast<std::size_t>(n));
     visit_curve_dtype(dtype, [&] (auto tag) {
         using T = typename decltype(tag)::type;
-        materialize_typed_curve_values<T>(info, n, values);
+        materialize_typed_curve_values<T>(info, n, std::span<f64>(values));
     });
     return values;
 }
