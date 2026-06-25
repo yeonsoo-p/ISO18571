@@ -123,9 +123,106 @@ def test_finite_small_and_large_amplitudes_do_not_overflow(amplitude: float) -> 
         assert np.isfinite(scorer.scores[key])
 
 
+def test_smallest_subnormal_identical_signal_scores_one() -> None:
+    amplitude = np.nextafter(0.0, 1.0)
+    curve = _curve(np.full(16, amplitude, dtype=np.float64))
+
+    scorer, _messages = _score_with_warnings(curve, curve)
+
+    scores = scorer.scores
+    for key in ("R", "Z", "EP", "EM", "ES"):
+        assert np.isfinite(scores[key])
+    assert scores["Z"] == 1.0
+    assert scores["R"] == 1.0
+    assert scores["corridor_t_norm"] == amplitude
+    assert scores["corridor_inner_half_width"] == 0.0
+    assert scores["corridor_outer_half_width"] == 0.0
+
+
+def test_smallest_subnormal_one_ulp_difference_scores_outside_corridor() -> None:
+    amplitude = np.nextafter(0.0, 1.0)
+    reference = _curve(np.full(16, amplitude, dtype=np.float64))
+    comparison = _curve(np.full(16, 2.0 * amplitude, dtype=np.float64))
+
+    scorer, _messages = _score_with_warnings(reference, comparison)
+
+    scores = scorer.scores
+    for key in ("R", "Z", "EP", "EM", "ES"):
+        assert np.isfinite(scores[key])
+    assert scores["Z"] == 0.0
+
+
+def test_subnormal_corridor_scan_matches_normalized_score() -> None:
+    amplitude_unit = np.nextafter(0.0, 1.0)
+
+    for scale in range(1, 33):
+        reference_values = np.full(16, scale * amplitude_unit, dtype=np.float64)
+        comparison_values = np.full(16, (scale + 1) * amplitude_unit, dtype=np.float64)
+        expected = _expected_normalized_corridor_score(
+            reference_values, comparison_values
+        )
+
+        scorer, _messages = _score_with_warnings(
+            _curve(reference_values), _curve(comparison_values)
+        )
+
+        scores = scorer.scores
+        for key in ("R", "Z", "EP", "EM", "ES"):
+            assert np.isfinite(scores[key])
+        assert scores["Z"] == pytest.approx(expected)
+
+
+def test_subnormal_equal_rounded_corridor_widths_score_finitely() -> None:
+    amplitude_unit = np.nextafter(0.0, 1.0)
+    reference_values = np.full(16, 2.0 * amplitude_unit, dtype=np.float64)
+    comparison_values = np.full(16, 3.0 * amplitude_unit, dtype=np.float64)
+    expected = _expected_normalized_corridor_score(
+        reference_values, comparison_values, a_0=0.49, b_0=0.5
+    )
+
+    scorer, _messages = _score_with_warnings(
+        _curve(reference_values), _curve(comparison_values), a_0=0.49, b_0=0.5
+    )
+
+    scores = scorer.scores
+    for key in ("R", "Z", "EP", "EM", "ES"):
+        assert np.isfinite(scores[key])
+    assert scores["corridor_inner_half_width"] == scores["corridor_outer_half_width"]
+    assert scores["corridor_inner_half_width"] > 0.0
+    assert scores["Z"] == pytest.approx(expected)
+
+
 def _curve(values: np.ndarray) -> np.ndarray:
     time = np.arange(values.shape[0], dtype=np.float64)
     return np.column_stack((time, values)).astype(np.float64, copy=False)
+
+
+def _expected_normalized_corridor_score(
+    reference_values: np.ndarray,
+    comparison_values: np.ndarray,
+    *,
+    a_0: float = 0.05,
+    b_0: float = 0.5,
+    k_z: int = 2,
+) -> float:
+    t_norm = float(np.max(np.abs(reference_values)))
+    if t_norm == 0.0:
+        return float(np.mean(reference_values == comparison_values))
+
+    total = 0.0
+    for reference_value, comparison_value in zip(
+        reference_values, comparison_values, strict=True
+    ):
+        relative_diff = abs(float(reference_value) - float(comparison_value)) / t_norm
+        if relative_diff < a_0:
+            c_i = 1.0
+        elif not math.isfinite(relative_diff) or relative_diff > b_0:
+            c_i = 0.0
+        else:
+            c_i = ((b_0 - relative_diff) / (b_0 - a_0)) ** k_z
+        total += c_i
+
+    return total / float(reference_values.shape[0])
 
 
 def _score_with_warnings(

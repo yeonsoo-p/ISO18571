@@ -849,12 +849,12 @@ void corridor_score (CorridorResult& result, std::span<const f64> reference, std
 
     f64 sum = 0.0;
     for (std::ptrdiff_t idx = 0; idx < n; ++idx) {
-        const f64 diff = std::abs(value_at(reference, idx) - value_at(comparison, idx));
-        f64       c_i  = integer_power((outer_corridor - diff) / (outer_corridor - inner_corridor), params.k_z);
-        if (diff < inner_corridor) {
+        const f64 relative_diff = std::abs(value_at(reference, idx) - value_at(comparison, idx)) / t_norm;
+        f64       c_i           = integer_power((params.b_0 - relative_diff) / (params.b_0 - params.a_0), params.k_z);
+        if (relative_diff < params.a_0) {
             c_i = 1.0;
         }
-        if (diff > outer_corridor) {
+        if (!std::isfinite(relative_diff) || relative_diff > params.b_0) {
             c_i = 0.0;
         }
         sum += c_i;
