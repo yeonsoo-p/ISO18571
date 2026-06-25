@@ -2,6 +2,7 @@
 #include "types.h"
 
 #include <cstdint>
+#include <utility>
 
 #if defined(__GNUC__) && (defined(__x86_64__) || defined(__i386__))
 #include <cpuid.h>
@@ -230,7 +231,7 @@ const char* level_name (X86_64Level level) {
     case X86_64Level::V4:
         return "x86-64-v4";
     }
-    return "x86-64-v1";
+    std::unreachable();
 }
 
 X86_64Level best_x86_64_level (CompiledX86_64Levels compiled) {

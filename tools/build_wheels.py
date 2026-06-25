@@ -437,11 +437,16 @@ def download(url: str, dest: Path) -> None:
 def safe_extract_tar(archive: Path, dest: Path) -> None:
     dest_resolved = dest.resolve()
     with tarfile.open(archive) as tar:
-        for member in tar.getmembers():
+        members = tar.getmembers()
+        for member in members:
             target = (dest_resolved / member.name).resolve()
             if target != dest_resolved and dest_resolved not in target.parents:
                 raise SystemExit(f"Unsafe path in archive {archive}: {member.name}")
-        tar.extractall(dest)
+            if not member.isfile() and not member.isdir():
+                raise SystemExit(
+                    f"Unsafe member type in archive {archive}: {member.name}"
+                )
+        tar.extractall(dest, members=members, filter="data")
 
 
 def build_one_windows_wheel(

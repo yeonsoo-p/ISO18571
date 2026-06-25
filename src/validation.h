@@ -5,6 +5,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <utility>
 
 #include "engine.h"
 #include "numeric.h"
@@ -95,6 +96,7 @@ inline const char* warning_message_for_code (engine::DiagnosticCode code) {
     case engine::DiagnosticCode::SlopeZeroReferenceDenominator:
         return "ISO18571 slope reference denominator is zero; using fallback slope score";
     }
+    std::unreachable();
 }
 
 inline int score_exponent_from_double (f64 value, std::string_view name) {

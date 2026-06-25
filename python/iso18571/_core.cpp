@@ -185,7 +185,7 @@ void visit_curve_dtype (CurveInputDtype dtype, T&& visitor) {
     case CurveInputDtype::Other:
         return;
     }
-    throw std::runtime_error("Unknown curve input dtype");
+    std::unreachable();
 }
 
 template<typename T>

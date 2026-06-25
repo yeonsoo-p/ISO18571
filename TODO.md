@@ -100,7 +100,6 @@
   - Need to put more edge cases into tests in general
 
 - Investigate edge cases
-  - Integer overflow during time validation for signed integers
   - I have serious doubts about type conversion. Need to figure out what exactly is tested and how it is evaluated
 
 - Reinforce f16 implementation
@@ -119,8 +118,9 @@
 - Study proper shifted n < 9 path; maybe the throw is unnecessary
 - Need to find magic numbers
 
-Medium: Valid uniform int64 time axes can be rejected because time deltas are computed in the original signed integer type before widening. In [python/iso18571/_core.cpp (line 247)](/home/user/workspace/ISO/ISO18571/python/iso18571/_core.cpp:247), last - first and in [python/iso18571/_core.cpp (line 259)](/home/user/workspace/ISO/ISO18571/python/iso18571/_core.cpp:259), next - current can overflow for legal strictly increasing np.int64 times. I reproduced this with 9 samples from int64.min to near int64.max; exact math has a constant interval, but ISO18571 raises reference_curve time values must have a constant interval. The same typed subtraction is used again when materializing dt in [python/iso18571/_core.cpp (line 380)](/home/user/workspace/ISO/ISO18571/python/iso18571/_core.cpp:380).
-
-Medium: safe_extract_tar checks path traversal but still allows unsafe tar member types such as symlinks/hardlinks before extractall. See [tools/build_wheels.py (line 432)](/home/user/workspace/ISO/ISO18571/tools/build_wheels.py:432). Because this extracts downloaded Python artifacts, prefer tar.extractall(..., filter="data") or explicit rejection of links/devices.
-
-Low: Native wheel build succeeds but emits a warning: control reaches end of non-void function for [src/validation.h (line 94)](/home/user/workspace/ISO/ISO18571/src/validation.h:94). Add an unreachable/default fallback after the enum switch so warning-clean native builds stay clean.
+- Investigate integer and extreme time-axis robustness
+  - Signed integer time validation computes deltas in the input dtype before widening; valid wide `int32`/`int64` axes can overflow and be rejected as non-uniform.
+  - Small signed integer axes can reject valid long uniform data because `n - 1` is narrowed into `int8`/`int16` before division.
+  - Wrapped small integer axes can crash with integer division by zero instead of raising `ValueError`.
+  - Very large finite `float32`/`float64` axes can overflow endpoint-span subtraction and be rejected despite uniform adjacent spacing.
+  - `materialize_matching_dt()` has dtype/order-dependent narrowing; centralize overflow-safe dt computation and matching.
