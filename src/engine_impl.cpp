@@ -22,6 +22,7 @@
 namespace {
 
 using engine::CorridorResult;
+using engine::Diagnostic;
 using engine::DiagnosticCode;
 using engine::DiagnosticComponent;
 using engine::DiagnosticSeverity;
@@ -294,8 +295,7 @@ std::ptrdiff_t window_radius (std::ptrdiff_t n, f64 window_size) {
     return std::min<std::ptrdiff_t>(n, std::max<std::ptrdiff_t>(1, raw));
 }
 
-std::pair<f64, f64> magnitude_error_from_dtw (MagnitudeResult& result, std::span<const f64> x, std::span<const f64> y,
-                                              f64 window_size) {
+std::pair<f64, f64> magnitude_error_from_dtw (std::span<const f64> x, std::span<const f64> y, f64 window_size) {
     const std::ptrdiff_t n      = span_size(x);
     const std::ptrdiff_t radius = window_radius(n, window_size);
     const f64            inf    = std::numeric_limits<f64>::infinity();
@@ -372,7 +372,7 @@ std::pair<f64, f64> magnitude_error_from_dtw (MagnitudeResult& result, std::span
                     }
                 }
 
-                if (std::isfinite(best_previous)) {
+                if (best_previous < inf) {
                     accumulated = local_cost + best_previous;
                     numerator   = local_numerator + best_numerator;
                     denominator = local_denominator + best_denominator;
@@ -406,15 +406,9 @@ std::pair<f64, f64> magnitude_error_from_dtw (MagnitudeResult& result, std::span
                 best_numerator   = previous_numerator[previous_index];
                 best_denominator = previous_denominator[previous_index];
             }
-            if (std::isfinite(best_previous)) {
-                current_cost[index]        = local_cost + best_previous;
-                current_numerator[index]   = local_numerator + best_numerator;
-                current_denominator[index] = local_denominator + best_denominator;
-            } else {
-                current_cost[index]        = inf;
-                current_numerator[index]   = 0.0;
-                current_denominator[index] = 0.0;
-            }
+            current_cost[index]        = local_cost + best_previous;
+            current_numerator[index]   = local_numerator + best_numerator;
+            current_denominator[index] = local_denominator + best_denominator;
         }
 
         for (std::ptrdiff_t j = interior_stop; j < j_stop; ++j) {
@@ -459,7 +453,7 @@ std::pair<f64, f64> magnitude_error_from_dtw (MagnitudeResult& result, std::span
                     }
                 }
 
-                if (std::isfinite(best_previous)) {
+                if (best_previous < inf) {
                     accumulated = local_cost + best_previous;
                     numerator   = local_numerator + best_numerator;
                     denominator = local_denominator + best_denominator;
@@ -501,16 +495,16 @@ std::size_t next_power_of_two (std::size_t value) {
     return out;
 }
 void phase_score (PhaseResult& result, std::span<const f64> reference, std::span<const f64> comparison,
-                  const ScoreParams& params) {
-    const std::ptrdiff_t reference_n = span_size(reference);
-    const f64            max_shift   = std::round((1.0 - params.init_min) * 100.0) / 100.0;
+                  const ScoreParams& params, std::vector<Diagnostic>& diagnostics) {
+    const std::ptrdiff_t reference_n      = span_size(reference);
+    const f64            max_shift        = std::round((1.0 - params.init_min) * 100.0) / 100.0;
+    const std::size_t    diagnostic_start = diagnostics.size();
 
     result.reference_start  = 0;
     result.comparison_start = 0;
     result.length           = reference_n;
     result.n_eps            = 0;
     result.max_shift        = max_shift;
-    result.diagnostics.clear();
 
     f64 baseline_reference_sum  = 0.0;
     f64 baseline_comparison_sum = 0.0;
@@ -534,7 +528,7 @@ void phase_score (PhaseResult& result, std::span<const f64> reference, std::span
     }
 
     if (baseline_reference_cov <= 0.0 || baseline_comparison_cov <= 0.0) {
-        result.diagnostics.push_back(
+        diagnostics.push_back(
             {DiagnosticSeverity::Warning, DiagnosticComponent::Phase, DiagnosticCode::PhaseUndefinedCorrelation});
         result.rho_e = values_equal_for_shift(reference, comparison, 0, 0, reference_n) ? 1.0 : 0.0;
     } else {
@@ -547,13 +541,15 @@ void phase_score (PhaseResult& result, std::span<const f64> reference, std::span
         }
         result.rho_e = baseline_correlation;
     }
-    const PhaseResult unshifted_result = result;
+    const PhaseResult             unshifted_result = result;
+    const std::vector<Diagnostic> unshifted_diagnostics(
+        diagnostics.begin() + static_cast<std::ptrdiff_t>(diagnostic_start), diagnostics.end());
     if (result.rho_e == 1.0) {
         result.score = 1.0;
         return;
     }
     if (reference_n < 9) {
-        result.diagnostics.push_back(
+        diagnostics.push_back(
             {DiagnosticSeverity::Warning, DiagnosticComponent::Phase, DiagnosticCode::PhaseShiftClampedToUnshifted});
         result.score = 1.0;
         return;
@@ -794,10 +790,10 @@ void phase_score (PhaseResult& result, std::span<const f64> reference, std::span
                 result.length           = length;
                 result.n_eps            = idx;
                 result.rho_e            = candidate_rho;
-                result.diagnostics.clear();
+                diagnostics.resize(diagnostic_start);
                 if (undefined_candidate) {
-                    result.diagnostics.push_back({DiagnosticSeverity::Warning, DiagnosticComponent::Phase,
-                                                  DiagnosticCode::PhaseUndefinedCorrelation});
+                    diagnostics.push_back({DiagnosticSeverity::Warning, DiagnosticComponent::Phase,
+                                           DiagnosticCode::PhaseUndefinedCorrelation});
                 }
             }
         }
@@ -805,7 +801,9 @@ void phase_score (PhaseResult& result, std::span<const f64> reference, std::span
 
     if (result.length < 9) {
         result = unshifted_result;
-        result.diagnostics.push_back(
+        diagnostics.resize(diagnostic_start);
+        diagnostics.insert(diagnostics.end(), unshifted_diagnostics.begin(), unshifted_diagnostics.end());
+        diagnostics.push_back(
             {DiagnosticSeverity::Warning, DiagnosticComponent::Phase, DiagnosticCode::PhaseShiftClampedToUnshifted});
     }
 
@@ -865,19 +863,19 @@ void corridor_score (CorridorResult& result, std::span<const f64> reference, std
 }
 
 void magnitude_score (MagnitudeResult& result, std::span<const f64> reference_values,
-                      std::span<const f64> comparison_values, const ScoreParams& params) {
-    const std::pair<f64, f64> magnitude_error =
-        magnitude_error_from_dtw(result, comparison_values, reference_values, 0.1);
-    const f64 numerator   = magnitude_error.first;
-    const f64 denominator = magnitude_error.second;
+                      std::span<const f64> comparison_values, const ScoreParams& params,
+                      std::vector<Diagnostic>& diagnostics) {
+    const std::pair<f64, f64> magnitude_error = magnitude_error_from_dtw(comparison_values, reference_values, 0.1);
+    const f64                 numerator       = magnitude_error.first;
+    const f64                 denominator     = magnitude_error.second;
 
     result.denominator = denominator;
     result.numerator   = numerator;
     if (denominator == 0.0) {
         result.score = numerator == 0.0 ? 1.0 : 0.0;
         result.error = std::numeric_limits<f64>::quiet_NaN();
-        result.diagnostics.push_back({DiagnosticSeverity::Warning, DiagnosticComponent::Magnitude,
-                                      DiagnosticCode::MagnitudeZeroReferenceDenominator});
+        diagnostics.push_back({DiagnosticSeverity::Warning, DiagnosticComponent::Magnitude,
+                               DiagnosticCode::MagnitudeZeroReferenceDenominator});
         return;
     }
 
@@ -934,7 +932,7 @@ f64 smoothed_slope_at (std::span<const f64> gradient, std::ptrdiff_t idx) {
 }
 
 void slope_score (SlopeResult& result, std::span<const f64> reference_values, std::span<const f64> comparison_values,
-                  const ScoreParams& params, f64 dt) {
+                  const ScoreParams& params, f64 dt, std::vector<Diagnostic>& diagnostics) {
     const std::ptrdiff_t n = span_size(reference_values);
     if (n < 9) {
         throw std::invalid_argument("Shifted curves must have at least 9 samples for slope rating");
@@ -961,7 +959,7 @@ void slope_score (SlopeResult& result, std::span<const f64> reference_values, st
     if (denominator == 0.0) {
         result.score = numerator == 0.0 ? 1.0 : 0.0;
         result.error = std::numeric_limits<f64>::quiet_NaN();
-        result.diagnostics.push_back(
+        diagnostics.push_back(
             {DiagnosticSeverity::Warning, DiagnosticComponent::Slope, DiagnosticCode::SlopeZeroReferenceDenominator});
         return;
     }
@@ -980,7 +978,7 @@ void slope_score (SlopeResult& result, std::span<const f64> reference_values, st
 }
 
 ScoreResult score_components_impl (std::span<const f64> reference, std::span<const f64> comparison,
-                                   const ScoreParams& params, f64 dt) {
+                                   const ScoreParams& params, f64 dt, std::vector<Diagnostic>& diagnostics) {
     ScoreResult result;
     const auto  total_start = std::chrono::steady_clock::now();
 
@@ -990,7 +988,7 @@ ScoreResult score_components_impl (std::span<const f64> reference, std::span<con
     result.timings.corridor_ms = elapsed_milliseconds(corridor_start, corridor_end);
 
     const auto phase_start = std::chrono::steady_clock::now();
-    phase_score(result.phase, reference, comparison, params);
+    phase_score(result.phase, reference, comparison, params, diagnostics);
     const auto phase_end    = std::chrono::steady_clock::now();
     result.timings.phase_ms = elapsed_milliseconds(phase_start, phase_end);
 
@@ -1000,12 +998,12 @@ ScoreResult score_components_impl (std::span<const f64> reference, std::span<con
         reference.subspan(offset(result.phase.reference_start), offset(result.phase.length));
 
     const auto magnitude_start = std::chrono::steady_clock::now();
-    magnitude_score(result.magnitude, aligned_reference, aligned_comparison, params);
+    magnitude_score(result.magnitude, aligned_reference, aligned_comparison, params, diagnostics);
     const auto magnitude_end    = std::chrono::steady_clock::now();
     result.timings.magnitude_ms = elapsed_milliseconds(magnitude_start, magnitude_end);
 
     const auto slope_start = std::chrono::steady_clock::now();
-    slope_score(result.slope, aligned_reference, aligned_comparison, params, dt);
+    slope_score(result.slope, aligned_reference, aligned_comparison, params, dt, diagnostics);
     const auto slope_end    = std::chrono::steady_clock::now();
     result.timings.slope_ms = elapsed_milliseconds(slope_start, slope_end);
 
@@ -1022,8 +1020,8 @@ ScoreResult score_components_impl (std::span<const f64> reference, std::span<con
 namespace engine {
 
 ScoreResult VARIANT (score_components)(std::span<const f64> reference, std::span<const f64> comparison,
-                                       const ScoreParams& params, f64 dt) {
-    return score_components_impl(reference, comparison, params, dt);
+                                       const ScoreParams& params, f64 dt, std::vector<Diagnostic>& diagnostics) {
+    return score_components_impl(reference, comparison, params, dt, diagnostics);
 }
 
 } // namespace engine

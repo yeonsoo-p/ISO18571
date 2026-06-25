@@ -59,9 +59,6 @@ struct CorridorResult {
     f64 t_norm           = 0.0;
     f64 inner_half_width = 0.0;
     f64 outer_half_width = 0.0;
-
-    // Diagnostics
-    std::vector<Diagnostic> diagnostics;
 };
 
 struct PhaseResult {
@@ -75,9 +72,6 @@ struct PhaseResult {
     std::ptrdiff_t n_eps            = 0;
     f64            max_shift        = 0.2;
     f64            rho_e            = 0.0;
-
-    // Diagnostics
-    std::vector<Diagnostic> diagnostics;
 };
 
 struct MagnitudeResult {
@@ -88,9 +82,6 @@ struct MagnitudeResult {
     f64 numerator   = 0.0;
     f64 denominator = 0.0;
     f64 error       = 0.0;
-
-    // Diagnostics
-    std::vector<Diagnostic> diagnostics;
 };
 
 struct SlopeResult {
@@ -101,9 +92,6 @@ struct SlopeResult {
     f64 numerator   = 0.0;
     f64 denominator = 0.0;
     f64 error       = 0.0;
-
-    // Diagnostics
-    std::vector<Diagnostic> diagnostics;
 };
 
 struct ScoreTimings {
@@ -123,7 +111,8 @@ struct ScoreResult {
     f64             overall = 0.0;
 };
 
-using ScoreComponentsFn = ScoreResult (*)(std::span<const f64>, std::span<const f64>, const ScoreParams&, f64);
+using ScoreComponentsFn = ScoreResult (*)(std::span<const f64>, std::span<const f64>, const ScoreParams&, f64,
+                                          std::vector<Diagnostic>&);
 
 struct DispatchTable {
     ScoreComponentsFn score_components = nullptr;
@@ -131,21 +120,21 @@ struct DispatchTable {
 };
 
 ScoreResult score_components_v1 (std::span<const f64> reference, std::span<const f64> comparison,
-                                 const ScoreParams& params, f64 dt);
+                                 const ScoreParams& params, f64 dt, std::vector<Diagnostic>& diagnostics);
 
 #if defined(ISO18571_COMPILED_X86_64_V2)
 ScoreResult score_components_v2 (std::span<const f64> reference, std::span<const f64> comparison,
-                                 const ScoreParams& params, f64 dt);
+                                 const ScoreParams& params, f64 dt, std::vector<Diagnostic>& diagnostics);
 #endif
 
 #if defined(ISO18571_COMPILED_X86_64_V3)
 ScoreResult score_components_v3 (std::span<const f64> reference, std::span<const f64> comparison,
-                                 const ScoreParams& params, f64 dt);
+                                 const ScoreParams& params, f64 dt, std::vector<Diagnostic>& diagnostics);
 #endif
 
 #if defined(ISO18571_COMPILED_X86_64_V4)
 ScoreResult score_components_v4 (std::span<const f64> reference, std::span<const f64> comparison,
-                                 const ScoreParams& params, f64 dt);
+                                 const ScoreParams& params, f64 dt, std::vector<Diagnostic>& diagnostics);
 #endif
 
 const DispatchTable& dispatch_table ();

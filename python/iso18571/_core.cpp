@@ -30,10 +30,9 @@ using engine::ScoreParams;
 using engine::ScoreResult;
 
 struct ValidatedCurves {
-    std::vector<f64>        reference_values;
-    std::vector<f64>        comparison_values;
-    f64                     dt = 0.0;
-    std::vector<Diagnostic> diagnostics;
+    std::vector<f64> reference_values;
+    std::vector<f64> comparison_values;
+    f64              dt = 0.0;
 };
 
 py::handle require_param (const py::dict& params, const char* name) {
@@ -497,7 +496,8 @@ void apply_curve_layout_fallback (CurveInputDtype dtype, const py::array& source
     diagnostics.push_back({DiagnosticSeverity::Warning, DiagnosticComponent::Validation, copied_code});
 }
 
-ValidatedCurves validate_curves (py::array reference_curve, py::array comparison_curve) {
+ValidatedCurves validate_curves (py::array reference_curve, py::array comparison_curve,
+                                 std::vector<Diagnostic>& diagnostics) {
     py::buffer_info reference_info  = require_curve_shape(reference_curve, "reference_curve");
     py::buffer_info comparison_info = require_curve_shape(comparison_curve, "comparison_curve");
 
@@ -512,9 +512,8 @@ ValidatedCurves validate_curves (py::array reference_curve, py::array comparison
     CurveInputDtype reference_dtype  = require_curve_dtype(reference_curve, reference_info, "reference_curve");
     CurveInputDtype comparison_dtype = require_curve_dtype(comparison_curve, comparison_info, "comparison_curve");
 
-    py::array               reference_effective  = reference_curve;
-    py::array               comparison_effective = comparison_curve;
-    std::vector<Diagnostic> diagnostics;
+    py::array reference_effective  = reference_curve;
+    py::array comparison_effective = comparison_curve;
 
     apply_curve_layout_fallback(reference_dtype, reference_curve, reference_effective, reference_info,
                                 DiagnosticCode::ReferenceCurveLayoutCopied, diagnostics);
@@ -534,7 +533,6 @@ ValidatedCurves validate_curves (py::array reference_curve, py::array comparison
         std::move(reference_values),
         std::move(comparison_values),
         reference_dt,
-        std::move(diagnostics),
     };
 }
 
@@ -552,13 +550,6 @@ void emit_component_warnings (const std::vector<Diagnostic>& diagnostics) {
         const char* message = validation::warning_message_for_code(diagnostic.code);
         emit_runtime_warning(message);
     }
-}
-
-void emit_score_warnings (const ScoreResult& result) {
-    emit_component_warnings(result.corridor.diagnostics);
-    emit_component_warnings(result.phase.diagnostics);
-    emit_component_warnings(result.magnitude.diagnostics);
-    emit_component_warnings(result.slope.diagnostics);
 }
 
 void add_score_fields (py::dict& out, const ScoreResult& result, const ValidatedCurves& curves) {
@@ -598,21 +589,27 @@ void add_timing_fields (py::dict& out, const ScoreResult& result) {
 }
 
 py::tuple score_components (py::array reference_curve, py::array comparison_curve, py::dict params) {
-    const ValidatedCurves curves       = validate_curves(reference_curve, comparison_curve);
-    ScoreParams           score_params = score_params_from_dict(params);
-    validation::validate_score_params(score_params);
-    const std::span<const f64> reference_values(curves.reference_values.data(), curves.reference_values.size());
-    const std::span<const f64> comparison_values(curves.comparison_values.data(), curves.comparison_values.size());
+    std::vector<Diagnostic> diagnostics;
+    ValidatedCurves         curves;
+    ScoreResult             result;
+    try {
+        curves                   = validate_curves(reference_curve, comparison_curve, diagnostics);
+        ScoreParams score_params = score_params_from_dict(params);
+        validation::validate_score_params(score_params);
+        const std::span<const f64> reference_values(curves.reference_values.data(), curves.reference_values.size());
+        const std::span<const f64> comparison_values(curves.comparison_values.data(), curves.comparison_values.size());
 
-    ScoreResult result;
-    {
-        py::gil_scoped_release release;
-        result =
-            engine::dispatch_table().score_components(reference_values, comparison_values, score_params, curves.dt);
+        {
+            py::gil_scoped_release release;
+            result = engine::dispatch_table().score_components(reference_values, comparison_values, score_params,
+                                                               curves.dt, diagnostics);
+        }
+    } catch (...) {
+        emit_component_warnings(diagnostics);
+        throw;
     }
 
-    emit_component_warnings(curves.diagnostics);
-    emit_score_warnings(result);
+    emit_component_warnings(diagnostics);
 
     py::dict scores;
     add_score_fields(scores, result, curves);
