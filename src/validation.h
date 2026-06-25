@@ -83,10 +83,6 @@ inline void require_closed_interval (f64 value, std::string_view name, f64 minim
 
 inline const char* warning_message_for_code (engine::DiagnosticCode code) {
     switch (code) {
-    case engine::DiagnosticCode::ReferenceCurveLayoutCopied:
-        return "ISO18571 copied reference_curve to a C-contiguous aligned array because its memory layout is unsafe";
-    case engine::DiagnosticCode::ComparisonCurveLayoutCopied:
-        return "ISO18571 copied comparison_curve to a C-contiguous aligned array because its memory layout is unsafe";
     case engine::DiagnosticCode::PhaseUndefinedCorrelation:
         return "ISO18571 phase correlation is undefined; using finite fallback rho_e";
     case engine::DiagnosticCode::PhaseShiftClampedToUnshifted:

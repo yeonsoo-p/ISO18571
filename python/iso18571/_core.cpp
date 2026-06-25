@@ -12,6 +12,7 @@
 #include <complex>
 #include <cstdint>
 #include <limits>
+#include <ranges>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -24,8 +25,6 @@ namespace py = pybind11;
 namespace {
 
 using engine::Diagnostic;
-using engine::DiagnosticCode;
-using engine::DiagnosticComponent;
 using engine::DiagnosticSeverity;
 using engine::ScoreParams;
 using engine::ScoreResult;
@@ -189,32 +188,6 @@ void visit_curve_dtype (CurveInputDtype dtype, T&& visitor) {
 }
 
 template<typename T>
-bool require_safe_element_layout (const py::buffer_info& info) {
-    const auto item_size = static_cast<py::ssize_t>(sizeof(T));
-    const auto pointer   = reinterpret_cast<std::uintptr_t>(info.ptr);
-    const auto alignment = static_cast<std::uintptr_t>(alignof(T));
-    if (alignment > 1U && pointer % alignment != 0U) {
-        return false;
-    }
-
-    const auto stride_is_safe = [item_size] (py::ssize_t byte_stride) {
-        if (byte_stride % item_size != 0) {
-            return false;
-        }
-
-        const py::ssize_t element_stride = byte_stride / item_size;
-        if (element_stride * item_size != byte_stride) {
-            return false;
-        }
-
-        const auto index_stride = static_cast<std::ptrdiff_t>(element_stride);
-        return static_cast<py::ssize_t>(index_stride) == element_stride;
-    };
-
-    return stride_is_safe(info.strides[0]) && stride_is_safe(info.strides[1]);
-}
-
-template<typename T>
 auto real_component (const T& value) {
     if constexpr (IsStdComplex<T>::value) {
         return value.real();
@@ -225,13 +198,15 @@ auto real_component (const T& value) {
 
 template<typename T>
 auto materialize_typed_dt (const py::buffer_info& info, const char* curve_name, std::ptrdiff_t n) {
-    using Time            = decltype(real_component(std::declval<T>()));
-    const auto item_size  = static_cast<py::ssize_t>(sizeof(T));
-    const auto row_stride = static_cast<std::ptrdiff_t>(info.strides[0] / item_size);
-    const T*   data       = static_cast<const T*>(info.ptr);
+    using Time                      = decltype(real_component(std::declval<T>()));
+    const T*          data          = static_cast<const T*>(info.ptr);
+    const std::size_t element_count = static_cast<std::size_t>(n) * 2U;
+    auto              time_values   = std::span<const T>(data, element_count) | std::views::stride(2);
+    auto              time_value    = time_values.begin();
 
-    Time current = real_component(data[0]);
-    Time next    = real_component(data[row_stride]);
+    Time current = real_component(*time_value);
+    ++time_value;
+    Time next = real_component(*time_value);
     if (next <= current) {
         throw std::invalid_argument(std::string(curve_name) + " time values must be strictly increasing");
     }
@@ -242,7 +217,8 @@ auto materialize_typed_dt (const py::buffer_info& info, const char* curve_name, 
 
         current = next;
         for (std::ptrdiff_t idx = 2; idx < n; ++idx) {
-            next = real_component(data[idx * row_stride]);
+            ++time_value;
+            next = real_component(*time_value);
 
             if (next <= current) {
                 throw std::invalid_argument(std::string(curve_name) + " time values must be strictly increasing");
@@ -266,7 +242,8 @@ auto materialize_typed_dt (const py::buffer_info& info, const char* curve_name, 
         f128 mean = static_cast<f128>(dt);
         current   = next;
         for (std::ptrdiff_t idx = 2; idx < n; ++idx) {
-            next = real_component(data[idx * row_stride]);
+            ++time_value;
+            next = real_component(*time_value);
 
             if (next <= current) {
                 throw std::invalid_argument(std::string(curve_name) + " time values must be strictly increasing");
@@ -287,12 +264,11 @@ auto materialize_typed_dt (const py::buffer_info& info, const char* curve_name, 
 
 template<typename T>
 void require_typed_time (const py::buffer_info& info, const char* curve_name, std::ptrdiff_t n) {
-    const auto item_size  = static_cast<py::ssize_t>(sizeof(T));
-    const auto row_stride = static_cast<std::ptrdiff_t>(info.strides[0] / item_size);
-    const T*   data       = static_cast<const T*>(info.ptr);
+    const T*          data          = static_cast<const T*>(info.ptr);
+    const std::size_t element_count = static_cast<std::size_t>(n) * 2U;
+    auto              time_values   = std::span<const T>(data, element_count) | std::views::stride(2);
 
-    for (std::ptrdiff_t idx = 0; idx < n; ++idx) {
-        const T value = data[idx * row_stride];
+    for (const T& value : time_values) {
         if constexpr (IsStdComplex<T>::value) {
             const auto zero = decltype(value.imag()) {0};
             if (value.imag() != zero) {
@@ -310,13 +286,11 @@ void require_typed_time (const py::buffer_info& info, const char* curve_name, st
 
 template<typename T>
 void require_typed_value (const py::buffer_info& info, const char* curve_name, std::ptrdiff_t n) {
-    const auto item_size     = static_cast<py::ssize_t>(sizeof(T));
-    const auto row_stride    = static_cast<std::ptrdiff_t>(info.strides[0] / item_size);
-    const auto column_stride = static_cast<std::ptrdiff_t>(info.strides[1] / item_size);
-    const T*   data          = static_cast<const T*>(info.ptr);
+    const T*          data          = static_cast<const T*>(info.ptr);
+    const std::size_t element_count = static_cast<std::size_t>(n) * 2U;
+    auto              values        = std::span<const T>(data + 1, element_count - 1U) | std::views::stride(2);
 
-    for (std::ptrdiff_t idx = 0; idx < n; ++idx) {
-        const T value = data[idx * row_stride + column_stride];
+    for (const T& value : values) {
         if constexpr (IsStdComplex<T>::value) {
             const auto zero = decltype(value.imag()) {0};
             if (value.imag() != zero) {
@@ -396,15 +370,6 @@ CurveInputDtype curve_input_dtype (const py::dtype& dtype, const py::buffer_info
     }
 }
 
-bool require_curve_layout (CurveInputDtype dtype, const py::buffer_info& info) {
-    bool layout_is_safe = false;
-    visit_curve_dtype(dtype, [&] (auto tag) {
-        using T        = typename decltype(tag)::type;
-        layout_is_safe = require_safe_element_layout<T>(info);
-    });
-    return layout_is_safe;
-}
-
 void require_curve_input (CurveInputDtype dtype, const py::buffer_info& info, const char* curve_name,
                           std::ptrdiff_t n) {
     visit_curve_dtype(dtype, [&] (auto tag) {
@@ -452,14 +417,14 @@ f64 materialize_matching_dt (CurveInputDtype reference_dtype, const py::buffer_i
 
 template<typename T>
 void materialize_typed_curve_values (const py::buffer_info& info, std::ptrdiff_t n, std::span<f64> values) {
-    const auto item_size     = static_cast<py::ssize_t>(sizeof(T));
-    const auto row_stride    = static_cast<std::ptrdiff_t>(info.strides[0] / item_size);
-    const auto column_stride = static_cast<std::ptrdiff_t>(info.strides[1] / item_size);
-    const T*   data          = static_cast<const T*>(info.ptr);
+    const T*          data          = static_cast<const T*>(info.ptr);
+    const std::size_t element_count = static_cast<std::size_t>(n) * 2U;
+    auto              curve_values  = std::span<const T>(data + 1, element_count - 1U) | std::views::stride(2);
 
-    for (std::ptrdiff_t idx = 0; idx < n; ++idx) {
-        values[static_cast<std::size_t>(idx)] =
-            static_cast<f64>(real_component(data[idx * row_stride + column_stride]));
+    std::size_t idx = 0;
+    for (const T& value : curve_values) {
+        values[idx] = static_cast<f64>(real_component(value));
+        ++idx;
     }
 }
 
@@ -480,6 +445,9 @@ py::buffer_info require_curve_shape (const py::array& curve, const char* curve_n
     if (info.shape[1] != 2) {
         throw std::invalid_argument(std::string(curve_name) + " must have shape (n, 2)");
     }
+    if (info.strides[1] != info.itemsize || info.strides[0] != 2 * info.itemsize) {
+        throw std::invalid_argument(std::string(curve_name) + " must be C-contiguous");
+    }
     return info;
 }
 
@@ -497,21 +465,7 @@ CurveInputDtype require_curve_dtype (const py::array& curve, const py::buffer_in
     return input_dtype;
 }
 
-void apply_curve_layout_fallback (CurveInputDtype dtype, const py::array& source_curve, py::array& effective_curve,
-                                  py::buffer_info& info, DiagnosticCode copied_code,
-                                  std::vector<Diagnostic>& diagnostics) {
-    if (require_curve_layout(dtype, info)) {
-        return;
-    }
-
-    const py::object numpy = py::module_::import("numpy");
-    effective_curve = numpy.attr("require")(source_curve, py::none(), py::make_tuple("C", "A")).cast<py::array>();
-    info            = effective_curve.request();
-    diagnostics.push_back({DiagnosticSeverity::Warning, DiagnosticComponent::Validation, copied_code});
-}
-
-ValidatedCurves validate_curves (py::array reference_curve, py::array comparison_curve,
-                                 std::vector<Diagnostic>& diagnostics) {
+ValidatedCurves validate_curves (py::array reference_curve, py::array comparison_curve) {
     py::buffer_info reference_info  = require_curve_shape(reference_curve, "reference_curve");
     py::buffer_info comparison_info = require_curve_shape(comparison_curve, "comparison_curve");
 
@@ -525,14 +479,6 @@ ValidatedCurves validate_curves (py::array reference_curve, py::array comparison
 
     CurveInputDtype reference_dtype  = require_curve_dtype(reference_curve, reference_info, "reference_curve");
     CurveInputDtype comparison_dtype = require_curve_dtype(comparison_curve, comparison_info, "comparison_curve");
-
-    py::array reference_effective  = reference_curve;
-    py::array comparison_effective = comparison_curve;
-
-    apply_curve_layout_fallback(reference_dtype, reference_curve, reference_effective, reference_info,
-                                DiagnosticCode::ReferenceCurveLayoutCopied, diagnostics);
-    apply_curve_layout_fallback(comparison_dtype, comparison_curve, comparison_effective, comparison_info,
-                                DiagnosticCode::ComparisonCurveLayoutCopied, diagnostics);
 
     require_curve_input(reference_dtype, reference_info, "reference_curve", n);
     require_curve_input(comparison_dtype, comparison_info, "comparison_curve", n);
@@ -603,7 +549,7 @@ py::tuple score_components (py::array reference_curve, py::array comparison_curv
     ValidatedCurves         curves;
     ScoreResult             result;
     try {
-        curves                   = validate_curves(reference_curve, comparison_curve, diagnostics);
+        curves                   = validate_curves(reference_curve, comparison_curve);
         ScoreParams score_params = score_params_from_dict(params);
         validation::validate_score_params(score_params);
         const std::span<const f64> reference_values(curves.reference_values.data(), curves.reference_values.size());

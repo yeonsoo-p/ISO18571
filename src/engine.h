@@ -37,8 +37,6 @@ enum class DiagnosticComponent {
 };
 
 enum class DiagnosticCode {
-    ReferenceCurveLayoutCopied,
-    ComparisonCurveLayoutCopied,
     PhaseUndefinedCorrelation,
     PhaseShiftClampedToUnshifted,
     MagnitudeZeroReferenceDenominator,

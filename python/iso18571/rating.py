@@ -85,8 +85,8 @@ class ISO18571:
         if np.ma.isMaskedArray(comparison_curve):
             raise ValueError("comparison_curve must not be a masked array")
 
-        self._reference_curve = np.asarray(reference_curve)
-        self._comparison_curve = np.asarray(comparison_curve)
+        self._reference_curve = np.array(reference_curve, order="C", copy=True)
+        self._comparison_curve = np.array(comparison_curve, order="C", copy=True)
 
         self._scores: ScoreComponents
         self._timings: ScoreTimings
@@ -174,14 +174,14 @@ class ISO18571:
     def shifted_reference_values(self) -> NumericArray:
         start = int(self._scores["phase_reference_start"])
         length = int(self._scores["phase_shift_length"])
-        values: NumericArray = self._reference_curve[start : start + length, 1]
+        values: NumericArray = self._reference_curve[start : start + length, 1].copy()
         return values
 
     @property
     def shifted_comparison_values(self) -> NumericArray:
         start = int(self._scores["phase_comparison_start"])
         length = int(self._scores["phase_shift_length"])
-        values: NumericArray = self._comparison_curve[start : start + length, 1]
+        values: NumericArray = self._comparison_curve[start : start + length, 1].copy()
         return values
 
     @property
