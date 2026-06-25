@@ -1,6 +1,4 @@
-#include "dispatch.h"
 #include "engine.h"
-#include "validation.h"
 
 #include <algorithm>
 #include <array>
@@ -16,8 +14,12 @@
 #include <vector>
 
 #ifndef IMPL_SUFFIX
-#error "IMPL_SUFFIX must be defined before compiling engine_impl.cpp"
+#error "IMPL_SUFFIX must be defined before compiling engine.cpp"
 #endif
+
+#define PASTE_INNER(a, b) a##b
+#define PASTE(a, b) PASTE_INNER(a, b)
+#define VARIANT(name) PASTE(name, IMPL_SUFFIX)
 
 namespace {
 

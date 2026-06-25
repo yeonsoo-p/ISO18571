@@ -1,8 +1,7 @@
-#include "dispatch.h"
+#include "engine.h"
+#include "types.h"
 
 #include <cstdint>
-
-#include "types.h"
 
 #if defined(__GNUC__) && (defined(__x86_64__) || defined(__i386__))
 #include <cpuid.h>
@@ -12,8 +11,22 @@
 #include <intrin.h>
 #endif
 
-namespace dispatch {
-dispatch::CompiledX86_64Levels compiled_levels () {
+namespace {
+
+enum class X86_64Level {
+    V1,
+    V2,
+    V3,
+    V4,
+};
+
+struct CompiledX86_64Levels {
+    bool v2 = false;
+    bool v3 = false;
+    bool v4 = false;
+};
+
+CompiledX86_64Levels compiled_levels () {
     return {
 #if defined(ISO18571_COMPILED_X86_64_V2)
         true,
@@ -32,8 +45,6 @@ dispatch::CompiledX86_64Levels compiled_levels () {
 #endif
     };
 }
-
-namespace {
 
 #if defined(__GNUC__) && (defined(__x86_64__) || defined(__i386__))
 void cpuid (unsigned int leaf, unsigned int subleaf, unsigned int (&registers)[4]) {
@@ -208,8 +219,6 @@ bool supports_v4 () {
 #endif
 }
 
-} // namespace
-
 const char* level_name (X86_64Level level) {
     switch (level) {
     case X86_64Level::V1:
@@ -237,4 +246,39 @@ X86_64Level best_x86_64_level (CompiledX86_64Levels compiled) {
     return X86_64Level::V1;
 }
 
-} // namespace dispatch
+engine::DispatchTable make_dispatch_table () {
+    switch (best_x86_64_level(compiled_levels())) {
+    case X86_64Level::V4:
+#if defined(ISO18571_COMPILED_X86_64_V4)
+        return {engine::score_components_v4, level_name(X86_64Level::V4)};
+#else
+        break;
+#endif
+    case X86_64Level::V3:
+#if defined(ISO18571_COMPILED_X86_64_V3)
+        return {engine::score_components_v3, level_name(X86_64Level::V3)};
+#else
+        break;
+#endif
+    case X86_64Level::V2:
+#if defined(ISO18571_COMPILED_X86_64_V2)
+        return {engine::score_components_v2, level_name(X86_64Level::V2)};
+#else
+        break;
+#endif
+    case X86_64Level::V1:
+        return {engine::score_components_v1, level_name(X86_64Level::V1)};
+    }
+    return {engine::score_components_v1, level_name(X86_64Level::V1)};
+}
+
+} // namespace
+
+namespace engine {
+
+const DispatchTable& dispatch_table () {
+    static const DispatchTable table = make_dispatch_table();
+    return table;
+}
+
+} // namespace engine
