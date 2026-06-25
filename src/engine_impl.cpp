@@ -892,16 +892,6 @@ void magnitude_score (MagnitudeResult& result, std::span<const f64> reference_va
     result.score = integer_power((params.eps_m - e_mag) / params.eps_m, params.k_m);
 }
 
-void gradient_values (std::vector<f64>& gradient, std::span<const f64> values, f64 dt) {
-    const std::ptrdiff_t n = span_size(values);
-    gradient.assign(static_cast<std::size_t>(n), 0.0);
-    gradient[0] = (value_at(values, 1) - value_at(values, 0)) / dt;
-    for (std::ptrdiff_t idx = 1; idx < n - 1; ++idx) {
-        gradient[static_cast<std::size_t>(idx)] = (value_at(values, idx + 1) - value_at(values, idx - 1)) / (2.0 * dt);
-    }
-    gradient[static_cast<std::size_t>(n - 1)] = (value_at(values, n - 1) - value_at(values, n - 2)) / dt;
-}
-
 f64 smoothed_slope_at (std::span<const f64> gradient, std::ptrdiff_t idx) {
     const std::ptrdiff_t n = static_cast<std::ptrdiff_t>(gradient.size());
 
@@ -938,39 +928,72 @@ void slope_score (SlopeResult& result, std::span<const f64> reference_values, st
         throw std::invalid_argument("Shifted curves must have at least 9 samples for slope rating");
     }
 
-    std::vector<f64> comparison_gradient;
-    std::vector<f64> reference_gradient;
-    gradient_values(comparison_gradient, comparison_values, dt);
-    gradient_values(reference_gradient, reference_values, dt);
-
-    f64 numerator   = 0.0;
-    f64 denominator = 0.0;
-
+    f64 value_scale = 0.0;
     for (std::ptrdiff_t idx = 0; idx < n; ++idx) {
-        const f64 comparison_smoothed = smoothed_slope_at(std::span<const f64>(comparison_gradient), idx);
-        const f64 reference_smoothed  = smoothed_slope_at(std::span<const f64>(reference_gradient), idx);
-        numerator += std::abs(comparison_smoothed - reference_smoothed);
-        denominator += std::abs(reference_smoothed);
+        value_scale = std::max(value_scale, std::abs(value_at(reference_values, idx)));
+        value_scale = std::max(value_scale, std::abs(value_at(comparison_values, idx)));
     }
 
-    result.denominator = denominator;
-    result.numerator   = numerator;
+    std::vector<f64> reference_gradient(static_cast<std::size_t>(n), 0.0);
+    std::vector<f64> residual_gradient(static_cast<std::size_t>(n), 0.0);
+    if (value_scale != 0.0) {
+        const auto reference_delta_scaled = [&] (std::ptrdiff_t begin, std::ptrdiff_t end) {
+            return value_at(reference_values, end) / value_scale - value_at(reference_values, begin) / value_scale;
+        };
+        const auto residual_delta_scaled = [&] (std::ptrdiff_t begin, std::ptrdiff_t end) {
+            const f64 comparison_delta = value_at(comparison_values, end) - value_at(comparison_values, begin);
+            const f64 reference_delta  = value_at(reference_values, end) - value_at(reference_values, begin);
+            const f64 residual_delta   = comparison_delta - reference_delta;
+            if (std::isfinite(residual_delta)) {
+                return residual_delta / value_scale;
+            }
+            const f64 comparison_delta_scaled =
+                value_at(comparison_values, end) / value_scale - value_at(comparison_values, begin) / value_scale;
+            return comparison_delta_scaled - reference_delta_scaled(begin, end);
+        };
 
-    if (denominator == 0.0) {
-        result.score = numerator == 0.0 ? 1.0 : 0.0;
+        reference_gradient[0] = reference_delta_scaled(0, 1);
+        residual_gradient[0]  = residual_delta_scaled(0, 1);
+        for (std::ptrdiff_t idx = 1; idx < n - 1; ++idx) {
+            reference_gradient[static_cast<std::size_t>(idx)] = reference_delta_scaled(idx - 1, idx + 1) / 2.0;
+            residual_gradient[static_cast<std::size_t>(idx)]  = residual_delta_scaled(idx - 1, idx + 1) / 2.0;
+        }
+        reference_gradient[static_cast<std::size_t>(n - 1)] = reference_delta_scaled(n - 2, n - 1);
+        residual_gradient[static_cast<std::size_t>(n - 1)]  = residual_delta_scaled(n - 2, n - 1);
+    }
+
+    f64 normalized_numerator   = 0.0;
+    f64 normalized_denominator = 0.0;
+    for (std::ptrdiff_t idx = 0; idx < n; ++idx) {
+        normalized_numerator += std::abs(smoothed_slope_at(std::span<const f64>(residual_gradient), idx));
+        normalized_denominator += std::abs(smoothed_slope_at(std::span<const f64>(reference_gradient), idx));
+    }
+
+    const f64 diagnostic_scale = value_scale / dt;
+    result.numerator           = normalized_numerator == 0.0 ? 0.0 : normalized_numerator * diagnostic_scale;
+    result.denominator         = normalized_denominator == 0.0 ? 0.0 : normalized_denominator * diagnostic_scale;
+
+    if (normalized_denominator == 0.0) {
+        result.score = normalized_numerator == 0.0 ? 1.0 : 0.0;
         result.error = std::numeric_limits<f64>::quiet_NaN();
         diagnostics.push_back(
             {DiagnosticSeverity::Warning, DiagnosticComponent::Slope, DiagnosticCode::SlopeZeroReferenceDenominator});
         return;
     }
 
-    const f64 e_slope = numerator / denominator;
-    result.error      = e_slope;
+    f64 e_slope = normalized_numerator / normalized_denominator;
+    if (std::isnan(e_slope)) {
+        e_slope = std::numeric_limits<f64>::infinity();
+    }
+    if (e_slope <= std::numeric_limits<f64>::epsilon()) {
+        e_slope = 0.0;
+    }
+    result.error = e_slope;
     if (e_slope <= 0.0) {
         result.score = 1.0;
         return;
     }
-    if (e_slope >= params.e_s) {
+    if (!std::isfinite(e_slope) || e_slope >= params.e_s) {
         result.score = 0.0;
         return;
     }

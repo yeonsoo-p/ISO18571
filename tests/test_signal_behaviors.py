@@ -123,6 +123,53 @@ def test_finite_small_and_large_amplitudes_do_not_overflow(amplitude: float) -> 
         assert np.isfinite(scorer.scores[key])
 
 
+def test_tiny_dt_identical_ramp_has_finite_slope_score() -> None:
+    values = 10.0 * np.arange(16, dtype=np.float64)
+    curve = _curve(values, dt=1.0e-307)
+
+    scorer, messages = _score_with_warnings(curve, curve)
+
+    assert (
+        "ISO18571 slope reference denominator is zero; using fallback slope score"
+        not in messages
+    )
+    assert scorer.scores["ES"] == 1.0
+    assert scorer.scores["R"] == 1.0
+    assert scorer.scores["slope_error"] == 0.0
+
+
+def test_huge_alternating_identical_signal_has_finite_slope_score() -> None:
+    values = np.array([1.0, -1.0] * 8, dtype=np.float64) * np.finfo(np.float64).max
+    curve = _curve(values)
+
+    scorer, messages = _score_with_warnings(curve, curve)
+
+    assert (
+        "ISO18571 slope reference denominator is zero; using fallback slope score"
+        not in messages
+    )
+    assert scorer.scores["ES"] == 1.0
+    assert scorer.scores["R"] == 1.0
+    assert scorer.scores["slope_error"] == 0.0
+
+
+def test_infinite_slope_error_scores_zero_without_nan() -> None:
+    reference_values = np.nextafter(0.0, 1.0) * np.arange(16, dtype=np.float64)
+    comparison_values = np.arange(16, dtype=np.float64) / 15.0
+
+    scorer, messages = _score_with_warnings(
+        _curve(reference_values), _curve(comparison_values)
+    )
+
+    assert (
+        "ISO18571 slope reference denominator is zero; using fallback slope score"
+        not in messages
+    )
+    assert math.isinf(scorer.scores["slope_error"])
+    assert scorer.scores["ES"] == 0.0
+    assert np.isfinite(scorer.scores["R"])
+
+
 def test_smallest_subnormal_identical_signal_scores_one() -> None:
     amplitude = np.nextafter(0.0, 1.0)
     curve = _curve(np.full(16, amplitude, dtype=np.float64))
@@ -192,8 +239,8 @@ def test_subnormal_equal_rounded_corridor_widths_score_finitely() -> None:
     assert scores["Z"] == pytest.approx(expected)
 
 
-def _curve(values: np.ndarray) -> np.ndarray:
-    time = np.arange(values.shape[0], dtype=np.float64)
+def _curve(values: np.ndarray, *, dt: float = 1.0) -> np.ndarray:
+    time = dt * np.arange(values.shape[0], dtype=np.float64)
     return np.column_stack((time, values)).astype(np.float64, copy=False)
 
 
