@@ -505,8 +505,8 @@ ValidatedCurves validate_curves (py::array reference_curve, py::array comparison
     if (n != static_cast<std::ptrdiff_t>(comparison_info.shape[0])) {
         throw std::invalid_argument("Curves are not equal in size/dimension");
     }
-    if (n < 2) {
-        throw std::invalid_argument("reference_curve must have at least 2 samples");
+    if (n < 9) {
+        throw std::invalid_argument("Curves must have at least 9 samples");
     }
 
     CurveInputDtype reference_dtype  = require_curve_dtype(reference_curve, reference_info, "reference_curve");

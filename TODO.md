@@ -103,9 +103,6 @@
 
 - Investigate edge cases
   - Integer overflow during time validation for signed integers
-  - `NaN` corridor scores from finite subnormal signal amplitudes
-  - Short-curve phase behavior
-  - test_phase_shifted_identical_signals_score_zero_beyond_phase_threshold
   - test_nonconstant_offset_expectations_are_score_specific
   - I have serious doubts about type conversion. Need to figure out what exactly is tested and how it is evaluated
 
@@ -115,44 +112,15 @@
       scores `Z`, `EP`, `EM`, `ES`, and `R` should either be finite and
       inside `[0.0, 1.0]`, or the scorer should reject the input before
       returning scores with a clear error.
-    - Corridor: handle `Tnorm > 0.0` when `a_0 * Tnorm` and `b_0 * Tnorm`
-      underflow to equal zero. Current reproducer:
-      `np.full(16, np.nextafter(0.0, 1.0))` against itself returns
-      `Z = NaN` and therefore `R = NaN`.
-    - Slope: distinguish intentional zero-denominator fallback diagnostics
-      from arithmetic overflow. Current reproducers include `dt=1e-307`
-      with `10.0 * np.arange(16)` against itself, and huge alternating
-      values; both can return `ES = NaN` and therefore `R = NaN`.
-    - Slope: decide behavior for nonfinite `slope_error` where the score is
-      still finite, for example one-sided overflow producing
-      `slope_error = Inf` and `ES = 0.0`.
     - Magnitude / DTW: finite accepted-looking inputs can overflow squared
       DTW local costs and throw `No valid ISO DTW path found`; decide whether
       to make the DTW cost path overflow-resistant or reject such inputs with
       a clearer range/scale error before scoring.
-    - Phase: keep `CORRELATION_TIE_TOLERANCE` unless it is replaced by another
-      documented tie policy. Without it, ULP-scale correlation noise can select
-      `n_eps = 1` instead of the ISO-preferred smaller shift `n_eps = 0`.
-    - Phase: decide whether validation field `phase_rho_e` must always be
-      finite when scores are finite; huge constant or huge alternating inputs
-      can currently produce `phase_rho_e = NaN`.
     - Near-`1.0` raw scores such as `0.999999999` are expected formula
       behavior, not necessarily bugs. Document that default rating methods
       round these to `1.0`, and any grade/classification logic must use raw
       `R`, not rounded `overall_rating()`.
   - New tests needed to confirm the decisions:
-    - Corridor smallest-subnormal identical signal:
-      `np.nextafter(0.0, 1.0)` should follow the chosen policy and never
-      return `NaN` scores.
-    - Corridor subnormal scan around `k * np.nextafter(0.0, 1.0)` should show
-      where the policy changes from the tiny-scale fallback/rejection to normal
-      corridor scoring.
-    - Slope overflow with tiny but accepted `dt` and moderate amplitudes should
-      follow the chosen policy and never return `ES = NaN` or `R = NaN`.
-    - Huge alternating identical signals should follow the same slope policy
-      and never return `ES = NaN` or `R = NaN`.
-    - One-sided slope overflow should confirm whether `slope_error = Inf`
-      remains an exposed diagnostic with `ES = 0.0` or becomes a rejection.
     - DTW overflow / no-path cases should assert the chosen clearer behavior:
       either stable finite scoring or a specific pre-score rejection message.
     - Phase tie-priority tests should include near-identical signals where a

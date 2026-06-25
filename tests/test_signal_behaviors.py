@@ -138,6 +138,21 @@ def test_tiny_dt_identical_ramp_has_finite_slope_score() -> None:
     assert scorer.scores["slope_error"] == 0.0
 
 
+def test_huge_constant_identical_signal_has_finite_phase_rho_fallback() -> None:
+    values = np.full(16, np.finfo(np.float64).max, dtype=np.float64)
+    curve = _curve(values)
+
+    scorer, messages = _score_with_warnings(curve, curve)
+
+    assert messages == [
+        "ISO18571 phase correlation is undefined; using finite fallback rho_e",
+        "ISO18571 slope reference denominator is zero; using fallback slope score",
+    ]
+    assert scorer.scores["EP"] == 1.0
+    assert scorer.scores["R"] == 1.0
+    assert scorer.scores["phase_rho_e"] == 1.0
+
+
 def test_huge_alternating_identical_signal_has_finite_slope_score() -> None:
     values = np.array([1.0, -1.0] * 8, dtype=np.float64) * np.finfo(np.float64).max
     curve = _curve(values)
@@ -150,7 +165,23 @@ def test_huge_alternating_identical_signal_has_finite_slope_score() -> None:
     )
     assert scorer.scores["ES"] == 1.0
     assert scorer.scores["R"] == 1.0
+    assert np.isfinite(scorer.scores["phase_rho_e"])
     assert scorer.scores["slope_error"] == 0.0
+
+
+def test_huge_alternating_shifted_signal_selects_finite_phase_alignment() -> None:
+    reference_values = (
+        np.array([1.0, -1.0] * 8, dtype=np.float64) * np.finfo(np.float64).max
+    )
+    comparison_values = np.roll(reference_values, 1)
+
+    scorer = ISO18571(_curve(reference_values), _curve(comparison_values))
+
+    assert scorer.scores["phase_n_eps"] == 1
+    assert scorer.scores["phase_comparison_start"] == 1
+    assert scorer.scores["phase_shift_length"] == 15
+    assert np.isfinite(scorer.scores["phase_rho_e"])
+    assert np.isfinite(scorer.scores["R"])
 
 
 def test_infinite_slope_error_scores_zero_without_nan() -> None:

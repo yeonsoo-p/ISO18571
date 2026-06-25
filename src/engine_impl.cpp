@@ -506,11 +506,20 @@ void phase_score (PhaseResult& result, std::span<const f64> reference, std::span
     result.n_eps            = 0;
     result.max_shift        = max_shift;
 
+    f64 baseline_reference_scale  = 0.0;
+    f64 baseline_comparison_scale = 0.0;
+    for (std::ptrdiff_t value_idx = 0; value_idx < reference_n; ++value_idx) {
+        baseline_reference_scale  = std::max(baseline_reference_scale, std::abs(value_at(reference, value_idx)));
+        baseline_comparison_scale = std::max(baseline_comparison_scale, std::abs(value_at(comparison, value_idx)));
+    }
+
     f64 baseline_reference_sum  = 0.0;
     f64 baseline_comparison_sum = 0.0;
     for (std::ptrdiff_t value_idx = 0; value_idx < reference_n; ++value_idx) {
-        baseline_reference_sum += value_at(reference, value_idx);
-        baseline_comparison_sum += value_at(comparison, value_idx);
+        baseline_reference_sum +=
+            baseline_reference_scale == 0.0 ? 0.0 : value_at(reference, value_idx) / baseline_reference_scale;
+        baseline_comparison_sum +=
+            baseline_comparison_scale == 0.0 ? 0.0 : value_at(comparison, value_idx) / baseline_comparison_scale;
     }
 
     const f64 baseline_n              = static_cast<f64>(reference_n);
@@ -520,26 +529,44 @@ void phase_score (PhaseResult& result, std::span<const f64> reference, std::span
     f64       baseline_comparison_cov = 0.0;
     f64       baseline_cross_cov      = 0.0;
     for (std::ptrdiff_t value_idx = 0; value_idx < reference_n; ++value_idx) {
-        const f64 x = value_at(reference, value_idx) - baseline_reference_avg;
-        const f64 y = value_at(comparison, value_idx) - baseline_comparison_avg;
+        const f64 x =
+            (baseline_reference_scale == 0.0 ? 0.0 : value_at(reference, value_idx) / baseline_reference_scale) -
+            baseline_reference_avg;
+        const f64 y =
+            (baseline_comparison_scale == 0.0 ? 0.0 : value_at(comparison, value_idx) / baseline_comparison_scale) -
+            baseline_comparison_avg;
         baseline_reference_cov += x * x;
         baseline_comparison_cov += y * y;
         baseline_cross_cov += x * y;
     }
 
-    if (baseline_reference_cov <= 0.0 || baseline_comparison_cov <= 0.0) {
+    const f64 baseline_reference_tol =
+        std::numeric_limits<f64>::epsilon() * std::max(1.0, baseline_reference_cov) * 64.0;
+    const f64 baseline_comparison_tol =
+        std::numeric_limits<f64>::epsilon() * std::max(1.0, baseline_comparison_cov) * 64.0;
+    bool baseline_undefined =
+        !(std::isfinite(baseline_reference_cov) && std::isfinite(baseline_comparison_cov) &&
+          baseline_reference_cov > baseline_reference_tol && baseline_comparison_cov > baseline_comparison_tol);
+    if (baseline_undefined) {
         diagnostics.push_back(
             {DiagnosticSeverity::Warning, DiagnosticComponent::Phase, DiagnosticCode::PhaseUndefinedCorrelation});
         result.rho_e = values_equal_for_shift(reference, comparison, 0, 0, reference_n) ? 1.0 : 0.0;
     } else {
         f64 baseline_correlation = baseline_cross_cov / std::sqrt(baseline_reference_cov);
         baseline_correlation /= std::sqrt(baseline_comparison_cov);
-        if (baseline_correlation > 1.0) {
+        if (!std::isfinite(baseline_correlation)) {
+            diagnostics.push_back(
+                {DiagnosticSeverity::Warning, DiagnosticComponent::Phase, DiagnosticCode::PhaseUndefinedCorrelation});
+            result.rho_e = values_equal_for_shift(reference, comparison, 0, 0, reference_n) ? 1.0 : 0.0;
+        } else if (baseline_correlation > 1.0) {
             baseline_correlation = 1.0;
+            result.rho_e         = baseline_correlation;
         } else if (baseline_correlation < -1.0) {
             baseline_correlation = -1.0;
+            result.rho_e         = baseline_correlation;
+        } else {
+            result.rho_e = baseline_correlation;
         }
-        result.rho_e = baseline_correlation;
     }
     const PhaseResult             unshifted_result = result;
     const std::vector<Diagnostic> unshifted_diagnostics(
@@ -578,8 +605,8 @@ void phase_score (PhaseResult& result, std::span<const f64> reference, std::span
     f64 reference_square_running_sum  = 0.0;
     f64 comparison_square_running_sum = 0.0;
     for (std::ptrdiff_t idx = 0; idx < reference_n; ++idx) {
-        const f64 x = value_at(reference, idx);
-        const f64 y = value_at(comparison, idx);
+        const f64 x = baseline_reference_scale == 0.0 ? 0.0 : value_at(reference, idx) / baseline_reference_scale;
+        const f64 y = baseline_comparison_scale == 0.0 ? 0.0 : value_at(comparison, idx) / baseline_comparison_scale;
         reference_running_sum += x;
         comparison_running_sum += y;
         reference_square_running_sum += x * x;
@@ -649,8 +676,16 @@ void phase_score (PhaseResult& result, std::span<const f64> reference, std::span
     comparison_fft.resize(phase_fft_size);
     phase_fft_work.resize(phase_fft_size);
     for (std::size_t idx = 0; idx < phase_n; ++idx) {
-        reference_fft[idx]  = {value_at(reference, static_cast<std::ptrdiff_t>(idx)), 0.0};
-        comparison_fft[idx] = {value_at(comparison, static_cast<std::ptrdiff_t>(phase_n - idx - 1U)), 0.0};
+        const f64 reference_value =
+            baseline_reference_scale == 0.0
+                ? 0.0
+                : value_at(reference, static_cast<std::ptrdiff_t>(idx)) / baseline_reference_scale;
+        const f64 comparison_value =
+            baseline_comparison_scale == 0.0
+                ? 0.0
+                : value_at(comparison, static_cast<std::ptrdiff_t>(phase_n - idx - 1U)) / baseline_comparison_scale;
+        reference_fft[idx]  = {reference_value, 0.0};
+        comparison_fft[idx] = {comparison_value, 0.0};
     }
     std::fill(reference_fft.begin() + static_cast<std::ptrdiff_t>(phase_n), reference_fft.end(), c128 {0.0, 0.0});
     std::fill(comparison_fft.begin() + static_cast<std::ptrdiff_t>(phase_n), comparison_fft.end(), c128 {0.0, 0.0});
@@ -763,20 +798,30 @@ void phase_score (PhaseResult& result, std::span<const f64> reference, std::span
             const f64 comparison_square_sum =
                 comparison_square_prefix_sum[static_cast<std::size_t>(candidate_comparison_start + length)] -
                 comparison_square_prefix_sum[static_cast<std::size_t>(candidate_comparison_start)];
-            const f64  reference_mean_square  = reference_sum * reference_sum * inv_n;
-            const f64  comparison_mean_square = comparison_sum * comparison_sum * inv_n;
-            const f64  numerator              = product_sum - reference_sum * comparison_sum * inv_n;
-            const f64  reference_var          = reference_square_sum - reference_mean_square;
-            const f64  comparison_var         = comparison_square_sum - comparison_mean_square;
-            const f64  reference_scale        = std::max(reference_square_sum, std::abs(reference_mean_square));
-            const f64  comparison_scale       = std::max(comparison_square_sum, std::abs(comparison_mean_square));
-            const f64  reference_tol  = std::numeric_limits<f64>::epsilon() * std::max(1.0, reference_scale) * 64.0;
-            const f64  comparison_tol = std::numeric_limits<f64>::epsilon() * std::max(1.0, comparison_scale) * 64.0;
-            const bool undefined_candidate = !(reference_var > reference_tol && comparison_var > comparison_tol);
-            f64        candidate_rho       = 0.0;
+            const f64 reference_mean_square  = reference_sum * reference_sum * inv_n;
+            const f64 comparison_mean_square = comparison_sum * comparison_sum * inv_n;
+            const f64 numerator              = product_sum - reference_sum * comparison_sum * inv_n;
+            const f64 reference_var          = reference_square_sum - reference_mean_square;
+            const f64 comparison_var         = comparison_square_sum - comparison_mean_square;
+            const f64 reference_scale        = std::max(reference_square_sum, std::abs(reference_mean_square));
+            const f64 comparison_scale       = std::max(comparison_square_sum, std::abs(comparison_mean_square));
+            const f64 reference_tol  = std::numeric_limits<f64>::epsilon() * std::max(1.0, reference_scale) * 64.0;
+            const f64 comparison_tol = std::numeric_limits<f64>::epsilon() * std::max(1.0, comparison_scale) * 64.0;
+            bool      undefined_candidate = !(std::isfinite(reference_var) && std::isfinite(comparison_var) &&
+                                              reference_var > reference_tol && comparison_var > comparison_tol);
+            f64       candidate_rho       = values_equal_for_shift(reference, comparison, candidate_reference_start,
+                                                                   candidate_comparison_start, length)
+                                              ? 1.0
+                                              : 0.0;
             if (!undefined_candidate) {
                 candidate_rho = numerator / std::sqrt(reference_var * comparison_var);
-                if (candidate_rho > 1.0) {
+                if (!std::isfinite(candidate_rho)) {
+                    undefined_candidate = true;
+                    candidate_rho       = values_equal_for_shift(reference, comparison, candidate_reference_start,
+                                                                 candidate_comparison_start, length)
+                                            ? 1.0
+                                            : 0.0;
+                } else if (candidate_rho > 1.0) {
                     candidate_rho = 1.0;
                 } else if (candidate_rho < -1.0) {
                     candidate_rho = -1.0;
