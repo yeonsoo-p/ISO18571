@@ -1,7 +1,5 @@
 # TODO
 
-- Implement warning messages for non f64 inputs
-
 - Revamp test suite including
   - Against Annex:
     - Overall rating R
@@ -97,16 +95,10 @@
     - Uniform large dt
       - Expected response: Accept, no overflow, scores are not NaN/Inf
 
-  - Need to put more edge cases into tests in general
-
-- Investigate edge cases
-  - I have serious doubts about type conversion. Need to figure out what exactly is tested and how it is evaluated
+- Implement warning messages for non f64 inputs
 
 - Reinforce f16 implementation
   - Align with C++23 stl implementation
-
-- Need to wire annex.py and signals.py into main.py and notebook
-- signal.py should be able to generate sufficent edge cases. In this case instead of hard coding the numbers, we need to be able to produce the array programmatically.
 
 - Since the documentation does say about having same timeframe, and having interval, and 10ms, we need to emit warning at least.
 
@@ -114,8 +106,4 @@
 
 - Default values source?
 
-- Test helper functions are all over the place
-- Study proper shifted n < 9 path; maybe the throw is unnecessary
 - Need to find magic numbers
-
-[numeric.h (line 57)](/home/user/workspace/ISO/ISO18571/src/numeric.h:57), [numeric.h (line 80)](/home/user/workspace/ISO/ISO18571/src/numeric.h:80), [_core.cpp (line 275)](/home/user/workspace/ISO/ISO18571/python/iso18571/_core.cpp:275), [_core.cpp (line 444)](/home/user/workspace/ISO/ISO18571/python/iso18571/_core.cpp:444): floating time validation uses a fixed absolute tolerance, so tiny non-uniform or mismatched intervals are accepted. I reproduced float64 alternating 1e-12/2e-12 steps being accepted, and reference dt=1e-12 vs comparison dt=2e-12 being accepted. This violates the (n, 2) uniform/matching time contract and feeds an invalid single dt into slope scoring. Use a DT-specific tolerance that cannot be dominated by a large fixed absolute floor, and add tests for tiny float16, float32, and float64 alternating intervals plus reference/comparison mismatch cases.

@@ -147,9 +147,19 @@ class SignalGenerator:
                 return self
             return self.with_time_dtype(dtype)
 
-        time_dtype = _normalize_dtype(
-            dtype if dtype is not None else _default_time_case_dtype(case)
-        )
+        if dtype is None:
+            if case == "signed_endpoint_overflow":
+                time_dtype = _normalize_dtype(np.int64)
+            elif case == "long_signed":
+                time_dtype = _normalize_dtype(np.int16)
+            elif case == "wrapped_integer":
+                time_dtype = _normalize_dtype(np.int8)
+            elif case == "float_endpoint_span_overflow":
+                time_dtype = _normalize_dtype(np.float64)
+            else:
+                raise ValueError(f"Unsupported time case: {case}")
+        else:
+            time_dtype = _normalize_dtype(dtype)
         if case == "signed_endpoint_overflow":
             if not np.issubdtype(time_dtype, np.signedinteger):
                 raise ValueError(
@@ -233,13 +243,28 @@ class SignalGenerator:
         rng = np.random.default_rng(self.seed)
         for component in self.components:
             shifted_time = time - component.sample_shift * self.dt
-            values = _as_values(
-                _call_signal_function(
-                    component.function, shifted_time, rng, component.params
-                ),
-                self.n,
-                component.function,
+            signature = inspect.signature(component.function)
+            accepts_rng = "rng" in signature.parameters or any(
+                parameter.kind == inspect.Parameter.VAR_KEYWORD
+                for parameter in signature.parameters.values()
             )
+            if accepts_rng:
+                raw_values = component.function(
+                    shifted_time, rng=rng, **component.params
+                )
+            else:
+                raw_values = component.function(shifted_time, **component.params)
+
+            values = np.asarray(raw_values, dtype=np.float64)
+            if values.ndim == 0:
+                values = np.full(self.n, float(values), dtype=np.float64)
+            elif values.shape != (self.n,):
+                name = getattr(component.function, "__name__", repr(component.function))
+                raise ValueError(
+                    f"{name} returned shape {values.shape}, expected ({self.n},)"
+                )
+            else:
+                values = values.astype(np.float64, copy=False)
             total += component.scale * values + component.offset
         return total
 
@@ -477,58 +502,8 @@ def sine_noise(
     )
 
 
-def _call_signal_function(
-    function: Callable[
-        ...,
-        NDArray[np.float64] | Sequence[float | int] | float | int,
-    ],
-    time: NDArray[np.float64],
-    rng: np.random.Generator,
-    params: dict[str, Any],
-) -> NDArray[np.float64] | Sequence[float | int] | float | int:
-    signature = inspect.signature(function)
-    accepts_rng = "rng" in signature.parameters or any(
-        parameter.kind == inspect.Parameter.VAR_KEYWORD
-        for parameter in signature.parameters.values()
-    )
-    if accepts_rng:
-        return function(time, rng=rng, **params)
-    return function(time, **params)
-
-
-def _as_values(
-    values: NDArray[np.float64] | Sequence[float | int] | float | int,
-    n: int,
-    function: Callable[
-        ...,
-        NDArray[np.float64] | Sequence[float | int] | float | int,
-    ],
-) -> NDArray[np.float64]:
-    array = np.asarray(values, dtype=np.float64)
-    if array.ndim == 0:
-        return np.full(n, float(array), dtype=np.float64)
-    if array.shape != (n,):
-        name = getattr(function, "__name__", repr(function))
-        raise ValueError(f"{name} returned shape {array.shape}, expected ({n},)")
-    return array.astype(np.float64, copy=False)
-
-
 def _normalize_dtype(dtype: DTypeLike) -> np.dtype[Any]:
     return np.dtype(dtype)
-
-
-def _default_time_case_dtype(case: TimeCase) -> DTypeLike:
-    if case == "affine":
-        return np.float64
-    if case == "signed_endpoint_overflow":
-        return np.int64
-    if case == "long_signed":
-        return np.int16
-    if case == "wrapped_integer":
-        return np.int8
-    if case == "float_endpoint_span_overflow":
-        return np.float64
-    raise ValueError(f"Unsupported time case: {case}")
 
 
 def _require_supported_time_dtype(dtype: np.dtype[Any]) -> None:

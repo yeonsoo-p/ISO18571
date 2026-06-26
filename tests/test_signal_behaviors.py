@@ -250,6 +250,35 @@ def test_huge_alternating_shifted_signal_selects_finite_phase_alignment() -> Non
     assert scorer.scores["phase_shift_length"] == 64
 
 
+def test_phase_shift_that_leaves_too_few_samples_uses_unshifted_alignment() -> None:
+    reference_values = np.arange(9, dtype=np.float64)
+    comparison_values = np.concatenate(([999.0], reference_values[:-1]))
+    reference = _curve(reference_values)
+    comparison = _curve(comparison_values)
+
+    unshifted_correlation = float(
+        np.corrcoef(reference_values, comparison_values)[0, 1]
+    )
+    shifted_correlation = float(
+        np.corrcoef(reference_values[:-1], comparison_values[1:])[0, 1]
+    )
+    assert shifted_correlation == pytest.approx(1.0)
+    assert shifted_correlation > unshifted_correlation
+
+    scorer, messages = _score_with_warnings(reference, comparison)
+
+    assert messages == [
+        "ISO18571 phase alignment left fewer than 9 samples; using unshifted alignment"
+    ]
+    assert scorer.scores["phase_n_eps"] == 0
+    assert scorer.scores["phase_reference_start"] == 0
+    assert scorer.scores["phase_comparison_start"] == 0
+    assert scorer.scores["phase_shift_length"] == 9
+    np.testing.assert_array_equal(scorer.shifted_reference_values, reference_values)
+    np.testing.assert_array_equal(scorer.shifted_comparison_values, comparison_values)
+    assert np.isfinite(scorer.scores["R"])
+
+
 def test_infinite_slope_error_scores_zero_without_nan() -> None:
     reference_values = np.nextafter(0.0, 1.0) * np.arange(16, dtype=np.float64)
     comparison_values = np.arange(16, dtype=np.float64) / 15.0

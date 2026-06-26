@@ -84,14 +84,22 @@ class AnnexCase:
     @classmethod
     def from_csv(cls, path: str | Path) -> AnnexCase:
         csv_path = Path(path)
-        rows = _read_csv_rows(csv_path)
+        with csv_path.open(newline="") as csv_file:
+            rows = list(csv.reader(csv_file))
         if len(rows) < 2:
             raise ValueError(f"{csv_path} must contain a header and unit row")
 
         header = tuple(rows[0])
         units = tuple(rows[1])
-        _require_official_header(csv_path, header)
-        _require_official_units(csv_path, units)
+        if header != OFFICIAL_COLUMNS:
+            missing = [name for name in OFFICIAL_COLUMNS if name not in header]
+            if missing:
+                raise ValueError(
+                    f"{csv_path} is missing required Annex columns: {', '.join(missing)}"
+                )
+            raise ValueError(f"{csv_path} uses unsupported Annex column order")
+        if units != OFFICIAL_UNITS:
+            raise ValueError(f"{csv_path} uses unsupported Annex unit row")
 
         data_rows = rows[2:]
         parsed: dict[str, list[float]] = {name: [] for name in OFFICIAL_COLUMNS}
@@ -102,9 +110,17 @@ class AnnexCase:
                     f"columns, got {len(row)}"
                 )
             for name, raw_value in zip(OFFICIAL_COLUMNS, row, strict=True):
-                parsed[name].append(
-                    _parse_float_or_nan(csv_path, line_number, name, raw_value)
-                )
+                value = raw_value.strip()
+                if value == "":
+                    parsed[name].append(math.nan)
+                    continue
+                try:
+                    parsed[name].append(float(value))
+                except ValueError as exc:
+                    raise ValueError(
+                        f"{csv_path}:{line_number}: {name} has non-numeric value "
+                        f"{raw_value!r}"
+                    ) from exc
 
         columns = {
             name: AnnexColumn(
@@ -126,12 +142,11 @@ class AnnexCase:
             writer.writerow(OFFICIAL_COLUMNS)
             writer.writerow([self.columns[name].unit for name in OFFICIAL_COLUMNS])
             for row_index in range(row_count):
-                writer.writerow(
-                    [
-                        _format_float(self.columns[name].values[row_index])
-                        for name in OFFICIAL_COLUMNS
-                    ]
-                )
+                row = []
+                for name in OFFICIAL_COLUMNS:
+                    value = float(self.columns[name].values[row_index])
+                    row.append("" if math.isnan(value) else format(value, ".17g"))
+                writer.writerow(row)
 
     @property
     def row_count(self) -> int:
@@ -219,7 +234,9 @@ class AnnexDataset:
         )
         archive.parent.mkdir(parents=True, exist_ok=True)
         if not archive.exists() or _sha256(archive) != sha256:
-            _download(url, archive)
+            with urllib.request.urlopen(url, timeout=60.0) as response:
+                with archive.open("wb") as output:
+                    shutil.copyfileobj(response, output)
 
         actual_sha256 = _sha256(archive)
         if actual_sha256 != sha256:
@@ -227,7 +244,25 @@ class AnnexDataset:
                 f"{archive} SHA-256 mismatch: expected {sha256}, got {actual_sha256}"
             )
 
-        _extract_official_zip(archive, dataset_root)
+        with tempfile.TemporaryDirectory(
+            prefix="iso18571-annex-"
+        ) as temporary_directory:
+            staging = Path(temporary_directory)
+            with zipfile.ZipFile(archive) as zip_file:
+                for member in zip_file.infolist():
+                    member_path = Path(member.filename)
+                    if (
+                        member_path.name != member.filename
+                        or member_path.suffix.lower() != ".csv"
+                    ):
+                        raise ValueError(
+                            f"{archive} contains unsupported member {member.filename!r}"
+                        )
+                    zip_file.extract(member, staging)
+
+            dataset_root.mkdir(parents=True, exist_ok=True)
+            for path in staging.glob("*.csv"):
+                shutil.copy2(path, dataset_root / path.name)
         if not _has_official_cases(dataset_root):
             raise ValueError(
                 f"{archive} did not provide {OFFICIAL_ANNEX_CASE_COUNT} official Annex CSV files"
@@ -243,47 +278,6 @@ class AnnexDataset:
             yield AnnexCase.from_csv(path)
 
 
-def _read_csv_rows(path: Path) -> list[list[str]]:
-    with path.open(newline="") as csv_file:
-        return list(csv.reader(csv_file))
-
-
-def _require_official_header(path: Path, header: tuple[str, ...]) -> None:
-    if header != OFFICIAL_COLUMNS:
-        missing = [name for name in OFFICIAL_COLUMNS if name not in header]
-        if missing:
-            raise ValueError(
-                f"{path} is missing required Annex columns: {', '.join(missing)}"
-            )
-        raise ValueError(f"{path} uses unsupported Annex column order")
-
-
-def _require_official_units(path: Path, units: tuple[str, ...]) -> None:
-    if units != OFFICIAL_UNITS:
-        raise ValueError(f"{path} uses unsupported Annex unit row")
-
-
-def _parse_float_or_nan(
-    path: Path, line_number: int, column: str, raw_value: str
-) -> float:
-    value = raw_value.strip()
-    if value == "":
-        return math.nan
-    try:
-        return float(value)
-    except ValueError as exc:
-        raise ValueError(
-            f"{path}:{line_number}: {column} has non-numeric value {raw_value!r}"
-        ) from exc
-
-
-def _format_float(value: float | np.float64) -> str:
-    value_float = float(value)
-    if math.isnan(value_float):
-        return ""
-    return format(value_float, ".17g")
-
-
 def _has_official_cases(root: Path) -> bool:
     paths = sorted(root.glob("*.csv"))
     return len(paths) == OFFICIAL_ANNEX_CASE_COUNT
@@ -295,29 +289,3 @@ def _sha256(path: Path) -> str:
         for chunk in iter(lambda: binary_file.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
-
-
-def _download(url: str, destination: Path) -> None:
-    with urllib.request.urlopen(url, timeout=60.0) as response:
-        with destination.open("wb") as output:
-            shutil.copyfileobj(response, output)
-
-
-def _extract_official_zip(archive: Path, destination: Path) -> None:
-    with tempfile.TemporaryDirectory(prefix="iso18571-annex-") as temporary_directory:
-        staging = Path(temporary_directory)
-        with zipfile.ZipFile(archive) as zip_file:
-            for member in zip_file.infolist():
-                member_path = Path(member.filename)
-                if (
-                    member_path.name != member.filename
-                    or member_path.suffix.lower() != ".csv"
-                ):
-                    raise ValueError(
-                        f"{archive} contains unsupported member {member.filename!r}"
-                    )
-                zip_file.extract(member, staging)
-
-        destination.mkdir(parents=True, exist_ok=True)
-        for path in staging.glob("*.csv"):
-            shutil.copy2(path, destination / path.name)

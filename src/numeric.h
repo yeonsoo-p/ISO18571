@@ -53,22 +53,6 @@ constexpr f128 default_relative_tolerance () noexcept {
     }
 }
 
-template<typename T>
-constexpr f128 default_absolute_tolerance () noexcept {
-    using Scalar = ScalarTypeT<T>;
-    if constexpr (std::is_integral_v<Scalar>) {
-        return 0.0L;
-    } else if constexpr (std::is_same_v<Scalar, f16>) {
-        return 1.0e-3L;
-    } else if constexpr (std::is_same_v<Scalar, f32>) {
-        return 1.0e-8L;
-    } else if constexpr (std::is_same_v<Scalar, f64> || std::is_same_v<Scalar, f128>) {
-        return 1.0e-9L;
-    } else {
-        static_assert(always_false_v<Scalar>, "Unsupported numeric::almost_equal scalar type");
-    }
-}
-
 template<typename T, typename U>
 bool floating_almost_equal (T left, U right) noexcept {
     const f128 left_value  = static_cast<f128>(left);
@@ -78,10 +62,9 @@ bool floating_almost_equal (T left, U right) noexcept {
     }
 
     const f128 rtol  = std::max(default_relative_tolerance<T>(), default_relative_tolerance<U>());
-    const f128 atol  = std::max(default_absolute_tolerance<T>(), default_absolute_tolerance<U>());
     const f128 diff  = std::fabs(left_value - right_value);
     const f128 scale = std::max(std::fabs(left_value), std::fabs(right_value));
-    return diff <= std::max(rtol * scale, atol);
+    return diff <= rtol * scale;
 }
 
 } // namespace detail

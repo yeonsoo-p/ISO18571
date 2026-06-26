@@ -153,10 +153,10 @@ def test_signal_generator_composes_functions_and_scaling() -> None:
 
 
 def test_signal_generator_supports_custom_callable_without_rng() -> None:
-    def quadratic(time: NDArray[np.float64], *, gain: float) -> NDArray[np.float64]:
-        return np.asarray(gain * time * time, dtype=np.float64)
-
-    generator = SignalGenerator(4, 1.0).add(quadratic, gain=2.0)
+    generator = SignalGenerator(4, 1.0).add(
+        lambda time, *, gain: np.asarray(gain * time * time, dtype=np.float64),
+        gain=2.0,
+    )
 
     assert np.allclose(
         generator.values(), np.array([0.0, 2.0, 8.0, 18.0]), rtol=1.0e-7, atol=0.0

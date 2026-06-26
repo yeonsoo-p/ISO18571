@@ -139,6 +139,16 @@ def test_float_time_uniformity_uses_dtype_tolerance(dtype: Any) -> None:
         ISO18571(rejected, rejected)
 
 
+@pytest.mark.parametrize("dtype", [np.float16, np.float32, np.float64])
+def test_tiny_float_time_alternating_intervals_are_rejected(dtype: Any) -> None:
+    time = _tiny_alternating_time(dtype)
+    curve = _curve_from_time(time, dtype=dtype)
+
+    assert np.all(np.diff(time.astype(np.longdouble)) > 0)
+    with pytest.raises(ValueError, match="constant interval"):
+        ISO18571(curve, curve)
+
+
 @pytest.mark.parametrize(
     ("dtype", "inside_delta", "outside_delta"),
     [
@@ -165,6 +175,20 @@ def test_float_curve_dt_matching_uses_dtype_tolerance(
     ISO18571(reference, accepted)
     with pytest.raises(ValueError, match="matching time intervals"):
         ISO18571(reference, rejected)
+
+
+@pytest.mark.parametrize("dtype", [np.float16, np.float32, np.float64])
+def test_tiny_float_curve_dt_mismatch_is_rejected(dtype: Any) -> None:
+    values = np.arange(10, dtype=np.float64)
+    reference_time = _tiny_uniform_time(dtype, step_multiplier=1.0)
+    comparison_time = _tiny_uniform_time(dtype, step_multiplier=2.0)
+    reference = _curve_from_time(reference_time, values, dtype=dtype)
+    comparison = _curve_from_time(comparison_time, values, dtype=dtype)
+
+    assert np.all(np.diff(reference_time.astype(np.longdouble)) > 0)
+    assert np.all(np.diff(comparison_time.astype(np.longdouble)) > 0)
+    with pytest.raises(ValueError, match="matching time intervals"):
+        ISO18571(reference, comparison)
 
 
 @pytest.mark.parametrize(
@@ -455,13 +479,40 @@ def _curve_from_time(
     return np.column_stack((time, curve_values)).astype(dtype, copy=False)
 
 
+def _tiny_step(dtype: Any) -> Any:
+    if dtype is np.float16:
+        return np.nextafter(np.float16(0.0), np.float16(1.0), dtype=np.float16)
+    return dtype(1.0e-12)
+
+
+def _tiny_alternating_time(dtype: Any) -> np.ndarray:
+    base_step = _tiny_step(dtype)
+    steps = np.empty(9, dtype=dtype)
+    steps[::2] = base_step
+    steps[1::2] = dtype(base_step * dtype(2.0))
+    return _time_from_steps(steps, dtype=dtype)
+
+
+def _tiny_uniform_time(dtype: Any, *, step_multiplier: float) -> np.ndarray:
+    base_step = _tiny_step(dtype)
+    steps = np.full(9, dtype(base_step * dtype(step_multiplier)), dtype=dtype)
+    return _time_from_steps(steps, dtype=dtype)
+
+
+def _time_from_steps(steps: np.ndarray, *, dtype: Any) -> np.ndarray:
+    time = np.empty(steps.shape[0] + 1, dtype=dtype)
+    time[0] = dtype(0.0)
+    time[1:] = np.cumsum(steps, dtype=dtype)
+    return time
+
+
 def _perturbed_time(dtype: Any, *, inside: bool) -> np.ndarray:
     if dtype is np.float16:
-        float16_time = (np.arange(10, dtype=np.float64) * 0.25).astype(np.float16)
-        float16_time[5] = np.nextafter(
-            float16_time[5], np.float16(math.inf), dtype=np.float16
+        float16_time = (np.arange(10, dtype=np.float64) - 5.0 + 0.0625).astype(
+            np.float16
         )
-        if not inside:
+        perturbation_count = 1 if inside else 40
+        for _ in range(perturbation_count):
             float16_time[5] = np.nextafter(
                 float16_time[5], np.float16(math.inf), dtype=np.float16
             )

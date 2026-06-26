@@ -181,7 +181,12 @@ class ProcessMemoryMonitor:
             return self._snapshot
 
     def record_once(self) -> None:
-        snapshot = process_memory_snapshot(self._pid)
+        if sys.platform.startswith("linux"):
+            snapshot = linux_process_memory_snapshot(self._pid)
+        elif sys.platform == "win32":
+            snapshot = windows_process_memory_snapshot(self._pid)
+        else:
+            snapshot = MemorySnapshot()
         with self._lock:
             self._snapshot = self._snapshot.merged(snapshot)
 
@@ -316,16 +321,6 @@ def linux_process_memory_snapshot(pid: int) -> MemorySnapshot:
     return MemorySnapshot(peak_rss_mib=peak_rss_mib, peak_swap_mib=peak_swap_mib)
 
 
-def linux_current_memory_snapshot() -> MemorySnapshot:
-    snapshot = linux_process_memory_snapshot(os.getpid())
-    if snapshot.peak_rss_mib is not None or resource is None:
-        return snapshot
-    return MemorySnapshot(
-        peak_rss_mib=float(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss) / 1024.0,
-        peak_swap_mib=snapshot.peak_swap_mib,
-    )
-
-
 def windows_memory_snapshot_for_handle(process_handle: int) -> MemorySnapshot:
     counters = ProcessMemoryCounters()
     counters.cb = ctypes.sizeof(ProcessMemoryCounters)
@@ -360,32 +355,6 @@ def windows_process_memory_snapshot(pid: int) -> MemorySnapshot:
         windll.kernel32.CloseHandle(handle)
 
 
-def windows_current_memory_snapshot() -> MemorySnapshot:
-    windll: Any = getattr(ctypes, "windll")
-    return windows_memory_snapshot_for_handle(windll.kernel32.GetCurrentProcess())
-
-
-def process_memory_snapshot(pid: int) -> MemorySnapshot:
-    if sys.platform.startswith("linux"):
-        return linux_process_memory_snapshot(pid)
-    if sys.platform == "win32":
-        return windows_process_memory_snapshot(pid)
-    return MemorySnapshot()
-
-
-def current_memory_snapshot() -> MemorySnapshot:
-    if sys.platform.startswith("linux"):
-        return linux_current_memory_snapshot()
-    if sys.platform == "win32":
-        return windows_current_memory_snapshot()
-    if resource is None:
-        return MemorySnapshot()
-    value = float(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
-    if sys.platform == "darwin":
-        return MemorySnapshot(peak_rss_mib=value / (1024.0 * 1024.0))
-    return MemorySnapshot(peak_rss_mib=value / 1024.0)
-
-
 def worker_result(
     status: str,
     score: float | None,
@@ -393,7 +362,25 @@ def worker_result(
     child_elapsed_ms: float | None,
     error: str | None,
 ) -> WorkerResult:
-    memory = current_memory_snapshot()
+    if sys.platform.startswith("linux"):
+        memory = linux_process_memory_snapshot(os.getpid())
+        if memory.peak_rss_mib is None and resource is not None:
+            memory = MemorySnapshot(
+                peak_rss_mib=float(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
+                / 1024.0,
+                peak_swap_mib=memory.peak_swap_mib,
+            )
+    elif sys.platform == "win32":
+        windll: Any = getattr(ctypes, "windll")
+        memory = windows_memory_snapshot_for_handle(windll.kernel32.GetCurrentProcess())
+    elif resource is None:
+        memory = MemorySnapshot()
+    else:
+        value = float(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
+        if sys.platform == "darwin":
+            memory = MemorySnapshot(peak_rss_mib=value / (1024.0 * 1024.0))
+        else:
+            memory = MemorySnapshot(peak_rss_mib=value / 1024.0)
     return WorkerResult(
         status=status,
         score=score,
@@ -402,20 +389,6 @@ def worker_result(
         peak_rss_mib=memory.peak_rss_mib,
         peak_swap_mib=memory.peak_swap_mib,
         error=error,
-    )
-
-
-def apply_monitor_snapshot(
-    result: WorkerResult, snapshot: MemorySnapshot
-) -> WorkerResult:
-    return WorkerResult(
-        status=result.status,
-        score=result.score,
-        timings=result.timings,
-        child_elapsed_ms=result.child_elapsed_ms,
-        peak_rss_mib=max_optional(result.peak_rss_mib, snapshot.peak_rss_mib),
-        peak_swap_mib=max_optional(result.peak_swap_mib, snapshot.peak_swap_mib),
-        error=result.error,
     )
 
 
@@ -448,7 +421,30 @@ def runtime_worker(length: int, connection: Connection) -> None:
             if message == "score":
                 connection.send(score_native_case(case))
             elif message == "memory":
-                connection.send(current_memory_snapshot())
+                if sys.platform.startswith("linux"):
+                    memory = linux_process_memory_snapshot(os.getpid())
+                    if memory.peak_rss_mib is None and resource is not None:
+                        memory = MemorySnapshot(
+                            peak_rss_mib=float(
+                                resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+                            )
+                            / 1024.0,
+                            peak_swap_mib=memory.peak_swap_mib,
+                        )
+                elif sys.platform == "win32":
+                    windll: Any = getattr(ctypes, "windll")
+                    memory = windows_memory_snapshot_for_handle(
+                        windll.kernel32.GetCurrentProcess()
+                    )
+                elif resource is None:
+                    memory = MemorySnapshot()
+                else:
+                    value = float(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
+                    if sys.platform == "darwin":
+                        memory = MemorySnapshot(peak_rss_mib=value / (1024.0 * 1024.0))
+                    else:
+                        memory = MemorySnapshot(peak_rss_mib=value / 1024.0)
+                connection.send(memory)
             elif message == "stop":
                 return
             else:
@@ -543,7 +539,17 @@ def run_load_child(length: int) -> WorkerResult:
             f"{process.exitcode}",
         )
     parent.close()
-    return apply_monitor_snapshot(result, monitor_snapshot)
+    return WorkerResult(
+        status=result.status,
+        score=result.score,
+        timings=result.timings,
+        child_elapsed_ms=result.child_elapsed_ms,
+        peak_rss_mib=max_optional(result.peak_rss_mib, monitor_snapshot.peak_rss_mib),
+        peak_swap_mib=max_optional(
+            result.peak_swap_mib, monitor_snapshot.peak_swap_mib
+        ),
+        error=result.error,
+    )
 
 
 def start_runtime_child(length: int) -> tuple[BaseProcess, Connection, WorkerResult]:
