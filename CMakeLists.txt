@@ -141,13 +141,6 @@ if(ISO18571_BUILD_PYTHON)
         set_target_properties(_core PROPERTIES SUFFIX "${ISO18571_EXTENSION_SUFFIX}")
     endif()
 
-    if(NOT MSVC)
-        set_source_files_properties(
-            "${CMAKE_CURRENT_SOURCE_DIR}/python/iso18571/_core.cpp"
-            PROPERTIES COMPILE_OPTIONS "-Wno-pedantic"
-        )
-    endif()
-
     install(TARGETS _core
         LIBRARY DESTINATION iso18571
         RUNTIME DESTINATION iso18571

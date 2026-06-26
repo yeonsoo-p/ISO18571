@@ -37,6 +37,10 @@ enum class DiagnosticComponent {
 };
 
 enum class DiagnosticCode {
+    InputNonFloat64Dtype,
+    InputDtypeMismatch,
+    InputIntervalBelowRecommendedMinimum,
+    InputTimeStartNotZero,
     PhaseUndefinedCorrelation,
     PhaseShiftClampedToUnshifted,
     MagnitudeZeroReferenceDenominator,

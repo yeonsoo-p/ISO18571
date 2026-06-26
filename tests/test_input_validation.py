@@ -17,6 +17,26 @@ from tools.signals import SignalGenerator, TimeCase
 ScoreValue = float | int
 FloatCurve = np.ndarray[tuple[int, int], np.dtype[np.float64]]
 SCORE_FIELD_TOLERANCE: Final = 1.0e-12
+NON_FLOAT64_DTYPE_WARNING: Final = (
+    "ISO18571 input arrays are converted to float64 internally; "
+    "non-float64 dtype detected"
+)
+NON_FLOAT64_DTYPE_WARNINGS: Final = (
+    NON_FLOAT64_DTYPE_WARNING,
+    NON_FLOAT64_DTYPE_WARNING,
+)
+DTYPE_MISMATCH_WARNING: Final = (
+    "ISO18571 reference_curve and comparison_curve dtypes differ; "
+    "scoring will continue after dtype conversion"
+)
+INTERVAL_BELOW_RECOMMENDED_WARNING: Final = (
+    "ISO18571 input time interval is below 0.01 s (10 ms); "
+    "scoring will continue with the supplied interval"
+)
+TIME_START_NOT_ZERO_WARNING: Final = (
+    "ISO18571 input time axis does not start at 0; "
+    "scoring will continue with the supplied samples"
+)
 
 
 def test_shorter_than_nine_samples_is_rejected_by_slope_rating() -> None:
@@ -50,6 +70,21 @@ def test_unsupported_data_types_are_rejected(dtype: Any) -> None:
 
     with pytest.raises(ValueError, match="unsupported dtype"):
         ISO18571(curve, curve)
+
+
+@pytest.mark.parametrize("boolean_value", [True, np.bool_(True)])
+@pytest.mark.parametrize("param_name", ["k_z", "k_p", "eps_m"])
+def test_boolean_score_params_are_rejected(param_name: str, boolean_value: Any) -> None:
+    curve = _curve(np.arange(12, dtype=np.float64))
+    rejected = cast(Any, boolean_value)
+
+    with pytest.raises(ValueError, match=rf"{param_name} must not be boolean"):
+        if param_name == "k_z":
+            ISO18571(curve, curve, k_z=rejected)
+        elif param_name == "k_p":
+            ISO18571(curve, curve, k_p=rejected)
+        else:
+            ISO18571(curve, curve, eps_m=rejected)
 
 
 @pytest.mark.parametrize("bad_value", [math.nan, math.inf, -math.inf])
@@ -97,8 +132,9 @@ def test_wide_signed_integer_time_axes_avoid_delta_overflow(dtype: Any) -> None:
     )
     expected_dt = int(curve[1, 0]) - int(curve[0, 0])
 
-    scorer = ISO18571(curve, curve)
+    scorer, messages = _score_with_warnings(curve, curve)
 
+    assert messages == [*NON_FLOAT64_DTYPE_WARNINGS, TIME_START_NOT_ZERO_WARNING]
     assert scorer.dt == float(expected_dt)
 
 
@@ -134,7 +170,13 @@ def test_float_time_uniformity_uses_dtype_tolerance(dtype: Any) -> None:
     accepted = _curve_from_time(_perturbed_time(dtype, inside=True), dtype=dtype)
     rejected = _curve_from_time(_perturbed_time(dtype, inside=False), dtype=dtype)
 
-    ISO18571(accepted, accepted)
+    _scorer, messages = _score_with_warnings(accepted, accepted)
+    if dtype is np.float16:
+        assert messages == [*NON_FLOAT64_DTYPE_WARNINGS, TIME_START_NOT_ZERO_WARNING]
+    elif dtype is np.float32:
+        assert messages == [*NON_FLOAT64_DTYPE_WARNINGS]
+    else:
+        assert messages == []
     with pytest.raises(ValueError, match="constant interval"):
         ISO18571(rejected, rejected)
 
@@ -154,8 +196,12 @@ def test_float16_subnormal_time_interval_is_materialized_exactly() -> None:
     time = _tiny_uniform_time(np.float16, step_multiplier=1.0)
     curve = _curve_from_time(time, dtype=np.float16)
 
-    scorer = ISO18571(curve, curve)
+    scorer, messages = _score_with_warnings(curve, curve)
 
+    assert messages == [
+        *NON_FLOAT64_DTYPE_WARNINGS,
+        INTERVAL_BELOW_RECOMMENDED_WARNING,
+    ]
     assert scorer.dt == float(step)
 
 
@@ -182,7 +228,11 @@ def test_float_curve_dt_matching_uses_dtype_tolerance(
         dtype=dtype,
     )
 
-    ISO18571(reference, accepted)
+    _scorer, messages = _score_with_warnings(reference, accepted)
+    if dtype is np.float32:
+        assert messages == [*NON_FLOAT64_DTYPE_WARNINGS]
+    else:
+        assert messages == []
     with pytest.raises(ValueError, match="matching time intervals"):
         ISO18571(reference, rejected)
 
@@ -221,8 +271,12 @@ def test_huge_float_time_axes_avoid_endpoint_span_overflow(dtype: Any) -> None:
     with np.errstate(over="ignore"):
         endpoint_span = dtype(time[-1] - time[0])
 
-    scorer = ISO18571(curve, curve)
+    scorer, messages = _score_with_warnings(curve, curve)
 
+    if dtype is np.float32:
+        assert messages == [*NON_FLOAT64_DTYPE_WARNINGS, TIME_START_NOT_ZERO_WARNING]
+    else:
+        assert messages == [TIME_START_NOT_ZERO_WARNING]
     assert not np.isfinite(endpoint_span)
     assert np.all(np.isfinite(steps))
     assert scorer.dt == pytest.approx(
@@ -269,7 +323,8 @@ def test_zero_imaginary_complex_time_uniformity_uses_real_dtype_tolerance(
     accepted = _curve_from_time(_perturbed_time(real_dtype, inside=True), dtype=dtype)
     rejected = _curve_from_time(_perturbed_time(real_dtype, inside=False), dtype=dtype)
 
-    ISO18571(accepted, accepted)
+    _scorer, messages = _score_with_warnings(accepted, accepted)
+    assert messages == [*NON_FLOAT64_DTYPE_WARNINGS]
     with pytest.raises(ValueError, match="constant interval"):
         ISO18571(rejected, rejected)
 
@@ -281,11 +336,90 @@ def test_uniform_small_and_large_dt_values_are_accepted(dt: float) -> None:
     reference = np.column_stack((time, values))
     comparison = np.column_stack((time, values + 0.1))
 
-    scorer = ISO18571(reference, comparison)
+    scorer, messages = _score_with_warnings(reference, comparison)
 
+    if dt < 0.01:
+        assert messages == [INTERVAL_BELOW_RECOMMENDED_WARNING]
+    else:
+        assert messages == []
     assert scorer.dt == dt
     for key in ("R", "Z", "EP", "EM", "ES"):
         assert np.isfinite(scorer.scores[key])
+
+
+def test_same_non_float64_dtype_emits_input_warning_for_each_curve() -> None:
+    reference, comparison = _parity_curves(np.float32)
+
+    _scorer, messages = _score_with_warnings(reference, comparison)
+
+    assert messages == [*NON_FLOAT64_DTYPE_WARNINGS]
+
+
+def test_mixed_dtypes_emit_non_float64_and_mismatch_warnings() -> None:
+    reference_values = np.arange(12, dtype=np.float64)
+    comparison_values = reference_values + 0.25
+    reference = _curve(reference_values).astype(np.float32)
+    comparison = _curve(comparison_values)
+
+    _scorer, messages = _score_with_warnings(reference, comparison)
+
+    assert messages == [NON_FLOAT64_DTYPE_WARNING, DTYPE_MISMATCH_WARNING]
+
+
+def test_sub_10ms_interval_warns_and_scores() -> None:
+    values = np.arange(12, dtype=np.float64)
+    time = np.arange(values.shape[0], dtype=np.float64) * 0.001
+    curve = np.column_stack((time, values))
+
+    scorer, messages = _score_with_warnings(curve, curve)
+
+    assert messages == [INTERVAL_BELOW_RECOMMENDED_WARNING]
+    assert scorer.dt == 0.001
+    assert scorer.scores["R"] == 1.0
+
+
+@pytest.mark.parametrize("dtype", [np.float32, np.float64])
+def test_nominal_10ms_interval_does_not_emit_interval_warning(dtype: Any) -> None:
+    values = np.arange(12, dtype=np.float64)
+    time = np.arange(values.shape[0], dtype=np.float64) * 0.01
+    curve = np.column_stack((time, values)).astype(dtype, copy=False)
+
+    _scorer, messages = _score_with_warnings(curve, curve)
+
+    if dtype is np.float32:
+        assert messages == [*NON_FLOAT64_DTYPE_WARNINGS]
+    else:
+        assert messages == []
+
+
+@pytest.mark.parametrize(
+    ("reference_start", "comparison_start"),
+    [(1.0, 0.0), (0.0, 1.0), (1.0, 2.0)],
+)
+def test_nonzero_time_starts_warn_and_score(
+    reference_start: float, comparison_start: float
+) -> None:
+    values = np.arange(12, dtype=np.float64)
+    reference_time = reference_start + np.arange(values.shape[0], dtype=np.float64)
+    comparison_time = comparison_start + np.arange(values.shape[0], dtype=np.float64)
+    reference = np.column_stack((reference_time, values))
+    comparison = np.column_stack((comparison_time, values))
+
+    scorer, messages = _score_with_warnings(reference, comparison)
+
+    assert messages == [TIME_START_NOT_ZERO_WARNING]
+    assert scorer.scores["R"] == 1.0
+
+
+def test_invalid_params_do_not_emit_soft_input_warnings() -> None:
+    curve = _curve(np.arange(12, dtype=np.float64)).astype(np.float32)
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always", RuntimeWarning)
+        with pytest.raises(ValueError, match="positive integer"):
+            ISO18571(curve, curve, k_z=0)
+
+    assert caught == []
 
 
 def test_non_native_byte_order_is_rejected() -> None:
@@ -301,6 +435,7 @@ def test_non_native_byte_order_is_rejected() -> None:
     [
         (1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0, 0.0),
         (0.3333334, 0.3333333, 0.3333333, 0.0),
+        (0.4, 0.2, 0.2, 0.1999999995),
     ],
 )
 def test_almost_equal_weight_sums_are_accepted(
@@ -310,17 +445,37 @@ def test_almost_equal_weight_sums_are_accepted(
 
     scorer = _score_with_weights(curve, weights)
 
-    assert scorer.scores["R"] == pytest.approx(sum(weights))
+    assert scorer.scores["R"] == pytest.approx(1.0, abs=SCORE_FIELD_TOLERANCE)
 
 
-def test_accepted_weights_are_not_normalized() -> None:
-    curve = _curve(np.arange(16, dtype=np.float64))
+def test_accepted_overweight_sums_are_normalized_before_scoring() -> None:
+    reference = _curve(np.array([1.0, 3.0, 2.0, 5.0, 4.0, 7.0, 3.0, 6.0, 5.0, 8.0]))
+    comparison = _curve(np.array([1.5, 3.0, 2.5, 5.0, 4.0, 7.5, 3.0, 6.5, 5.0, 8.5]))
     weights = (0.4, 0.2, 0.2, 0.2000000005)
+    weight_sum = sum(weights)
+    normalized_weights = tuple(weight / weight_sum for weight in weights)
 
-    scorer = _score_with_weights(curve, weights)
+    actual = ISO18571(
+        reference,
+        comparison,
+        w_z=weights[0],
+        w_p=weights[1],
+        w_m=weights[2],
+        w_s=weights[3],
+    )
+    expected = ISO18571(
+        reference,
+        comparison,
+        w_z=normalized_weights[0],
+        w_p=normalized_weights[1],
+        w_m=normalized_weights[2],
+        w_s=normalized_weights[3],
+    )
 
-    assert scorer.scores["R"] == pytest.approx(sum(weights))
-    assert scorer.scores["R"] > 1.0
+    assert actual.scores["R"] == pytest.approx(
+        expected.scores["R"], abs=SCORE_FIELD_TOLERANCE
+    )
+    assert 0.0 <= actual.scores["R"] <= 1.0
 
 
 @pytest.mark.parametrize(
@@ -393,11 +548,16 @@ def test_accepted_integer_and_float_dtypes_match_float64_materialization(
 ) -> None:
     reference, comparison = _parity_curves(dtype)
 
-    actual = ISO18571(reference, comparison).scores
+    actual_scorer, actual_messages = _score_with_warnings(reference, comparison)
+    actual = actual_scorer.scores
     expected = ISO18571(
         reference.astype(np.float64), comparison.astype(np.float64)
     ).scores
 
+    if dtype is np.float64:
+        assert actual_messages == []
+    else:
+        assert actual_messages == [*NON_FLOAT64_DTYPE_WARNINGS]
     _assert_scores_match(actual, expected)
 
 
@@ -411,11 +571,13 @@ def test_float16_subnormal_values_match_float64_materialization() -> None:
     reference = _curve_from_time(time, reference_values, dtype=np.float16)
     comparison = _curve_from_time(time, comparison_values, dtype=np.float16)
 
-    actual = ISO18571(reference, comparison).scores
+    actual_scorer, actual_messages = _score_with_warnings(reference, comparison)
+    actual = actual_scorer.scores
     expected = ISO18571(
         reference.astype(np.float64), comparison.astype(np.float64)
     ).scores
 
+    assert actual_messages == [*NON_FLOAT64_DTYPE_WARNINGS]
     _assert_scores_match(actual, expected)
 
 
@@ -425,11 +587,13 @@ def test_zero_imaginary_complex_dtypes_ignore_imaginary_and_match_float64(
 ) -> None:
     reference, comparison = _parity_curves(dtype)
 
-    actual = ISO18571(reference, comparison).scores
+    actual_scorer, actual_messages = _score_with_warnings(reference, comparison)
+    actual = actual_scorer.scores
     expected = ISO18571(
         reference.real.astype(np.float64), comparison.real.astype(np.float64)
     ).scores
 
+    assert actual_messages == [*NON_FLOAT64_DTYPE_WARNINGS]
     _assert_scores_match(actual, expected)
 
 
@@ -565,7 +729,7 @@ def _parity_curves(dtype: Any) -> tuple[np.ndarray, np.ndarray]:
 
 
 def _score_with_warnings(
-    curve: FloatCurve, comparison: FloatCurve
+    curve: np.ndarray, comparison: np.ndarray
 ) -> tuple[ISO18571, list[str]]:
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always", RuntimeWarning)

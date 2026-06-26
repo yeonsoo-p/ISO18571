@@ -40,8 +40,17 @@ py::handle require_param (const py::dict& params, const char* name) {
     if (!params.contains(key)) {
         throw std::invalid_argument(std::string("Missing required score parameter: ") + name);
     }
-    py::handle value = params[key];
-    if (PyBool_Check(value.ptr()) != 0) {
+    py::handle value      = params[key];
+    bool       is_boolean = PyBool_Check(value.ptr()) != 0;
+    if (!is_boolean) {
+        py::object numpy_bool    = py::module_::import("numpy").attr("bool_");
+        const int  is_numpy_bool = PyObject_IsInstance(value.ptr(), numpy_bool.ptr());
+        if (is_numpy_bool < 0) {
+            throw py::error_already_set();
+        }
+        is_boolean = is_numpy_bool != 0;
+    }
+    if (is_boolean) {
         throw std::invalid_argument(std::string(name) + " must not be boolean");
     }
     return value;
@@ -393,24 +402,55 @@ f64 materialize_dt (const py::buffer_info& info, const char* curve_name, std::pt
 }
 
 f64 materialize_matching_dt (CurveInputDtype reference_dtype, const py::buffer_info& reference_info,
-                             CurveInputDtype comparison_dtype, const py::buffer_info& comparison_info,
-                             std::ptrdiff_t n) {
-    f64 reference_dt = 0.0;
+                             CurveInputDtype comparison_dtype, const py::buffer_info& comparison_info, std::ptrdiff_t n,
+                             std::vector<Diagnostic>& diagnostics) {
+    constexpr f64 kRecommendedMinimumDt              = 0.01;
+    f64           reference_dt                       = 0.0;
+    bool          interval_below_recommended_minimum = false;
+    bool          time_start_not_zero                = false;
     visit_curve_dtype(reference_dtype, [&] (auto reference_tag) {
-        using ReferenceT              = typename decltype(reference_tag)::type;
+        using ReferenceT                 = typename decltype(reference_tag)::type;
+        const ReferenceT* reference_data = static_cast<const ReferenceT*>(reference_info.ptr);
+        if (!numeric::almost_equal(real_component(reference_data[0]), 0)) {
+            time_start_not_zero = true;
+        }
         const auto typed_reference_dt = materialize_typed_dt<ReferenceT>(reference_info, "reference_curve", n);
         reference_dt                  = static_cast<f64>(typed_reference_dt);
         require_materialized_dt(reference_dt, "reference_curve");
+        if (reference_dt < kRecommendedMinimumDt && !numeric::almost_equal(typed_reference_dt, kRecommendedMinimumDt)) {
+            interval_below_recommended_minimum = true;
+        }
         visit_curve_dtype(comparison_dtype, [&] (auto comparison_tag) {
-            using ComparisonT              = typename decltype(comparison_tag)::type;
+            using ComparisonT                  = typename decltype(comparison_tag)::type;
+            const ComparisonT* comparison_data = static_cast<const ComparisonT*>(comparison_info.ptr);
+            if (!numeric::almost_equal(real_component(comparison_data[0]), 0)) {
+                time_start_not_zero = true;
+            }
             const auto typed_comparison_dt = materialize_typed_dt<ComparisonT>(comparison_info, "comparison_curve", n);
             const f64  comparison_dt       = static_cast<f64>(typed_comparison_dt);
             require_materialized_dt(comparison_dt, "comparison_curve");
+            if (comparison_dt < kRecommendedMinimumDt &&
+                !numeric::almost_equal(typed_comparison_dt, kRecommendedMinimumDt)) {
+                interval_below_recommended_minimum = true;
+            }
             if (!numeric::almost_equal(typed_reference_dt, typed_comparison_dt)) {
                 throw std::invalid_argument("Curves must have matching time intervals");
             }
         });
     });
+
+    if (reference_dtype != comparison_dtype) {
+        diagnostics.push_back({DiagnosticSeverity::Warning, engine::DiagnosticComponent::Validation,
+                               engine::DiagnosticCode::InputDtypeMismatch});
+    }
+    if (interval_below_recommended_minimum) {
+        diagnostics.push_back({DiagnosticSeverity::Warning, engine::DiagnosticComponent::Validation,
+                               engine::DiagnosticCode::InputIntervalBelowRecommendedMinimum});
+    }
+    if (time_start_not_zero) {
+        diagnostics.push_back({DiagnosticSeverity::Warning, engine::DiagnosticComponent::Validation,
+                               engine::DiagnosticCode::InputTimeStartNotZero});
+    }
 
     return reference_dt;
 }
@@ -451,7 +491,8 @@ py::buffer_info require_curve_shape (const py::array& curve, const char* curve_n
     return info;
 }
 
-CurveInputDtype require_curve_dtype (const py::array& curve, const py::buffer_info& info, const char* curve_name) {
+CurveInputDtype require_curve_dtype (const py::array& curve, const py::buffer_info& info, const char* curve_name,
+                                     std::vector<Diagnostic>& diagnostics) {
     const py::dtype   dtype     = curve.dtype();
     const std::string byteorder = py::cast<std::string>(dtype.attr("byteorder"));
     if (byteorder != "=" && byteorder != "|") {
@@ -462,10 +503,15 @@ CurveInputDtype require_curve_dtype (const py::array& curve, const py::buffer_in
     if (input_dtype == CurveInputDtype::Other) {
         throw std::invalid_argument(std::string(curve_name) + " has unsupported dtype");
     }
+    if (input_dtype != CurveInputDtype::Float64) {
+        diagnostics.push_back({DiagnosticSeverity::Warning, engine::DiagnosticComponent::Validation,
+                               engine::DiagnosticCode::InputNonFloat64Dtype});
+    }
     return input_dtype;
 }
 
-ValidatedCurves validate_curves (py::array reference_curve, py::array comparison_curve) {
+ValidatedCurves validate_curves (py::array reference_curve, py::array comparison_curve,
+                                 std::vector<Diagnostic>& diagnostics) {
     py::buffer_info reference_info  = require_curve_shape(reference_curve, "reference_curve");
     py::buffer_info comparison_info = require_curve_shape(comparison_curve, "comparison_curve");
 
@@ -477,14 +523,16 @@ ValidatedCurves validate_curves (py::array reference_curve, py::array comparison
         throw std::invalid_argument("Curves must have at least 9 samples");
     }
 
-    CurveInputDtype reference_dtype  = require_curve_dtype(reference_curve, reference_info, "reference_curve");
-    CurveInputDtype comparison_dtype = require_curve_dtype(comparison_curve, comparison_info, "comparison_curve");
+    CurveInputDtype reference_dtype =
+        require_curve_dtype(reference_curve, reference_info, "reference_curve", diagnostics);
+    CurveInputDtype comparison_dtype =
+        require_curve_dtype(comparison_curve, comparison_info, "comparison_curve", diagnostics);
 
     require_curve_input(reference_dtype, reference_info, "reference_curve", n);
     require_curve_input(comparison_dtype, comparison_info, "comparison_curve", n);
 
     const f64 reference_dt =
-        materialize_matching_dt(reference_dtype, reference_info, comparison_dtype, comparison_info, n);
+        materialize_matching_dt(reference_dtype, reference_info, comparison_dtype, comparison_info, n, diagnostics);
 
     std::vector<f64> reference_values  = materialize_curve_values(reference_dtype, reference_info, n);
     std::vector<f64> comparison_values = materialize_curve_values(comparison_dtype, comparison_info, n);
@@ -546,12 +594,14 @@ void add_timing_fields (py::dict& out, const ScoreResult& result) {
 
 py::tuple score_components (py::array reference_curve, py::array comparison_curve, py::dict params) {
     std::vector<Diagnostic> diagnostics;
+    std::vector<Diagnostic> input_diagnostics;
     ValidatedCurves         curves;
     ScoreResult             result;
     try {
-        curves                   = validate_curves(reference_curve, comparison_curve);
+        curves                   = validate_curves(reference_curve, comparison_curve, input_diagnostics);
         ScoreParams score_params = score_params_from_dict(params);
         validation::validate_score_params(score_params);
+        emit_component_warnings(input_diagnostics);
         const std::span<const f64> reference_values(curves.reference_values.data(), curves.reference_values.size());
         const std::span<const f64> comparison_values(curves.comparison_values.data(), curves.comparison_values.size());
 

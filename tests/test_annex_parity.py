@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import warnings
 from typing import Final, TypedDict
 
 import numpy as np
@@ -26,6 +27,14 @@ ANNEX_INTERMEDIATE_CURVE_TOLERANCE: Final = 1.0e-3
 # These fields are derived locally from official warped CSV curves, so keep
 # their regression tolerance separate from the documented score tolerance.
 ANNEX_DERIVED_MAGNITUDE_TOLERANCE: Final = 1.0e-3
+ANNEX_INTERVAL_WARNING: Final = (
+    "ISO18571 input time interval is below 0.01 s (10 ms); "
+    "scoring will continue with the supplied interval"
+)
+ANNEX_TIME_START_WARNING: Final = (
+    "ISO18571 input time axis does not start at 0; "
+    "scoring will continue with the supplied samples"
+)
 
 EXPECTED_ANNEX_SCORES: Final[dict[str, ExpectedScores]] = {
     "annex_c_1_1__ac1__cae1": {
@@ -432,7 +441,20 @@ def _case(case_name: str, annex_dataset: AnnexDataset) -> AnnexCase:
 
 def _scorer_for_case(case_name: str, annex_dataset: AnnexDataset) -> ISO18571:
     case = _case(case_name, annex_dataset)
-    return ISO18571(case.reference_curve(), case.comparison_curve())
+    reference = case.reference_curve()
+    comparison = case.comparison_curve()
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always", RuntimeWarning)
+        scorer = ISO18571(reference, comparison)
+    messages = []
+    for warning in caught:
+        assert issubclass(warning.category, RuntimeWarning)
+        messages.append(str(warning.message))
+    expected = [ANNEX_INTERVAL_WARNING]
+    if reference[0, 0] != 0.0 or comparison[0, 0] != 0.0:
+        expected.append(ANNEX_TIME_START_WARNING)
+    assert messages == expected
+    return scorer
 
 
 def _assert_max_error(actual: np.ndarray, expected: np.ndarray) -> None:

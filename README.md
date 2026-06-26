@@ -37,7 +37,7 @@ The package also exposes a native diagnostic helper:
 from iso18571 import backend_info
 
 print(backend_info())
-# {'name': 'iso18571', 'implementation': 'C++23', 'version': '1.0.13', 'optimization': 'x86-64-v3'}
+# {'name': 'iso18571', 'implementation': 'C++23', 'version': '1.0.15', 'optimization': 'x86-64-v3'}
 ```
 
 ## Prerequisites

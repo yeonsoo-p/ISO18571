@@ -83,6 +83,15 @@ inline void require_closed_interval (f64 value, std::string_view name, f64 minim
 
 inline const char* warning_message_for_code (engine::DiagnosticCode code) {
     switch (code) {
+    case engine::DiagnosticCode::InputNonFloat64Dtype:
+        return "ISO18571 input arrays are converted to float64 internally; non-float64 dtype detected";
+    case engine::DiagnosticCode::InputDtypeMismatch:
+        return "ISO18571 reference_curve and comparison_curve dtypes differ; scoring will continue after dtype "
+               "conversion";
+    case engine::DiagnosticCode::InputIntervalBelowRecommendedMinimum:
+        return "ISO18571 input time interval is below 0.01 s (10 ms); scoring will continue with the supplied interval";
+    case engine::DiagnosticCode::InputTimeStartNotZero:
+        return "ISO18571 input time axis does not start at 0; scoring will continue with the supplied samples";
     case engine::DiagnosticCode::PhaseUndefinedCorrelation:
         return "ISO18571 phase correlation is undefined; using finite fallback rho_e";
     case engine::DiagnosticCode::PhaseShiftClampedToUnshifted:
@@ -147,6 +156,10 @@ inline void validate_score_params (engine::ScoreParams& params) {
     if (!numeric::almost_equal(weight_sum, 1.0)) {
         throw_weight_sum_error();
     }
+    params.w_z /= weight_sum;
+    params.w_p /= weight_sum;
+    params.w_m /= weight_sum;
+    params.w_s /= weight_sum;
 }
 
 } // namespace validation

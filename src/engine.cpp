@@ -1090,10 +1090,11 @@ ScoreResult score_components_impl (std::span<const f64> reference, std::span<con
     const auto slope_end    = std::chrono::steady_clock::now();
     result.timings.slope_ms = elapsed_milliseconds(slope_start, slope_end);
 
-    result.overall          = params.w_z * result.corridor.score + params.w_p * result.phase.score +
-                              params.w_m * result.magnitude.score + params.w_s * result.slope.score;
-    const auto total_end    = std::chrono::steady_clock::now();
-    result.timings.total_ms = elapsed_milliseconds(total_start, total_end);
+    const f64 weighted_overall = params.w_z * result.corridor.score + params.w_p * result.phase.score +
+                                 params.w_m * result.magnitude.score + params.w_s * result.slope.score;
+    result.overall             = std::clamp(weighted_overall, 0.0, 1.0);
+    const auto total_end       = std::chrono::steady_clock::now();
+    result.timings.total_ms    = elapsed_milliseconds(total_start, total_end);
 
     return result;
 }
