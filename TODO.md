@@ -104,6 +104,4 @@
 
 - Need to check if the test implementations are faithful implementations of the descriptions here
 
-- Default values source?
-
 - Need to find magic numbers

@@ -341,7 +341,7 @@ CurveInputDtype curve_input_dtype (const py::dtype& dtype, const py::buffer_info
         }
         return CurveInputDtype::Other;
     case 'f':
-        if (info.itemsize == static_cast<py::ssize_t>(sizeof(u16))) {
+        if (info.itemsize == static_cast<py::ssize_t>(sizeof(f16))) {
             return CurveInputDtype::Float16;
         }
         if (dtype.equal(py::dtype::of<f32>())) {

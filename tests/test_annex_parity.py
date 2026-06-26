@@ -17,7 +17,15 @@ class ExpectedScores(TypedDict):
     ES: float
 
 
-ANNEX_TOLERANCE: Final = 1.0e-3
+# ISO/TS 18571:2024 Annex A recommends +/-0.001 for comparing Annex
+# rating-table scores.
+ANNEX_SCORE_TOLERANCE: Final = 1.0e-3
+# The official CSV archive provides intermediate curves, but the PDF does not
+# document this tolerance for ordinate-by-ordinate curve comparisons.
+ANNEX_INTERMEDIATE_CURVE_TOLERANCE: Final = 1.0e-3
+# These fields are derived locally from official warped CSV curves, so keep
+# their regression tolerance separate from the documented score tolerance.
+ANNEX_DERIVED_MAGNITUDE_TOLERANCE: Final = 1.0e-3
 
 EXPECTED_ANNEX_SCORES: Final[dict[str, ExpectedScores]] = {
     "annex_c_1_1__ac1__cae1": {
@@ -331,11 +339,11 @@ def test_annex_scores_match_expected(
 ) -> None:
     scorer = _scorer_for_case(case_name, annex_dataset)
     expected = EXPECTED_ANNEX_SCORES[case_name]
-    assert abs(scorer.scores["R"] - expected["R"]) < ANNEX_TOLERANCE
-    assert abs(scorer.scores["Z"] - expected["Z"]) < ANNEX_TOLERANCE
-    assert abs(scorer.scores["EP"] - expected["EP"]) < ANNEX_TOLERANCE
-    assert abs(scorer.scores["EM"] - expected["EM"]) < ANNEX_TOLERANCE
-    assert abs(scorer.scores["ES"] - expected["ES"]) < ANNEX_TOLERANCE
+    assert abs(scorer.scores["R"] - expected["R"]) < ANNEX_SCORE_TOLERANCE
+    assert abs(scorer.scores["Z"] - expected["Z"]) < ANNEX_SCORE_TOLERANCE
+    assert abs(scorer.scores["EP"] - expected["EP"]) < ANNEX_SCORE_TOLERANCE
+    assert abs(scorer.scores["EM"] - expected["EM"]) < ANNEX_SCORE_TOLERANCE
+    assert abs(scorer.scores["ES"] - expected["ES"]) < ANNEX_SCORE_TOLERANCE
 
 
 @pytest.mark.annex
@@ -406,15 +414,15 @@ def test_annex_warped_curves_drive_magnitude_fields(
     magnitude_fields = case.magnitude_fields_from_warped()
     assert (
         abs(scores["magnitude_numerator"] - magnitude_fields["magnitude_numerator"])
-        < ANNEX_TOLERANCE
+        < ANNEX_DERIVED_MAGNITUDE_TOLERANCE
     )
     assert (
         abs(scores["magnitude_denominator"] - magnitude_fields["magnitude_denominator"])
-        < ANNEX_TOLERANCE
+        < ANNEX_DERIVED_MAGNITUDE_TOLERANCE
     )
     assert (
         abs(scores["magnitude_error"] - magnitude_fields["magnitude_error"])
-        < ANNEX_TOLERANCE
+        < ANNEX_DERIVED_MAGNITUDE_TOLERANCE
     )
 
 
@@ -430,4 +438,4 @@ def _scorer_for_case(case_name: str, annex_dataset: AnnexDataset) -> ISO18571:
 def _assert_max_error(actual: np.ndarray, expected: np.ndarray) -> None:
     assert actual.shape == expected.shape
     max_error = float(np.max(np.abs(np.asarray(actual, dtype=np.float64) - expected)))
-    assert max_error < ANNEX_TOLERANCE
+    assert max_error < ANNEX_INTERMEDIATE_CURVE_TOLERANCE

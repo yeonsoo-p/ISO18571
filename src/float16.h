@@ -143,11 +143,19 @@ class numeric_limits<Float16> {
 };
 
 constexpr Float16 abs (Float16 value) noexcept;
+constexpr Float16 fabs (Float16 value) noexcept;
 constexpr bool    isfinite (Float16 value) noexcept;
 constexpr bool    isnan (Float16 value) noexcept;
 constexpr bool    isinf (Float16 value) noexcept;
+constexpr bool    isnormal (Float16 value) noexcept;
 constexpr bool    signbit (Float16 value) noexcept;
 constexpr int     fpclassify (Float16 value) noexcept;
+constexpr bool    isgreater (Float16 left, Float16 right) noexcept;
+constexpr bool    isgreaterequal (Float16 left, Float16 right) noexcept;
+constexpr bool    isless (Float16 left, Float16 right) noexcept;
+constexpr bool    islessequal (Float16 left, Float16 right) noexcept;
+constexpr bool    islessgreater (Float16 left, Float16 right) noexcept;
+constexpr bool    isunordered (Float16 left, Float16 right) noexcept;
 
 } // namespace std
 
@@ -424,6 +432,7 @@ constexpr inline Components decode_finite (Float16 value) noexcept {
     };
 }
 
+// Float16 arithmetic uses one deterministic quiet NaN for NaN propagation and invalid operations.
 constexpr inline Float16 quiet_nan () noexcept { return from_bits(kQuietNaN); }
 
 constexpr inline Float16 infinity (bool negative) noexcept {
@@ -435,6 +444,9 @@ constexpr inline Float16 zero (bool negative) noexcept { return from_bits(negati
 constexpr inline Float16 add_finite (Float16 left, Float16 right) noexcept {
     Components left_components  = decode_finite(left);
     Components right_components = decode_finite(right);
+    if (left_components.significand == 0ULL && right_components.significand == 0ULL) {
+        return zero(left_components.negative && right_components.negative);
+    }
     if (left_components.significand == 0ULL) {
         return right;
     }
@@ -452,7 +464,10 @@ constexpr inline Float16 add_finite (Float16 left, Float16 right) noexcept {
         return pack_components(left_components.negative, left_magnitude + right_magnitude, common_exponent);
     }
 
-    if (left_magnitude >= right_magnitude) {
+    if (left_magnitude == right_magnitude) {
+        return zero(false);
+    }
+    if (left_magnitude > right_magnitude) {
         return pack_components(left_components.negative, left_magnitude - right_magnitude, common_exponent);
     }
     return pack_components(right_components.negative, right_magnitude - left_magnitude, common_exponent);
@@ -546,7 +561,7 @@ constexpr inline u32 float_bits (Float16 value) noexcept {
         const int shift =
             std::countl_zero(static_cast<unsigned int>(fraction)) - (std::numeric_limits<unsigned int>::digits - 10);
         const auto normalized_fraction = static_cast<u32>(fraction << (shift + 1));
-        const auto encoded_exponent    = static_cast<u32>(127 - 14 - shift);
+        const auto encoded_exponent    = static_cast<u32>(127 - 15 - shift);
         return sign | (encoded_exponent << 23U) | ((normalized_fraction & kFractionMask) << 13U);
     }
     const auto encoded_exponent = static_cast<u32>(static_cast<int>(exponent) - kExponentBias + 127);
@@ -567,7 +582,7 @@ constexpr inline u64 double_bits (Float16 value) noexcept {
         const int shift =
             std::countl_zero(static_cast<unsigned int>(fraction)) - (std::numeric_limits<unsigned int>::digits - 10);
         const auto normalized_fraction = static_cast<u64>(fraction << (shift + 1));
-        const auto encoded_exponent    = static_cast<u64>(1023 - 14 - shift);
+        const auto encoded_exponent    = static_cast<u64>(1023 - 15 - shift);
         return sign | (encoded_exponent << 52U) | ((normalized_fraction & kFractionMask) << 42U);
     }
     const auto encoded_exponent = static_cast<u64>(static_cast<int>(exponent) - kExponentBias + 1023);
@@ -1001,6 +1016,8 @@ constexpr inline Float16 abs (Float16 value) noexcept {
     return float16_detail::from_bits(static_cast<u16>(value.bits() & static_cast<u16>(~float16_detail::kSignMask)));
 }
 
+constexpr inline Float16 fabs (Float16 value) noexcept { return abs(value); }
+
 constexpr inline bool isfinite (Float16 value) noexcept {
     return float16_detail::exponent_bits(value) != float16_detail::kExponentMask;
 }
@@ -1008,6 +1025,11 @@ constexpr inline bool isfinite (Float16 value) noexcept {
 constexpr inline bool isnan (Float16 value) noexcept { return float16_detail::is_nan_bits(value); }
 
 constexpr inline bool isinf (Float16 value) noexcept { return float16_detail::is_inf_bits(value); }
+
+constexpr inline bool isnormal (Float16 value) noexcept {
+    const u16 exponent = float16_detail::exponent_bits(value);
+    return exponent != 0U && exponent != float16_detail::kExponentMask;
+}
 
 constexpr inline bool signbit (Float16 value) noexcept { return float16_detail::sign_bit(value); }
 
@@ -1024,6 +1046,28 @@ constexpr inline int fpclassify (Float16 value) noexcept {
     return FP_NORMAL;
 }
 
+constexpr inline bool isgreater (Float16 left, Float16 right) noexcept {
+    return !isunordered(left, right) && left > right;
+}
+
+constexpr inline bool isgreaterequal (Float16 left, Float16 right) noexcept {
+    return !isunordered(left, right) && left >= right;
+}
+
+constexpr inline bool isless (Float16 left, Float16 right) noexcept {
+    return !isunordered(left, right) && left < right;
+}
+
+constexpr inline bool islessequal (Float16 left, Float16 right) noexcept {
+    return !isunordered(left, right) && left <= right;
+}
+
+constexpr inline bool islessgreater (Float16 left, Float16 right) noexcept {
+    return !isunordered(left, right) && left != right;
+}
+
+constexpr inline bool isunordered (Float16 left, Float16 right) noexcept { return isnan(left) || isnan(right); }
+
 } // namespace std
 
 static_assert(sizeof(Float16) == sizeof(u16));
@@ -1032,6 +1076,18 @@ static_assert(std::is_trivially_copyable_v<Float16>);
 static_assert(std::is_standard_layout_v<Float16>);
 static_assert(std::has_unique_object_representations_v<Float16>);
 static_assert(Float16Bits {0x3C00U}.value == 0x3C00U);
+static_assert(std::bit_cast<u16>(Float16(Float16Bits {0x0000U})) == 0x0000U);
+static_assert(std::bit_cast<u16>(Float16(Float16Bits {0x3C00U})) == 0x3C00U);
+static_assert(std::bit_cast<u16>(Float16(Float16Bits {0x8000U})) == 0x8000U);
+static_assert(std::bit_cast<u16>(Float16(Float16Bits {0x0001U})) == 0x0001U);
+static_assert(std::bit_cast<u16>(Float16(Float16Bits {0x7C00U})) == 0x7C00U);
+static_assert(std::bit_cast<u16>(Float16(Float16Bits {0x7E00U})) == 0x7E00U);
+static_assert(std::bit_cast<Float16>(u16 {0x0000U}).bits() == 0x0000U);
+static_assert(std::bit_cast<Float16>(u16 {0x3C00U}).bits() == 0x3C00U);
+static_assert(std::bit_cast<Float16>(u16 {0x8000U}).bits() == 0x8000U);
+static_assert(std::bit_cast<Float16>(u16 {0x0001U}).bits() == 0x0001U);
+static_assert(std::bit_cast<Float16>(u16 {0x7C00U}).bits() == 0x7C00U);
+static_assert(std::bit_cast<Float16>(u16 {0x7E00U}).bits() == 0x7E00U);
 static_assert(std::is_floating_point_v<Float16>);
 static_assert(std::is_floating_point_v<f16>);
 static_assert(std::is_floating_point_v<f32>);
@@ -1163,11 +1219,19 @@ static_assert(std::is_same_v<decltype(std::declval<Float16>() < 1.0), bool>);
 static_assert(std::is_same_v<decltype(1.0 < std::declval<Float16>()), bool>);
 
 static_assert(std::is_same_v<decltype(std::abs(std::declval<Float16>())), Float16>);
+static_assert(std::is_same_v<decltype(std::fabs(std::declval<Float16>())), Float16>);
 static_assert(std::is_same_v<decltype(std::isfinite(std::declval<Float16>())), bool>);
 static_assert(std::is_same_v<decltype(std::isnan(std::declval<Float16>())), bool>);
 static_assert(std::is_same_v<decltype(std::isinf(std::declval<Float16>())), bool>);
+static_assert(std::is_same_v<decltype(std::isnormal(std::declval<Float16>())), bool>);
 static_assert(std::is_same_v<decltype(std::signbit(std::declval<Float16>())), bool>);
 static_assert(std::is_same_v<decltype(std::fpclassify(std::declval<Float16>())), int>);
+static_assert(std::is_same_v<decltype(std::isgreater(std::declval<Float16>(), std::declval<Float16>())), bool>);
+static_assert(std::is_same_v<decltype(std::isgreaterequal(std::declval<Float16>(), std::declval<Float16>())), bool>);
+static_assert(std::is_same_v<decltype(std::isless(std::declval<Float16>(), std::declval<Float16>())), bool>);
+static_assert(std::is_same_v<decltype(std::islessequal(std::declval<Float16>(), std::declval<Float16>())), bool>);
+static_assert(std::is_same_v<decltype(std::islessgreater(std::declval<Float16>(), std::declval<Float16>())), bool>);
+static_assert(std::is_same_v<decltype(std::isunordered(std::declval<Float16>(), std::declval<Float16>())), bool>);
 
 static_assert(Float16().bits() == 0x0000U);
 static_assert(static_cast<Float16>(1).bits() == 0x3C00U);
@@ -1188,13 +1252,27 @@ static_assert(static_cast<Float16>(-0.0L).bits() == 0x8000U);
 static_assert(static_cast<Float16>(std::numeric_limits<f128>::infinity()).bits() == 0x7C00U);
 static_assert(static_cast<Float16>(-std::numeric_limits<f128>::infinity()).bits() == 0xFC00U);
 static_assert(std::isnan(static_cast<Float16>(std::numeric_limits<f128>::quiet_NaN())));
+static_assert(static_cast<f32>(Float16(Float16Bits {0x0001U})) == 0x1.0p-24F);
+static_assert(static_cast<f32>(Float16(Float16Bits {0x8001U})) == -0x1.0p-24F);
+static_assert(static_cast<f32>(Float16(Float16Bits {0x03FFU})) == 0x1.ff8p-15F);
+static_assert(static_cast<f64>(Float16(Float16Bits {0x0001U})) == 0x1.0p-24);
+static_assert(static_cast<f64>(Float16(Float16Bits {0x8001U})) == -0x1.0p-24);
+static_assert(static_cast<f64>(Float16(Float16Bits {0x03FFU})) == 0x1.ff8p-15);
+static_assert(static_cast<f128>(Float16(Float16Bits {0x0001U})) == 0x1.0p-24L);
+static_assert(static_cast<f128>(Float16(Float16Bits {0x8001U})) == -0x1.0p-24L);
+static_assert(static_cast<f128>(Float16(Float16Bits {0x03FFU})) == 0x1.ff8p-15L);
 static_assert(static_cast<f64>(Float16(Float16Bits {0x3C00U})) == 1.0);
 static_assert(static_cast<f32>(Float16(Float16Bits {0x4000U})) == 2.0F);
 static_assert(static_cast<f128>(Float16(Float16Bits {0x4200U})) == 3.0L);
 static_assert(std::abs(Float16(Float16Bits {0xBC00U})).bits() == 0x3C00U);
+static_assert(std::fabs(Float16(Float16Bits {0xBC00U})).bits() == 0x3C00U);
 static_assert(std::isfinite(Float16(Float16Bits {0x3C00U})));
 static_assert(std::isinf(Float16(Float16Bits {0x7C00U})));
 static_assert(std::isnan(Float16(Float16Bits {0x7E00U})));
+static_assert(std::isnormal(Float16(Float16Bits {0x3C00U})));
+static_assert(!std::isnormal(Float16(Float16Bits {0x0001U})));
+static_assert(!std::isnormal(Float16(Float16Bits {0x0000U})));
+static_assert(!std::isnormal(Float16(Float16Bits {0x7C00U})));
 static_assert(std::signbit(Float16(Float16Bits {0x8000U})));
 static_assert(std::fpclassify(Float16(Float16Bits {0x0000U})) == FP_ZERO);
 static_assert(std::fpclassify(Float16(Float16Bits {0x0001U})) == FP_SUBNORMAL);
@@ -1205,6 +1283,14 @@ static_assert((Float16(Float16Bits {0x3C00U}) + Float16(Float16Bits {0x3C00U})).
 static_assert((Float16(Float16Bits {0x4000U}) - Float16(Float16Bits {0x3C00U})).bits() == 0x3C00U);
 static_assert((Float16(Float16Bits {0x4000U}) * Float16(Float16Bits {0x4000U})).bits() == 0x4400U);
 static_assert((Float16(Float16Bits {0x4400U}) / Float16(Float16Bits {0x4000U})).bits() == 0x4000U);
+static_assert((Float16(Float16Bits {0x0000U}) + Float16(Float16Bits {0x8000U})).bits() == 0x0000U);
+static_assert((Float16(Float16Bits {0x8000U}) + Float16(Float16Bits {0x8000U})).bits() == 0x8000U);
+static_assert((Float16(Float16Bits {0x8000U}) - Float16(Float16Bits {0x8000U})).bits() == 0x0000U);
+static_assert((Float16(Float16Bits {0xBC00U}) + Float16(Float16Bits {0x3C00U})).bits() == 0x0000U);
+static_assert((Float16(Float16Bits {0x8000U}) * Float16(Float16Bits {0x3C00U})).bits() == 0x8000U);
+static_assert((Float16(Float16Bits {0x0000U}) / Float16(Float16Bits {0xBC00U})).bits() == 0x8000U);
+static_assert((Float16(Float16Bits {0x0000U}) / Float16(Float16Bits {0x0000U})).bits() == 0x7E00U);
+static_assert((Float16(Float16Bits {0x7C00U}) * Float16(Float16Bits {0x0000U})).bits() == 0x7E00U);
 static_assert((Float16(Float16Bits {0x3C00U}) + 1).bits() == 0x4000U);
 static_assert((1 + Float16(Float16Bits {0x3C00U})).bits() == 0x4000U);
 static_assert((Float16(Float16Bits {0x4000U}) - 1).bits() == 0x3C00U);
@@ -1218,3 +1304,10 @@ static_assert(2 == Float16(Float16Bits {0x4000U}));
 static_assert(Float16(Float16Bits {0x4000U}) > 1);
 static_assert(1 < Float16(Float16Bits {0x4000U}));
 static_assert(Float16(Float16Bits {0x7C00U}) != 100000);
+static_assert(std::isgreater(Float16(Float16Bits {0x4000U}), Float16(Float16Bits {0x3C00U})));
+static_assert(std::isgreaterequal(Float16(Float16Bits {0x3C00U}), Float16(Float16Bits {0x3C00U})));
+static_assert(std::isless(Float16(Float16Bits {0x3C00U}), Float16(Float16Bits {0x4000U})));
+static_assert(std::islessequal(Float16(Float16Bits {0x3C00U}), Float16(Float16Bits {0x3C00U})));
+static_assert(std::islessgreater(Float16(Float16Bits {0x3C00U}), Float16(Float16Bits {0x4000U})));
+static_assert(std::isunordered(Float16(Float16Bits {0x7E00U}), Float16(Float16Bits {0x3C00U})));
+static_assert(!std::isgreater(Float16(Float16Bits {0x7E00U}), Float16(Float16Bits {0x3C00U})));

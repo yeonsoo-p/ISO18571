@@ -149,6 +149,16 @@ def test_tiny_float_time_alternating_intervals_are_rejected(dtype: Any) -> None:
         ISO18571(curve, curve)
 
 
+def test_float16_subnormal_time_interval_is_materialized_exactly() -> None:
+    step = _tiny_step(np.float16)
+    time = _tiny_uniform_time(np.float16, step_multiplier=1.0)
+    curve = _curve_from_time(time, dtype=np.float16)
+
+    scorer = ISO18571(curve, curve)
+
+    assert scorer.dt == float(step)
+
+
 @pytest.mark.parametrize(
     ("dtype", "inside_delta", "outside_delta"),
     [
@@ -382,6 +392,24 @@ def test_accepted_integer_and_float_dtypes_match_float64_materialization(
     dtype: Any,
 ) -> None:
     reference, comparison = _parity_curves(dtype)
+
+    actual = ISO18571(reference, comparison).scores
+    expected = ISO18571(
+        reference.astype(np.float64), comparison.astype(np.float64)
+    ).scores
+
+    _assert_scores_match(actual, expected)
+
+
+def test_float16_subnormal_values_match_float64_materialization() -> None:
+    step = _tiny_step(np.float16)
+    time = np.arange(12, dtype=np.float16)
+    reference_values = step * np.arange(1, 13, dtype=np.float16)
+    comparison_values = step * np.array(
+        [2, 2, 4, 4, 6, 6, 8, 8, 10, 10, 12, 12], dtype=np.float16
+    )
+    reference = _curve_from_time(time, reference_values, dtype=np.float16)
+    comparison = _curve_from_time(time, comparison_values, dtype=np.float16)
 
     actual = ISO18571(reference, comparison).scores
     expected = ISO18571(
